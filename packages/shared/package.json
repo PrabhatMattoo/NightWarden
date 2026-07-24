@@ -1,5 +1,5 @@
 {
-  "name": "@nightwatch/shared",
+  "name": "@nightwarden/shared",
   "version": "2.0.0",
   "private": false,
   "type": "module",
