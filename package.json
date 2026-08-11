@@ -1,6 +1,6 @@
 {
   "name": "nightwarden",
-  "version": "3.3.26",
+  "version": "3.3.27",
   "private": true,
   "engines": {
     "node": ">=24",
