@@ -1,6 +1,5 @@
 {
   "name": "@nightwarden/docker-runner",
-  "version": "2.0.0",
   "private": true,
   "type": "module",
   "scripts": {
