@@ -27,10 +27,10 @@ FROM toolchain AS manifests
 COPY pnpm-workspace.yaml pnpm-lock.yaml package.json ./
 COPY apps/api/package.json apps/api/
 COPY apps/console/package.json apps/console/
-COPY apps/docker-runner/package.json apps/docker-runner/
-COPY apps/kubernetes-runner/package.json apps/kubernetes-runner/
+COPY apps/runners/docker/package.json apps/runners/docker/
+COPY apps/runners/kubernetes/package.json apps/runners/kubernetes/
 COPY packages/shared/package.json packages/shared/
-COPY packages/runner-transport/package.json packages/runner-transport/
+COPY packages/runner-core/package.json packages/runner-core/
 
 
 # The tree the image ships: it never sees a devDependency, so nothing needs
