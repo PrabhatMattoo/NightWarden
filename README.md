@@ -75,7 +75,7 @@ docker compose up -d
 
 `NIGHTWARDEN_PUBLIC_URL` is the only variable you must set - the address runners dial back to and Alertmanager posts to, so a browser's `localhost` is not it. Open it, create your account, and under **Settings → Provider** pick a provider, paste a key, and choose a model. Then connect your monitoring - and optionally a runner and a GitHub repository - from **Integrations**, where every connection is probed before it saves, so a green card means it is reachable.
 
-Everything else has a default. See [Configuration](ARCHITECTURE.md#configuration) for every variable and [Connecting integrations](ARCHITECTURE.md#connecting-integrations) for what each card needs.
+Everything else has a default. See [Deployment](ARCHITECTURE.md#deployment) for putting a domain and a reverse proxy in front, [Configuration](ARCHITECTURE.md#configuration) for every variable, and [Connecting integrations](ARCHITECTURE.md#connecting-integrations) for what each card needs.
 
 ## Documentation
 

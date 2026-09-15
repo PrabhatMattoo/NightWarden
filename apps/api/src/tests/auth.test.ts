@@ -1,8 +1,9 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import Fastify from "fastify";
 import type { FastifyInstance } from "fastify";
 import type { AuthStatusResponse } from "@nightwarden/shared";
 import { useTempDb } from "./temp-db.js";
+import { resetAuth } from "../auth/instance.js";
 import { registerAuthRoutes } from "../auth/routes.js";
 import { requireSession } from "../auth/session.js";
 import { mountApi } from "./api-server.js";
@@ -12,6 +13,10 @@ const OWNER = {
   password: "correcthorsebattery",
   name: "Admin",
 };
+
+/* What a browser puts on a POST, and what the origin check compares against.
+   With no public URL configured the address inject dials is the trusted one. */
+const BROWSER_ORIGIN = "http://localhost";
 
 async function buildServer(): Promise<FastifyInstance> {
   const server = Fastify({ logger: false, trustProxy: true });
@@ -106,7 +111,7 @@ describe("the first account", () => {
     const res = await server.inject({
       method: "POST",
       url: "/api/auth/admin/create-user",
-      headers: { cookie },
+      headers: { cookie, origin: BROWSER_ORIGIN },
       payload: {
         email: "colleague@example.com",
         password: "another-long-password",
@@ -189,7 +194,7 @@ describe("GET /auth-status", () => {
     const revoked = await server.inject({
       method: "POST",
       url: "/api/auth/revoke-sessions",
-      headers: { cookie },
+      headers: { cookie, origin: BROWSER_ORIGIN },
     });
     expect(revoked.statusCode).toBe(200);
 
@@ -220,6 +225,54 @@ describe("signing in", () => {
     const res = await signIn(server, OWNER);
     expect(res.statusCode).toBe(200);
     expect(cookieFrom(res)).not.toBe("");
+  });
+});
+
+/* Better Auth validates the Origin header on a request carrying cookies, so the
+   trusted list decides which addresses a person can sign in from. */
+describe("trusted origins", () => {
+  const PUBLIC_URL = "http://nightwarden.example.com";
+  const NAMED = "http://ops.example.com";
+  let server: FastifyInstance;
+  let cleanupDb: () => void;
+
+  function signInFrom(origin: string) {
+    return signIn(server, OWNER, { origin, cookie: "seen=1" });
+  }
+
+  beforeAll(async () => {
+    cleanupDb = await useTempDb();
+    vi.stubEnv("NIGHTWARDEN_PUBLIC_URL", PUBLIC_URL);
+    vi.stubEnv(
+      "NIGHTWARDEN_TRUSTED_ORIGINS",
+      ` ${NAMED}/ , http://localhost:5173 `,
+    );
+    resetAuth();
+    server = await buildServer();
+    await signUp(server, OWNER);
+  });
+
+  afterAll(async () => {
+    await server.close();
+    cleanupDb();
+    vi.unstubAllEnvs();
+  });
+
+  it("signs in from the public URL", async () => {
+    expect((await signInFrom(PUBLIC_URL)).statusCode).toBe(200);
+  });
+
+  // The whole point of the variable: a second address for the people, where the
+  // servers keep the one they dial back on.
+  it("signs in from an address the variable names", async () => {
+    expect((await signInFrom(NAMED)).statusCode).toBe(200);
+    expect((await signInFrom("http://localhost:5173")).statusCode).toBe(200);
+  });
+
+  it("refuses an address nothing named", async () => {
+    expect((await signInFrom("http://elsewhere.example.com")).statusCode).toBe(
+      403,
+    );
   });
 });
 

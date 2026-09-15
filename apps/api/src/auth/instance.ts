@@ -2,7 +2,7 @@ import { hash, verify } from "argon2";
 import { betterAuth } from "better-auth";
 import { admin } from "better-auth/plugins";
 import { getDb } from "../db.js";
-import { configuredPublicUrl } from "../public-url.js";
+import { configuredPublicUrl, extraTrustedOrigins } from "../public-url.js";
 import { authSecret } from "../secrets.js";
 
 /* Snake_case throughout, because Postgres folds an unquoted identifier to
@@ -26,14 +26,19 @@ const SIGN_IN_LIMIT = { window: 60, max: 5 };
 // Built through a function so the return type keeps the options Better Auth
 // infers from this config; naming it erases them and the plugin routes with it.
 function buildAuth() {
+  const publicUrl = configuredPublicUrl();
+  // The public URL is a trusted origin as well as the address NightWarden
+  // answers on; an install reached at a second address names that one too.
+  const trusted = [...(publicUrl ? [publicUrl] : []), ...extraTrustedOrigins()];
   return betterAuth({
     // The one handle Kysely already holds, so both write through one connection.
     database: { db: getDb(), type: "sqlite" },
     secret: authSecret(),
-    ...(configuredPublicUrl() !== undefined && {
-      baseURL: configuredPublicUrl(),
-      trustedOrigins: [configuredPublicUrl() as string],
-    }),
+    ...(publicUrl !== undefined && { baseURL: publicUrl }),
+    ...(trusted.length > 0 && { trustedOrigins: trusted }),
+    // Stated rather than inferred: the default turns this check off under a
+    // test runner, so the suite would never exercise it.
+    advanced: { disableOriginCheck: false },
     emailAndPassword: {
       enabled: true,
       minPasswordLength: 12,
