@@ -18,7 +18,6 @@ import {
   sessionExists,
 } from "./store.js";
 import { buildSessionMeta } from "../agent/loop/run-session.js";
-import { REPORT_RETRY_REQUEST } from "../agent/prompts/report.js";
 import { listSessionPage } from "./list.js";
 import { buildTranscript } from "./transcript.js";
 import { requireSession } from "../auth/session.js";
@@ -129,42 +128,6 @@ export async function registerSessionRoutes(
       await publishQueueChanged();
       await dispatcher.promoteQueued();
       return reply.code(204).send();
-    },
-  );
-
-  // No body: the sentence is the server's, kept beside the other prompts
-  // rather than composed by whoever pressed the button.
-  fastify.post<{ Params: { id: string } }>(
-    "/sessions/:id/report/retry",
-    { preHandler: requireSession },
-    async (request, reply) => {
-      const sessionId = request.params.id;
-      const session = await getSession(sessionId);
-      if (session === undefined) {
-        return reply.code(404).send({ error: "unknown session" });
-      }
-      if (!session.investigation) {
-        return reply
-          .code(409)
-          .send({ error: "a chat keeps no record to write up" });
-      }
-      if (await hasPendingHumanInput(sessionId)) {
-        return reply
-          .code(409)
-          .send({ error: "session is busy: awaiting approval" });
-      }
-      const started = await dispatcher.dispatch({
-        sessionId,
-        seed: await buildSeed(sessionId),
-        systemReminder: REPORT_RETRY_REQUEST,
-      });
-      if (!started) {
-        return reply
-          .code(409)
-          .send({ error: "session is busy: a run is already in flight" });
-      }
-      logger.info({ sessionId }, "writing the report again");
-      return reply.code(202).send({ sessionId });
     },
   );
 

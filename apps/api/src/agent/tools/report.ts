@@ -37,10 +37,13 @@ const OPEN_CANDIDATES_INPUT = z.object({
         }),
       }),
     )
-    .default([])
+    .min(
+      2,
+      "open at least two candidates: one round of reads has answered, which is too early to be certain of a single explanation",
+    )
     .meta({
       description:
-        "The candidate explanations worth testing, opened together so you weigh them side by side rather than settling on the first. An empty list is allowed when the evidence points at a single explanation with no alternative worth testing.",
+        "The candidate explanations worth testing, opened together so you weigh them side by side rather than settling on the first. Open at least two: one round of reads has answered at this point, which is too early to be certain a single explanation is the only one worth testing. A candidate you open and then disprove is worth recording, because it stops the reader retracing it.",
     }),
 });
 
@@ -80,13 +83,9 @@ const RECORD_FINDING_INPUT = z.object({
       description:
         "'root_cause' is the underlying condition that made the failure possible. 'trigger' is the event that set it off. 'symptom' is something the real cause produced downstream. 'contributing_factor' made the failure worse or more likely without causing it. 'disproven' means you tested it and it is not so. 'untestable' means you had no way to check it, which is different from disproving it. Most published analyses identify a trigger rather than a root cause, so do not reach for 'root_cause' when 'trigger' or 'symptom' is what the evidence shows.",
     }),
-  settles: optionalText.meta({
+  candidate: z.string().meta({
     description:
-      "The id of the candidate this finding settles, written c1, c2, as it was given back to you when you opened it. Omit it for a finding that settles no candidate you opened.",
-  }),
-  supersedes: optionalText.meta({
-    description:
-      "The id of an earlier finding on this record that this one replaces, written f1, f2, as it was given back to you when you recorded it. Use it only when you now believe that finding was wrong or incomplete, not merely to add to it. The finding you name is not deleted: it stays on the record beside this one, so the reader can see where you changed your mind. Omit it when this replaces nothing, which is the ordinary case.",
+      "The id of the candidate this finding settles, written c1, c2, as it was given back to you when you opened it. Every finding settles exactly one candidate. To state a new view of a candidate you have already settled, record another finding naming that same candidate: the newest finding about a candidate carries the verdict that stands, and the earlier finding stays on the record beneath it as superseded. To record something you learned about an explanation you have yet to open, open it with OpenCandidates first and settle it here.",
   }),
 });
 
@@ -160,7 +159,7 @@ export const REPORT_TOOLS: Tool[] = [
   apiTool({
     name: "RecordFinding",
     description:
-      "Record a candidate explanation you have tested, and what testing it showed. Call this each time you settle one, including the ones that turned out to be wrong: what you ruled out is what stops the user repeating your work at three in the morning. Name the candidate it settles in 'settles'. The record is append-only, so if your understanding changes later, record the new finding and name the one it replaces in 'supersedes', rather than trying to correct that one. RecordFinding records a claim by citing the tool calls whose results show that claim. RecordFinding reads nothing about your system, so a call to RecordFinding carries no evidence id, and no claim can cite a call to RecordFinding.",
+      "Record a candidate explanation you have tested, and what testing it showed. Call this each time you settle one, including the ones that turned out to be wrong: what you ruled out is what stops the user repeating your work at three in the morning. Name the candidate it settles in 'candidate'. The record is append-only, so a later finding about a candidate carries the verdict that stands and the earlier finding stays on the record beneath it as superseded. RecordFinding records a claim by citing the tool calls whose results show that claim. RecordFinding reads nothing about your system, so a call to RecordFinding carries no evidence id, and no claim can cite a call to RecordFinding.",
     input: RECORD_FINDING_INPUT,
     effect: "read",
     policy: "auto",

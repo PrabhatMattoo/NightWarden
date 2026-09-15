@@ -177,7 +177,13 @@ export type {
   ResolvedEvidence,
   SessionReportResponse,
 } from "./reports.js";
-export { rankFindings, principalFindings, supersededIds } from "./reports.js";
+export {
+  rankFindings,
+  principalFindings,
+  openCandidateIds,
+  standingFindings,
+  supersededIds,
+} from "./reports.js";
 export type {
   CatalogError,
   LLMProviderName,

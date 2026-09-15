@@ -27,7 +27,6 @@ import {
   toolCallsIn,
 } from "../agent/report.js";
 import { REPORT_TOOLS, COMPOSE_REPORT_TOOL } from "../agent/tools/report.js";
-import { REPORT_RETRY_REQUEST } from "../agent/prompts/report.js";
 import { buildSeed } from "../session/seed.js";
 import { executeTool } from "../agent/tools/toolset.js";
 import { getRecord } from "../session/record-store.js";
@@ -40,6 +39,7 @@ import {
 import { highestEvidenceNumber, resultParts } from "../agent/evidence-id.js";
 import { buildSessionMeta } from "../agent/loop/run-session.js";
 import { seedAlertSession, seedChatSession } from "./session-helper.js";
+import { seedCandidates } from "./report-helper.js";
 import {
   registerRunner,
   setRunnerManifest,
@@ -255,6 +255,8 @@ describe("the investigation record", () => {
       CHANGES,
       "2026-07-03T02:01:00.000Z",
     );
+    // Findings settle candidates, so the record every case records into has two.
+    await seedCandidates(sessionId, 2);
   }
 
   // Written down before it runs, as the loop writes it, so a refusal here reads
@@ -292,14 +294,14 @@ describe("the investigation record", () => {
     verdict: string,
     evidenceIds: string[],
     explanation = "",
-    supersedes = "",
+    candidate = "c1",
   ): Promise<string> {
     await call("RecordFinding", sessionId, {
       statement,
       verdict,
       explanation,
       evidenceIds,
-      supersedes,
+      candidate,
     });
     const findings = (await getRecord(sessionId))!.findings;
     return findings[findings.length - 1]!.id;
@@ -343,6 +345,7 @@ describe("the investigation record", () => {
         statement: "the cache bump leaks",
         verdict: "root_cause",
         explanation: "the climb starts at the merge",
+        candidate: "c1",
         evidenceIds: ["e1"],
       });
       expect(stored.recordedAt).not.toBe("");
@@ -373,10 +376,11 @@ describe("the investigation record", () => {
         statement: "the cache bump leaks",
         verdict: "open",
         explanation: "still looking",
+        candidate: "c1",
         evidenceIds: ["e1"],
       });
       expect(result.isError).toBe(true);
-      expect(await getRecord(sessionId)).toBeUndefined();
+      expect((await getRecord(sessionId))!.findings).toHaveLength(0);
     });
 
     it("refuses a claim with nothing behind it, on any verdict", async () => {
@@ -394,7 +398,7 @@ describe("the investigation record", () => {
         // it rather than only which field failed.
         expect(String(result.content)).toContain("at least one citation");
       }
-      expect(await getRecord(sessionId)).toBeUndefined();
+      expect((await getRecord(sessionId))!.findings).toHaveLength(0);
     });
 
     /* Append-only: there is no call that rewrites a row, so a changed mind is a
@@ -413,32 +417,22 @@ describe("the investigation record", () => {
       ]);
     });
 
-    /* The link is what lets the run say which claim it now stands behind
-       without deleting the one it changed its mind about. */
-    it("lets a claim replace an earlier one without removing it", async () => {
+    /* Position within one candidate is the link, so the run states what it now
+       stands behind without naming a row it has to remember. */
+    it("lets a later claim about one candidate replace the earlier one", async () => {
       const sessionId = randomUUID();
       await seedTranscript(sessionId);
-      const first = await record(sessionId, "the disk filled", "root_cause", [
-        "e1",
-      ]);
-      await record(
-        sessionId,
-        "the volume is undersized",
-        "root_cause",
-        ["e2"],
-        "",
-        first,
-      );
+      await record(sessionId, "the disk filled", "root_cause", ["e1"]);
+      await record(sessionId, "the volume is undersized", "root_cause", ["e2"]);
 
       const { findings } = (await getRecord(sessionId))!;
       expect(findings).toHaveLength(2);
-      expect(findings[1]!.supersedes).toBe("f1");
       // Both stand on the record; only the second can lead.
       expect(principalFindings(findings)[0]!.id).toBe("f2");
       expect(supersededIds(findings)).toEqual(new Set(["f1"]));
     });
 
-    it("records the claim anyway when it names a replacement that does not exist", async () => {
+    it("refuses a claim naming a candidate that does not exist", async () => {
       const sessionId = randomUUID();
       await seedTranscript(sessionId);
       const result = await call("RecordFinding", sessionId, {
@@ -446,15 +440,13 @@ describe("the investigation record", () => {
         verdict: "root_cause",
         explanation: "",
         evidenceIds: ["e1"],
-        supersedes: "h9",
+        candidate: "c9",
       });
 
-      // The claim is worth keeping even when what it replaces was named wrongly,
-      // and the model is told which half of its call did not land.
-      const stored = (await getRecord(sessionId))!.findings[0]!;
-      expect(stored.statement).toBe("the volume is undersized");
-      expect(stored.supersedes).toBeUndefined();
-      expect(String(result.content)).toContain("h9 is not a finding");
+      // Nothing is recorded, and the ids it may use are named back to it.
+      expect((await getRecord(sessionId))!.findings).toHaveLength(0);
+      expect(String(result.content)).toContain("c9 is not a candidate");
+      expect(String(result.content)).toContain("c1");
     });
 
     /* All of them or none: keeping the half that resolved would change the claim
@@ -466,10 +458,11 @@ describe("the investigation record", () => {
         statement: "the cache bump leaks",
         verdict: "root_cause",
         explanation: "",
+        candidate: "c1",
         evidenceIds: ["e1", "e9"],
       });
 
-      expect(await getRecord(sessionId)).toBeUndefined();
+      expect((await getRecord(sessionId))!.findings).toHaveLength(0);
       // Told which one failed, and the range it could have picked from.
       expect(String(refused.content)).toContain("e9");
       expect(String(refused.content)).toContain("e1 through e2");
@@ -667,6 +660,7 @@ describe("the investigation record", () => {
         verdict: "root_cause",
         explanation: "the read showed 98 percent",
         // e1 is the first call the seeded transcript holds, which is tu-1.
+        candidate: "c1",
         evidenceIds: ["e1"],
       });
       expect(String(content)).toContain("Recorded f1");
@@ -707,6 +701,7 @@ describe("the investigation record", () => {
         statement: "the volume is undersized",
         verdict: "root_cause",
         explanation: "guessed",
+        candidate: "c1",
         evidenceIds: ["e3"],
       });
       expect(String(refused.content)).toContain("e1 through e2");
@@ -789,6 +784,7 @@ describe("the investigation record", () => {
         statement: "nothing behind it",
         verdict: "symptom",
         explanation: "",
+        candidate: "c1",
         evidenceIds: ["e9", "tu-invented"],
       });
       const answer = String(content);
@@ -1091,7 +1087,21 @@ describe("the investigation record", () => {
 
     // The forced candidates turn the loop runs once the first read has answered.
     // Zero candidates keeps a run that is not about candidates simple to script.
-    function openTurn(candidates: unknown[] = []) {
+    // Two, which is the minimum the tool takes: a run weighs alternatives.
+    function openTurn(
+      candidates: unknown[] = [
+        {
+          statement: "the disk filled",
+          ifTrue: "usage at the ceiling",
+          ifFalse: "usage has headroom",
+        },
+        {
+          statement: "the writer leaks handles",
+          ifTrue: "open handles climb",
+          ifFalse: "open handles are flat",
+        },
+      ],
+    ) {
       return {
         toolUses: [
           {
@@ -1106,7 +1116,7 @@ describe("the investigation record", () => {
 
     /* Read, the forced candidates turn, then the finding: a call is only read on
        the turn after the one that made it. */
-    function recordTurn(verdict: string, statement: string) {
+    function recordTurn(verdict: string, statement: string, open = true) {
       const n = randomUUID();
       return [
         {
@@ -1119,8 +1129,10 @@ describe("the investigation record", () => {
           ],
           text: "",
         },
-        openTurn(),
+        ...(open ? [openTurn()] : []),
         {
+          // Both candidates settled: the report turn is reached once every one
+          // the run opened carries a finding.
           toolUses: [
             {
               toolCallId: `tu-record-${n}`,
@@ -1128,9 +1140,21 @@ describe("the investigation record", () => {
               input: {
                 statement,
                 verdict,
+                candidate: "c1",
                 explanation: "what the read showed",
                 // e1 either way: the read above is the first citable call when
                 // nothing precedes it, and one of them when something does.
+                evidenceIds: ["e1"],
+              },
+            },
+            {
+              toolCallId: `tu-record-b-${n}`,
+              name: "RecordFinding",
+              input: {
+                statement: "the writer leaks handles",
+                verdict: "disproven",
+                candidate: "c2",
+                explanation: "open handles stayed flat",
                 evidenceIds: ["e1"],
               },
             },
@@ -1167,6 +1191,7 @@ describe("the investigation record", () => {
         createContractFakeProvider([
           ...recordTurn("root_cause", "the disk filled up"),
           { toolUses: [], text: "Done." },
+          { toolUses: [], text: "Nothing changes my conclusions." },
           submitTurn(),
         ]),
       );
@@ -1192,6 +1217,7 @@ describe("the investigation record", () => {
         createContractFakeProvider([
           ...recordTurn("root_cause", "the disk filled up"),
           { toolUses: [], text: "Done." },
+          { toolUses: [], text: "Nothing changes my conclusions." },
           submitTurn(),
         ]),
       );
@@ -1259,6 +1285,7 @@ describe("the investigation record", () => {
         { sessionId, title: "t", createdAt: new Date().toISOString() },
         [alert("unresolvable")],
       );
+      await seedCandidates(sessionId);
       await appendCitableRows([
         {
           sessionId,
@@ -1281,6 +1308,7 @@ describe("the investigation record", () => {
         statement: "leak",
         verdict: "root_cause",
         explanation: "rss climbed",
+        candidate: "c1",
         evidenceIds: ["e1"],
       });
 
@@ -1290,7 +1318,7 @@ describe("the investigation record", () => {
         "names no result you have read",
       );
       expect(String(refused.content)).toContain("in your next message");
-      expect(await getRecord(sessionId)).toBeUndefined();
+      expect((await getRecord(sessionId))!.findings).toHaveLength(0);
 
       // Once the call answers, the same claim records against it.
       await appendCitableRows([
@@ -1313,6 +1341,7 @@ describe("the investigation record", () => {
         statement: "leak",
         verdict: "root_cause",
         explanation: "rss climbed",
+        candidate: "c1",
         evidenceIds: ["e1"],
       });
       expect((await getRecord(sessionId))!.findings).toHaveLength(1);
@@ -1326,6 +1355,7 @@ describe("the investigation record", () => {
         createContractFakeProvider([
           ...recordTurn("root_cause", "the disk filled up"),
           { toolUses: [], text: "I am done." },
+          { toolUses: [], text: "Nothing changes my conclusions." },
           { toolUses: [], text: "", stopReason: "length" },
         ]),
       );
@@ -1344,7 +1374,7 @@ describe("the investigation record", () => {
       expect(drawn).toContain("cut off at this model's output limit");
       expect(drawn).toContain("Your findings below are complete.");
       // The record survives the failure: it is the half worth keeping.
-      expect((await getRecord(sessionId))!.findings).toHaveLength(1);
+      expect((await getRecord(sessionId))!.findings).toHaveLength(2);
       expect((await getRecord(sessionId))!.report).toBeNull();
 
       /* One report turn, not two: the same request against the same ceiling
@@ -1352,7 +1382,7 @@ describe("the investigation record", () => {
       const provider = mockCreateProvider.mock.results[0]!.value as {
         chat: ReturnType<typeof vi.fn>;
       };
-      expect(provider.chat).toHaveBeenCalledTimes(5);
+      expect(provider.chat).toHaveBeenCalledTimes(6);
       expect(reportRequests()).toHaveLength(1);
     });
 
@@ -1364,12 +1394,13 @@ describe("the investigation record", () => {
           createContractFakeProvider([
             ...recordTurn("root_cause", "the disk filled up"),
             { toolUses: [], text: "I am done." },
+            { toolUses: [], text: "Nothing changes my conclusions." },
             submitTurn("free up the disk"),
           ]),
         )
         .mockImplementationOnce(() =>
           createContractFakeProvider([
-            ...recordTurn("root_cause", "the volume is undersized"),
+            ...recordTurn("root_cause", "the volume is undersized", false),
             { toolUses: [], text: "Still full." },
             submitTurn("add a volume"),
           ]),
@@ -1409,6 +1440,7 @@ describe("the investigation record", () => {
           createContractFakeProvider([
             ...recordTurn("root_cause", "the disk filled up"),
             { toolUses: [], text: "I am done." },
+            { toolUses: [], text: "Nothing changes my conclusions." },
             submitTurn("free up the disk"),
           ]),
         )
@@ -1445,13 +1477,14 @@ describe("the investigation record", () => {
           createContractFakeProvider([
             ...recordTurn("root_cause", "the disk filled up"),
             { toolUses: [], text: "I am done." },
+            { toolUses: [], text: "Nothing changes my conclusions." },
             submitTurn("free up the disk"),
           ]),
         )
         // Records a second claim, then malforms every submission it is asked for.
         .mockImplementationOnce(() =>
           createContractFakeProvider([
-            ...recordTurn("root_cause", "the volume is undersized"),
+            ...recordTurn("root_cause", "the volume is undersized", false),
             { toolUses: [], text: "Still full." },
             ...Array.from({ length: 5 }, () => ({
               toolUses: [
@@ -1468,6 +1501,7 @@ describe("the investigation record", () => {
         .mockImplementationOnce(() =>
           createContractFakeProvider([
             { toolUses: [], text: "Writing it up." },
+            { toolUses: [], text: "Nothing changes my conclusions." },
             submitTurn("add a volume"),
           ]),
         );
@@ -1487,7 +1521,7 @@ describe("the investigation record", () => {
       // so the stamp still names the first run's.
       expect((await getRecord(sessionId))!.report).toMatchObject({
         recommendation: "free up the disk",
-        findingsCoveredUpTo: "f1",
+        findingsCoveredUpTo: "f2",
       });
 
       await runSession({
@@ -1497,10 +1531,10 @@ describe("the investigation record", () => {
       });
 
       // A third run is told it is behind rather than keeping a write-up that
-      // never accounted for h2.
+      // never accounted for the second run's findings.
       expect((await getRecord(sessionId))!.report).toMatchObject({
         recommendation: "add a volume",
-        findingsCoveredUpTo: "f2",
+        findingsCoveredUpTo: "f4",
       });
     });
 
@@ -1515,6 +1549,7 @@ describe("the investigation record", () => {
         createContractFakeProvider([
           ...recordTurn("root_cause", "the pool was exhausted"),
           { toolUses: [], text: "Done." },
+          { toolUses: [], text: "Nothing changes my conclusions." },
           submitTurn("raise the pool"),
         ]),
       );
@@ -1570,6 +1605,7 @@ describe("the investigation record", () => {
             readTurn(),
             ...recordTurn("root_cause", "the worker leaks"),
             { toolUses: [], text: "Done." },
+            { toolUses: [], text: "Nothing changes my conclusions." },
             submitTurn(),
           ]),
         );
@@ -1589,12 +1625,13 @@ describe("the investigation record", () => {
       it("asks a run that recorded early and then kept reading", async () => {
         mockCreateProvider.mockImplementationOnce(() =>
           createContractFakeProvider([
-            ...recordTurn("disproven", "the disk filled"),
+            ...recordTurn("disproven", "the disk filled", false),
             readTurn(),
             readTurn(),
             readTurn(),
             readTurn(),
             { toolUses: [], text: "Done." },
+            { toolUses: [], text: "Nothing changes my conclusions." },
             submitTurn(),
           ]),
         );
@@ -1615,12 +1652,14 @@ describe("the investigation record", () => {
           createContractFakeProvider([
             ...recordTurn("root_cause", "the disk filled up"),
             { toolUses: [], text: "I am done." },
+            { toolUses: [], text: "Nothing changes my conclusions." },
             { toolUses: [], text: "", stopReason: "length" },
           ]),
         )
         .mockImplementationOnce(() =>
           createContractFakeProvider([
             { toolUses: [], text: "" },
+            { toolUses: [], text: "Nothing changes my conclusions." },
             submitTurn("free up the disk"),
           ]),
         );
@@ -1635,7 +1674,8 @@ describe("the investigation record", () => {
       await runSession({
         sessionId,
         seed: await buildSeed(sessionId),
-        systemReminder: REPORT_RETRY_REQUEST,
+        userMessage:
+          "Settle any candidate still open and write up the investigation.",
       });
 
       expect((await getRecord(sessionId))!.report).toMatchObject({
@@ -1650,6 +1690,7 @@ describe("the investigation record", () => {
         createContractFakeProvider([
           ...recordTurn("disproven", "the disk filled up"),
           { toolUses: [], text: "I could not determine a cause." },
+          { toolUses: [], text: "Nothing changes my conclusions." },
           submitTurn("watch the disk for another day"),
         ]),
       );
@@ -1723,6 +1764,7 @@ describe("the investigation record", () => {
           createContractFakeProvider([
             ...recordTurn("disproven", "the worker leaks"),
             { toolUses: [], text: "Restarted it." },
+            { toolUses: [], text: "Nothing changes my conclusions." },
             ...extra,
           ]),
         );

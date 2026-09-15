@@ -29,6 +29,11 @@ import { apiFetch } from "@/shared/api/client";
 // A stable empty default, so an unloaded transcript does not remount the column.
 const EMPTY_ITEMS: TranscriptItem[] = [];
 
+// What the report card's button sends. One sentence, so the run picks up under
+// the same gate as any other message rather than through a door of its own.
+const FINISH_UP_MESSAGE =
+  "Settle any candidate still open and write up the investigation.";
+
 // Only what stops the whole run is pinned. An approval gates one tool, so it
 // stays inline where it happened.
 function dockedCard(items: TranscriptItem[]): TranscriptItem | undefined {
@@ -51,6 +56,12 @@ function dockedCard(items: TranscriptItem[]): TranscriptItem | undefined {
 // where it happened it goes stale, pushed last it sits under a later question.
 function dockedReport(items: TranscriptItem[]): TranscriptItem | undefined {
   return items.find((item) => item.kind === "report_card");
+}
+
+// Live state on the same terms: every finding rewrites the board, so it holds
+// one place above the input rather than ageing where the run opened it.
+function dockedCandidates(items: TranscriptItem[]): TranscriptItem | undefined {
+  return items.find((item) => item.kind === "candidate_card");
 }
 
 function ScrollToEndChatInput(
@@ -352,16 +363,17 @@ export function SessionView({
     [respond],
   );
 
-  // The same loop, tool and seed. The route exists so the sentence handed to the
-  // model is versioned beside the others rather than composed here.
-  const retryReport = useMutation({
+  /* A person pressing the card is a person asking, so it resumes the session the
+   way typing does and the ask stays visible in the transcript in their voice. */
+  const finishUp = useMutation({
     mutationFn: () =>
-      apiFetch<void>(`/api/sessions/${activeSessionId}/report/retry`, {
+      apiFetch<void>(`/api/sessions/${activeSessionId}/messages`, {
         method: "POST",
+        body: JSON.stringify({ message: FINISH_UP_MESSAGE }),
       }),
     onError: (err) => {
       toast.show({
-        title: "Could not write the report",
+        title: "Could not resume the investigation",
         message: err instanceof Error ? err.message : "Try again.",
         variant: "error",
       });
@@ -369,8 +381,11 @@ export function SessionView({
   });
 
   const handleRetryReport = useCallback(() => {
-    retryReport.mutate();
-  }, [retryReport]);
+    setPendingEcho(FINISH_UP_MESSAGE);
+    lastEchoRef.current = FINISH_UP_MESSAGE;
+    setIsRunning(true);
+    finishUp.mutate();
+  }, [finishUp]);
 
   const handleAnswer = useCallback(
     (toolCallId: string, answer: string | string[]) => {
@@ -406,8 +421,9 @@ export function SessionView({
   });
   const dockedItem = dockedCard(allItems);
   const reportItem = dockedReport(allItems);
+  const candidateItem = dockedCandidates(allItems);
   const docked = new Set(
-    [dockedItem, reportItem].flatMap((item) =>
+    [dockedItem, reportItem, candidateItem].flatMap((item) =>
       item ? [transcriptItemKey(item)] : [],
     ),
   );
@@ -459,6 +475,19 @@ export function SessionView({
             <span className="animate-pulse text-sm text-muted-foreground">
               {activityNotice}
             </span>
+          </div>
+        )}
+
+        {/* Highest of the three: it is the standing state of the work, while
+            the two below it are things asking to be acted on. */}
+        {candidateItem && (
+          <div className="mx-auto mb-2 w-full max-w-chat px-6">
+            <TranscriptItemRenderer
+              item={candidateItem}
+              onResolve={handleResolve}
+              onAnswer={handleAnswer}
+              onRetryReport={handleRetryReport}
+            />
           </div>
         )}
 

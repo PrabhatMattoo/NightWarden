@@ -38,7 +38,11 @@ import { highestEvidenceNumber, resultParts } from "../agent/evidence-id.js";
 import { recordFinding } from "../agent/report.js";
 import { hasPendingHumanInput } from "../session/gate-store.js";
 import { getRecord } from "../session/record-store.js";
-import { seedCompleteReport, seedRecommendation } from "./report-helper.js";
+import {
+  seedCandidates,
+  seedCompleteReport,
+  seedRecommendation,
+} from "./report-helper.js";
 import { buildSeed } from "../session/seed.js";
 import { buildTranscript } from "../session/transcript.js";
 import {} from "../integrations/store.js";
@@ -182,7 +186,10 @@ describe("API-local session store", () => {
 
     const drawn = JSON.stringify(await buildTranscript(m.sessionId));
     expect(drawn).not.toContain("Your investigation record");
-    expect(await buildTranscript(m.sessionId)).toHaveLength(3);
+    const items = await buildTranscript(m.sessionId);
+    // The alert that opened it, then the three turns; the harness turn is not one.
+    expect(items).toHaveLength(4);
+    expect(items[0]).toMatchObject({ kind: "alert_arrived", opening: true });
 
     // The seed speaks the provider's vocabulary, where there are two roles and
     // "harness" is not one of them: it goes back as the user turn it was.
@@ -543,6 +550,7 @@ describe("API-local session store", () => {
       await recordFinding(named, {
         statement: "the deploy set the cache size",
         verdict: "trigger",
+        candidate: (await seedCandidates(named))[0]!,
         explanation: "the climb starts at the merge",
         evidenceIds: [await seedCitedCall(named)],
       });
@@ -722,6 +730,7 @@ describe("API-local session store", () => {
       await recordFinding(sessionId, {
         statement: "something downstream broke",
         verdict: "symptom",
+        candidate: (await seedCandidates(sessionId))[0]!,
         explanation: "it followed the upstream failure",
         evidenceIds: [await seedCitedCall(sessionId)],
       });
@@ -817,12 +826,14 @@ describe("API-local session store", () => {
       await recordFinding(sessionId, {
         statement: "the cache size grew at the merge",
         verdict: "symptom",
+        candidate: (await seedCandidates(sessionId))[0]!,
         explanation: "it climbs with the cache",
         evidenceIds: [await cite(sessionId, "tu-1", 0)],
       });
       await recordFinding(sessionId, {
         statement: "the sidecar leaks between deploys",
         verdict: "root_cause",
+        candidate: (await seedCandidates(sessionId))[0]!,
         explanation: "the leak survives the restart",
         evidenceIds: [await cite(sessionId, "tu-2", 1)],
       });
@@ -834,6 +845,7 @@ describe("API-local session store", () => {
       await recordFinding(sessionId, {
         statement: "the pool never returns its connections",
         verdict: "root_cause",
+        candidate: (await seedCandidates(sessionId))[0]!,
         explanation: "the pool is full at the crash",
         evidenceIds: [await cite(sessionId, "tu-3", 2)],
       });

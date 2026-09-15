@@ -196,19 +196,15 @@ export async function runSession(input: RunSessionInput): Promise<RunOutcome> {
   );
   state.falsificationOffered = spentOn(priorRows, FALSIFICATION_OPENING) > 0;
 
-  // User declined a continue-request: replay the transcript and run one
-  // free-form closing turn with no tools, then finish.
-  if (input.standDown) {
-    const { systemPrompt } = buildChatContext(
-      undefined,
-      undefined,
-      opensInvestigation,
-    );
-    const provider = createProvider(systemPrompt, llm, apiKey);
-    log.info("time budget ended: user chose to end, running closing turn");
+  /* One turn with no tools, so a run that reaches no write-up still ends on
+     words addressed to the reader rather than on its own reasoning. */
+  const closingTurn = async (
+    closer: LLMProvider,
+    ending: string,
+  ): Promise<RunOutcome> => {
     try {
       const closing = await chatWithRetries(
-        provider,
+        closer,
         state.conversation(),
         [],
         state.nextSeq,
@@ -222,8 +218,23 @@ export async function runSession(input: RunSessionInput): Promise<RunOutcome> {
       log.info("run stopped by user during the closing turn");
       return "stopped";
     }
-    log.info("investigation ended after user declined to continue");
+    log.info(ending);
     return "completed";
+  };
+
+  // User declined a continue-request: replay the transcript and run one
+  // free-form closing turn with no tools, then finish.
+  if (input.standDown) {
+    const { systemPrompt } = buildChatContext(
+      undefined,
+      undefined,
+      opensInvestigation,
+    );
+    log.info("time budget ended: user chose to end, running closing turn");
+    return await closingTurn(
+      createProvider(systemPrompt, llm, apiKey),
+      "investigation ended after user declined to continue",
+    );
   }
 
   log.info(
@@ -333,6 +344,12 @@ export async function runSession(input: RunSessionInput): Promise<RunOutcome> {
   while (Date.now() < deadline) {
     const result = await runOneTurn(ctx);
     if (result.kind === "outcome") return result.outcome;
+    if (result.kind === "stand_down") {
+      return await closingTurn(
+        provider,
+        "investigation ended with a candidate the run left open",
+      );
+    }
     if (result.kind === "budget") break;
   }
 

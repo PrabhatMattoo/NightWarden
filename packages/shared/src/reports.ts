@@ -31,11 +31,9 @@ export interface Finding {
   id: string;
   statement: string;
   verdict: Verdict;
-  // The candidate this finding settles, when it settles one.
-  settles?: string;
-  // The id of the finding this one replaces, when it replaces one. A link rather
-  // than an edit: the replaced finding stays on the record beside it.
-  supersedes?: string;
+  // The candidate this finding settles. Every finding settles exactly one, so a
+  // later finding on the same candidate carries the verdict that now stands.
+  candidate: string;
   // What the cited results showed, and why they settle it this way.
   explanation: string;
   evidenceIds: string[];
@@ -66,23 +64,33 @@ export function rankFindings(findings: Finding[]): Finding[] {
     .map(({ finding }) => finding);
 }
 
-// Every finding another one replaced. They stay on the record and stay rendered;
-// what they lose is the ability to lead.
-export function supersededIds(findings: Finding[]): Set<string> {
-  return new Set(
-    findings.flatMap((f) => (f.supersedes === undefined ? [] : [f.supersedes])),
-  );
+// The candidates no finding speaks for. Every finding settles exactly one, so a
+// candidate is open until one names it.
+export function openCandidateIds(record: InvestigationRecord): string[] {
+  const settled = new Set(record.findings.map((f) => f.candidate));
+  return record.candidates.filter((c) => !settled.has(c.id)).map((c) => c.id);
 }
 
-// Every standing finding at the best verdict rank present, so a multi-factor
-// cause is not narrowed to one. Empty when the run stands behind nothing.
+// The finding that carries each candidate's verdict: the last one recorded about
+// it, since the record is append-only and a later call states the current view.
+export function standingFindings(findings: Finding[]): Finding[] {
+  const latest = new Map<string, Finding>();
+  for (const finding of findings) latest.set(finding.candidate, finding);
+  return [...latest.values()];
+}
+
+// Every finding a later one about the same candidate now speaks for. They stay on
+// the record and stay rendered; what they lose is the ability to lead.
+export function supersededIds(findings: Finding[]): Set<string> {
+  const standing = new Set(standingFindings(findings).map((f) => f.id));
+  return new Set(findings.filter((f) => !standing.has(f.id)).map((f) => f.id));
+}
+
+// One finding per candidate at the best verdict rank present, so a multi-factor
+// cause keeps each factor and a candidate speaks once.
 export function principalFindings(findings: Finding[]): Finding[] {
-  const replaced = supersededIds(findings);
-  const standing = rankFindings(findings).filter(
-    (f) =>
-      f.verdict !== "disproven" &&
-      f.verdict !== "untestable" &&
-      !replaced.has(f.id),
+  const standing = rankFindings(standingFindings(findings)).filter(
+    (f) => f.verdict !== "disproven" && f.verdict !== "untestable",
   );
   const top = standing[0];
   return top === undefined

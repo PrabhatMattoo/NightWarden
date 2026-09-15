@@ -88,15 +88,17 @@ export interface ReportCardItem {
 // One row of the candidate board: what was weighed, where it stands, and the
 // finding's own words when it settled.
 export interface CandidateRow {
+  id: string;
   statement: string;
-  // "open" while untested, "reopened" once a settling finding was superseded,
-  // otherwise the verdict of the finding that settled it.
-  state: "open" | "reopened" | Verdict;
+  // "open" until a finding settles it, otherwise that finding's verdict.
+  state: "open" | Verdict;
+  // The finding carrying the verdict, so the board can link to its row.
+  findingId?: string;
   note?: string;
 }
 
-// The candidate board, placed where OpenCandidates ran and refreshed as findings
-// settle or reopen them. One per session, keyed on its id like the report card.
+// The candidate board, docked above the input and refreshed as findings settle
+// each one. One per session, keyed on its id like the report card.
 export interface CandidateCardItem {
   kind: "candidate_card";
   id: string;
@@ -111,6 +113,9 @@ export interface AlertArrivedItem {
   alertType: string;
   // Whatever the sender called it, verbatim. Null when it carried no label.
   severityLabel: string | null;
+  // True for the alert the session opened on, which reads as its beginning
+  // rather than as an interruption of work already under way.
+  opening?: boolean;
 }
 
 // Where the provider summarised everything above to fit its window. The

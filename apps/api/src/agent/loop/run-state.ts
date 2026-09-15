@@ -58,6 +58,9 @@ export class RunState {
   candidatesOpened = false;
   // The falsification turn has run, so the run composes its report next.
   falsificationOffered = false;
+  /* The tool the next turn is held to. Set when the harness has asked for one
+     specific act, so the turn cannot answer it in prose. */
+  forceNext: ToolName | undefined;
   // Per name across the whole run, so the fourth ask is answered as the fourth.
   readonly refusedNames = new Map<string, number>();
 
@@ -145,4 +148,7 @@ export interface RunContext {
 export type TurnResult =
   | { kind: "continue" }
   | { kind: "budget" }
+  // The record is short of a verdict the run will not supply, so it closes on a
+  // turn addressed to the reader rather than on a write-up it cannot support.
+  | { kind: "stand_down" }
   | { kind: "outcome"; outcome: RunOutcome };

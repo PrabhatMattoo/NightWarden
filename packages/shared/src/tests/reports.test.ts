@@ -1,13 +1,20 @@
 import { describe, it, expect } from "vitest";
 
 import type { Finding, Verdict } from "../reports.js";
-import { principalFindings, rankFindings } from "../reports.js";
+import {
+  openCandidateIds,
+  principalFindings,
+  rankFindings,
+  standingFindings,
+  supersededIds,
+} from "../reports.js";
 
-function claim(id: string, verdict: Verdict): Finding {
+function claim(id: string, verdict: Verdict, candidate = id): Finding {
   return {
     id,
     statement: id,
     verdict,
+    candidate,
     explanation: "",
     evidenceIds: [],
     recordedAt: "2026-08-19T02:14:00.000Z",
@@ -18,7 +25,10 @@ function claim(id: string, verdict: Verdict): Finding {
    answers to "what did the run conclude". */
 describe("ranking what a run concluded", () => {
   it("returns every equally confident claim, most recent first", () => {
-    const claims = [claim("f1", "root_cause"), claim("f2", "root_cause")];
+    const claims = [
+      claim("f1", "root_cause", "c1"),
+      claim("f2", "root_cause", "c2"),
+    ];
 
     expect(principalFindings(claims).map((f) => f.id)).toEqual(["f2", "f1"]);
     expect(rankFindings(claims).map((f) => f.id)).toEqual(["f2", "f1"]);
@@ -26,8 +36,8 @@ describe("ranking what a run concluded", () => {
 
   it("keeps a lower-ranked standing claim out of the principal set", () => {
     const claims = [
-      claim("f1", "root_cause"),
-      claim("f2", "contributing_factor"),
+      claim("f1", "root_cause", "c1"),
+      claim("f2", "contributing_factor", "c2"),
     ];
 
     expect(principalFindings(claims).map((f) => f.id)).toEqual(["f1"]);
@@ -35,11 +45,66 @@ describe("ranking what a run concluded", () => {
 
   it("never leads with what the run ruled out or could not reach", () => {
     expect(
-      principalFindings([claim("f1", "symptom"), claim("f2", "disproven")]).map(
-        (f) => f.id,
-      ),
+      principalFindings([
+        claim("f1", "symptom", "c1"),
+        claim("f2", "disproven", "c2"),
+      ]).map((f) => f.id),
     ).toEqual(["f1"]);
-    expect(principalFindings([claim("f1", "disproven")])).toEqual([]);
-    expect(principalFindings([claim("f1", "untestable")])).toEqual([]);
+    expect(principalFindings([claim("f1", "disproven", "c1")])).toEqual([]);
+    expect(principalFindings([claim("f1", "untestable", "c1")])).toEqual([]);
+  });
+});
+
+/* Position within a candidate decides this, so a run that settles the same
+   candidate twice states one verdict rather than two rival ones. */
+describe("what a candidate's findings say now", () => {
+  it("lets the newest finding about a candidate carry its verdict", () => {
+    const claims = [
+      claim("f1", "contributing_factor", "c2"),
+      claim("f2", "disproven", "c2"),
+    ];
+
+    expect(standingFindings(claims).map((f) => f.id)).toEqual(["f2"]);
+    expect([...supersededIds(claims)]).toEqual(["f1"]);
+  });
+
+  it("names one root cause per candidate however often each was settled", () => {
+    // The ledger a live run wrote: three candidates, nine findings, two claims.
+    const claims = [
+      claim("f1", "root_cause", "c1"),
+      claim("f2", "contributing_factor", "c2"),
+      claim("f3", "root_cause", "c1"),
+      claim("f4", "root_cause", "c1"),
+      claim("f5", "root_cause", "c3"),
+      claim("f6", "contributing_factor", "c2"),
+      claim("f7", "disproven", "c2"),
+      claim("f8", "root_cause", "c3"),
+      claim("f9", "root_cause", "c3"),
+    ];
+
+    expect(principalFindings(claims).map((f) => f.id)).toEqual(["f9", "f4"]);
+    // c2 stands disproven, so it leads nothing and is ruled out exactly once.
+    expect(standingFindings(claims).map((f) => f.candidate)).toEqual([
+      "c1",
+      "c2",
+      "c3",
+    ]);
+  });
+});
+
+describe("which candidates are still open", () => {
+  it("counts a candidate open until some finding names it", () => {
+    const record = {
+      candidates: [
+        { id: "c1", statement: "one", ifTrue: "", ifFalse: "" },
+        { id: "c2", statement: "two", ifTrue: "", ifFalse: "" },
+      ],
+      findings: [claim("f1", "root_cause", "c1")],
+      lastStatedCandidates: [],
+      report: null,
+      updatedAt: "2026-08-19T02:14:00.000Z",
+    };
+
+    expect(openCandidateIds(record)).toEqual(["c2"]);
   });
 });

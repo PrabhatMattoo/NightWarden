@@ -2,8 +2,6 @@
 
 import { Collapsible as CollapsiblePrimitive } from "@base-ui/react/collapsible";
 
-import { cn } from "@/shared/lib/utils";
-
 function Collapsible({ ...props }: CollapsiblePrimitive.Root.Props) {
   return <CollapsiblePrimitive.Root data-slot="collapsible" {...props} />;
 }
@@ -15,24 +13,18 @@ function CollapsibleTrigger({ ...props }: CollapsiblePrimitive.Trigger.Props) {
 }
 
 function CollapsibleContent({
-  className,
   children,
   ...props
 }: CollapsiblePrimitive.Panel.Props) {
   return (
+    /* One mechanism, and Base UI's own: the panel measures itself into
+       --collapsible-panel-height, and the height transitions to that. */
     <CollapsiblePrimitive.Panel
       data-slot="collapsible-content"
-      className="overflow-hidden text-sm data-open:animate-accordion-down data-closed:animate-accordion-up"
+      className="h-(--collapsible-panel-height) overflow-hidden text-sm transition-[height] duration-(--duration-base) ease-out data-ending-style:h-0 data-starting-style:h-0"
       {...props}
     >
-      <div
-        className={cn(
-          "h-(--collapsible-panel-height) data-ending-style:h-0 data-starting-style:h-0",
-          className,
-        )}
-      >
-        {children}
-      </div>
+      {children}
     </CollapsiblePrimitive.Panel>
   );
 }

@@ -4,8 +4,12 @@ import type {
   InvestigationRecord,
   SubmittedReport,
 } from "@nightwarden/shared";
-import { supersededIds, principalFindings } from "@nightwarden/shared";
-import { openCandidateIds, type RecordGap } from "../report.js";
+import {
+  openCandidateIds,
+  principalFindings,
+  standingFindings,
+} from "@nightwarden/shared";
+import type { RecordGap } from "../report.js";
 
 // Short on purpose: the tool description sits next to the decision, while this
 // competes with a long context by turn fifteen.
@@ -15,13 +19,13 @@ export const REPORT = `
 
 You keep a record as you work: the candidates you are weighing, and the findings that settle them.
 
-Open the candidate explanations worth testing with OpenCandidates, together, so you weigh alternatives rather than settling on the first plausible cause. Each carries what you expect to see if it is true and what would prove it false.
+Open the candidate explanations worth testing with OpenCandidates, at least two, together, so you weigh alternatives rather than settling on the first plausible cause. Each carries what you expect to see if it is true and what would prove it false.
 
-Settle a candidate with a tool result you gather after opening it: the calls from your opening evidence gathering are what raised the candidate, and a result you get after opening it is what tests it. Record each one you settle with RecordFinding, naming the candidate in 'settles', the verdict it earned, what the evidence showed, and the ids of the calls that showed it. A finding you ruled out is worth as much to the reader as one that held; a candidate you had no way to check is recorded as untestable.
+Settle a candidate with a tool result you gather after opening it: the calls from your opening evidence gathering are what raised the candidate, and a result you get after opening it is what tests it. Record each one you settle with RecordFinding, naming the candidate in 'candidate', the verdict it earned, what the evidence showed, and the ids of the calls that showed it. A finding you ruled out is worth as much to the reader as one that held; a candidate you had no way to check is recorded as untestable.
 
-The record is append-only. Nothing you record can be removed or rewritten, so a finding you later disagree with stays on the record beside the one that replaces it. If you could not work out the cause, record what you tested and say so; that is an honest and useful ending, and inventing a cause to avoid it is not.
+The record is append-only, and every finding settles exactly one candidate. To state a new view of a candidate you have already settled, record another finding naming that same candidate: the newest finding about a candidate carries the verdict that stands, and the earlier finding stays on the record beneath it as superseded. If you could not work out the cause, record what you tested and say so; that is an honest and useful ending, and inventing a cause to avoid it is not.
 
-Record what you settle as you settle it, while the results are still in front of you. When you stop calling tools your investigation is over, and the turn that follows offers one tool and nothing else: you write the report there, and you cannot add to your record from it. Anything you meant to record and did not is lost at that point.`;
+Record what you settle as you settle it, while the results are still in front of you. The write-up turn arrives once every candidate you opened carries a finding: it offers one tool and nothing else, you write the report there, and you cannot add to your record from it.`;
 
 // A distinct opening per gap kind, so the loop counts what it already spent on
 // each by matching these words rather than a second tally.
@@ -33,10 +37,10 @@ export const RECORD_CHECK_OPENING = "You have answered";
 function sentenceFor(gap: RecordGap): string {
   switch (gap.kind) {
     case "empty_record":
-      return `${EMPTY_RECORD_OPENING} Call RecordFinding for each explanation you considered, with the verdict it earned, so the record says what you settled, including what you ruled out. If you could not work out the cause, record what you tested and settle it as disproven or untestable; that is an honest ending, and inventing a cause to avoid it is not.`;
+      return `${EMPTY_RECORD_OPENING} Call RecordFinding for each candidate you opened, naming it in 'candidate', with the verdict it earned, so the record says what you settled, including what you ruled out. If you could not work out the cause, record what you tested and settle it as disproven or untestable; that is an honest ending, and inventing a cause to avoid it is not.`;
     case "untested_candidates": {
-      const one = gap.candidates === 1;
-      return `${UNTESTED_CANDIDATES_OPENING} ${gap.candidates} candidate${one ? "" : "s"} remain${one ? "s" : ""} open. Test each against a tool result and record what it settled with RecordFinding, recording one you had no way to check as untestable.`;
+      const rows = gap.open.map((c) => `${c.id}  ${c.statement}`).join("\n");
+      return `${UNTESTED_CANDIDATES_OPENING} Settle each of these with RecordFinding, naming it in 'candidate':\n${rows}\nA candidate a tool result settles takes the verdict that result earned. A candidate you have no way to check takes 'untestable', which is a complete answer. The write-up turn arrives once every one of them carries a finding.`;
     }
   }
 }
@@ -58,7 +62,7 @@ export function recordGapsMessage(gaps: RecordGap[]): string {
 // Sent before the forced candidates turn: enough evidence is in hand to weigh
 // explanations, so the run opens them before it looks further.
 export const CANDIDATES_OPENING_MESSAGE =
-  "You have gathered initial evidence. Open the candidate explanations worth testing now, together, each with what you expect to see if it is true and what would prove it false. Open none only if the evidence points at a single explanation with no alternative worth testing.";
+  "You have gathered initial evidence. Open the candidate explanations worth testing now, together, each with what you expect to see if it is true and what would prove it false. Open at least two: one round of reads has answered, which is too early to be certain a single explanation is the only one worth testing, and a candidate you go on to disprove is worth recording because it stops the reader retracing it.";
 
 // Stable opening for the frontier reminder, so a resumed run reads what it
 // already stated off the record rather than restating it.
@@ -84,20 +88,18 @@ export const FALSIFICATION_OPENING =
 // The last look before the report: every candidate, its verdict, and what the
 // model itself said would prove it false, generated from the record so it cannot drift.
 export function falsificationMessage(record: InvestigationRecord): string {
-  const replaced = supersededIds(record.findings);
-  const verdictOf = (candidateId: string): string =>
-    record.findings.find(
-      (f) => f.settles === candidateId && !replaced.has(f.id),
-    )?.verdict ?? "open";
+  const verdictOf = new Map(
+    standingFindings(record.findings).map((f) => [f.candidate, f.verdict]),
+  );
   const rows = record.candidates.map(
     (c) =>
-      `${c.id}  ${c.statement}  [${verdictOf(c.id)}]  would disprove: ${c.ifFalse}`,
+      `${c.id}  ${c.statement}  [${verdictOf.get(c.id) ?? "open"}]  would disprove: ${c.ifFalse}`,
   );
   const standing = principalFindings(record.findings);
   const close =
     standing.length === 0
       ? "You have not established a cause. If there is a candidate you have not tried, open it and test it. Otherwise, state plainly that you could not establish a cause and finish."
-      : "Test what you said would disprove each finding that still stands, if you have not. If something breaks a finding, record the new finding and name the one it replaces; that reopens its candidate. If nothing changes your conclusions, finish.";
+      : "Test what you said would disprove each finding that still stands, if you have not. If something breaks a finding, record another finding naming that same candidate: your new verdict stands and the earlier finding stays on the record beneath it as superseded. If nothing changes your conclusions, finish.";
   const table =
     rows.length === 0
       ? "You opened no candidates."
@@ -105,17 +107,34 @@ export function falsificationMessage(record: InvestigationRecord): string {
   return `${FALSIFICATION_OPENING} ${table}\n\n${close}`;
 }
 
-// Told, not inferred: verdict and supersession decide it together, and a model
-// reading a flat list will sometimes lead with one already replaced.
-function findingLine(f: Finding, replaced: Set<string>): string {
+function findingLine(f: Finding, indent: string): string {
   const cites =
     f.evidenceIds.length > 0
       ? f.evidenceIds.join(", ")
       : "nothing that resolved";
-  const standing = replaced.has(f.id)
-    ? " (replaced, and still on the record)"
-    : "";
-  return `${f.id} [${f.verdict}]${standing} ${f.statement}\n    ${f.explanation}\n    cites: ${cites}`;
+  return `${indent}${f.id} [${f.verdict}] ${f.statement}\n${indent}    ${f.explanation}\n${indent}    cites: ${cites}`;
+}
+
+/* Grouped by candidate, standing verdict first: a flat list invites a write-up
+   that names one candidate's cause once per finding recorded about it. */
+function findingsByCandidate(findings: Finding[]): string {
+  const standing = new Set(standingFindings(findings).map((f) => f.id));
+  const order = [...new Set(findings.map((f) => f.candidate))];
+  return order
+    .map((candidate) => {
+      const mine = findings.filter((f) => f.candidate === candidate);
+      const now = mine.filter((f) => standing.has(f.id));
+      const before = mine.filter((f) => !standing.has(f.id));
+      const lines = now.map((f) => findingLine(f, ""));
+      if (before.length > 0) {
+        lines.push(
+          `    superseded, and still on the record:`,
+          ...before.map((f) => findingLine(f, "    ")),
+        );
+      }
+      return `${candidate}\n${lines.join("\n")}`;
+    })
+    .join("\n\n");
 }
 
 function writeLine(call: GatedCall): string {
@@ -167,13 +186,10 @@ export function reportRequest(
 ): string {
   // A run that reached here with nothing recorded exhausted the gate's requests.
   // Saying so beats printing an empty heading it might write around.
-  const replaced = supersededIds(findings);
   const recorded =
     findings.length === 0
       ? "RECORDED FINDINGS\nnone. Say plainly that no cause was established."
-      : `RECORDED FINDINGS\n${findings
-          .map((f) => findingLine(f, replaced))
-          .join("\n")}`;
+      : `RECORDED FINDINGS, by the candidate each settles\n${findingsByCandidate(findings)}`;
   const sections = [
     previous === null
       ? "Your investigation is over. Write it up for the user who will read it in the morning."
@@ -197,8 +213,3 @@ export function reportRequest(
 export function reportRetry(problem: string): string {
   return `${problem} Call ComposeReport again.`;
 }
-
-// Not "continue": that invites more investigating when there is nothing left
-// to find. Server-side, or it drifts from reportRequest.
-export const REPORT_RETRY_REQUEST =
-  "Your investigation is over and its record is complete, but the report was never written. Do not investigate further and do not call any other tool. Write it up now.";

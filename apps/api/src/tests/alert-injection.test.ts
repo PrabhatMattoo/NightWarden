@@ -256,13 +256,16 @@ describe("mid-run alert injection (loop seam)", () => {
     expect(JSON.stringify(transcript)).not.toContain(
       "Another alert in this same alert group",
     );
-    // Where the alert actually landed: it arrived while the model was still
-    // composing turn 1, so the tool call that ran afterwards reads afterwards.
-    expect(transcript.slice(0, 3).map((i) => i.kind)).toEqual([
+    /* The alert that opened the session leads, then where the second one landed:
+       it arrived while the model was still composing turn 1, so the tool call
+       that ran afterwards reads afterwards. */
+    expect(transcript.slice(0, 4).map((i) => i.kind)).toEqual([
+      "alert_arrived",
       "alert_arrived",
       "tool_call",
       "agent_text",
     ]);
+    expect(transcript[0]).toMatchObject({ opening: true });
     unregisterRunner(conn);
   });
 

@@ -1,17 +1,45 @@
 import { updateRecord } from "../session/record-store.js";
 import { composeReport } from "../agent/report.js";
 
-// Satisfies the finish gate for tests exercising run mechanics: one finding is a
-// complete record, so the run reaches its report turn.
+// Candidates for a test to settle, so RecordFinding has something to name.
+export async function seedCandidates(
+  sessionId: string,
+  count = 1,
+): Promise<string[]> {
+  return await updateRecord(sessionId, (record) => {
+    const added = Array.from({ length: count }, (_, i) => ({
+      id: `c${record.candidates.length + i + 1}`,
+      statement: `seeded candidate ${record.candidates.length + i + 1}`,
+      ifTrue: "seeded",
+      ifFalse: "seeded",
+    }));
+    return {
+      next: { ...record, candidates: [...record.candidates, ...added] },
+      value: added.map((c) => c.id),
+    };
+  });
+}
+
+// Satisfies the finish gate for tests exercising run mechanics: one candidate
+// carrying one finding is a complete record, so the run reaches its report turn.
 export async function seedCompleteReport(sessionId: string): Promise<void> {
   await updateRecord(sessionId, (record) => ({
     next: {
       ...record,
+      candidates: [
+        {
+          id: "c1",
+          statement: "seeded by test",
+          ifTrue: "seeded",
+          ifFalse: "seeded",
+        },
+      ],
       findings: [
         {
           id: "f1",
           statement: "seeded by test",
           verdict: "disproven",
+          candidate: "c1",
           explanation: "",
           evidenceIds: [],
           recordedAt: new Date().toISOString(),

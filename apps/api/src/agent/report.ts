@@ -12,7 +12,7 @@ import type {
   TranscriptRow,
   Verdict,
 } from "@nightwarden/shared";
-import { supersededIds } from "@nightwarden/shared";
+import { openCandidateIds } from "@nightwarden/shared";
 import {
   amendRecord,
   getRecord,
@@ -247,32 +247,40 @@ export function reportIsBehind(
   );
 }
 
-// The candidates no non-superseded finding settles. A finding that once settled
-// one but was itself replaced reopens it, so the set is read live off the record.
-export function openCandidateIds(record: InvestigationRecord): string[] {
-  const replaced = supersededIds(record.findings);
-  const settled = new Set(
-    record.findings.flatMap((f) =>
-      f.settles !== undefined && !replaced.has(f.id) ? [f.settles] : [],
-    ),
-  );
-  return record.candidates.filter((c) => !settled.has(c.id)).map((c) => c.id);
-}
-
 // A list rather than a boolean, so the record-gaps message can name only what
 // is absent and a surviving gap can be logged as itself.
 export type RecordGap =
   | { kind: "empty_record" }
-  | { kind: "untested_candidates"; candidates: number };
+  | { kind: "untested_candidates"; open: OpenCandidate[] };
+
+// The id and the statement together, so the turn that asks for a verdict names
+// what it is asking about rather than a count the model has to look up.
+export interface OpenCandidate {
+  id: string;
+  statement: string;
+}
 
 /* Read off the record: an empty one is named alone, and an open candidate is a
    test the run owes before it can finish. */
 export async function recordGaps(sessionId: string): Promise<RecordGap[]> {
   const record = await getRecord(sessionId);
-  const findings = record?.findings ?? [];
-  if (findings.length === 0) return [{ kind: "empty_record" }];
-  const open = record === undefined ? 0 : openCandidateIds(record).length;
-  return open > 0 ? [{ kind: "untested_candidates", candidates: open }] : [];
+  if (record === undefined || record.findings.length === 0) {
+    return [{ kind: "empty_record" }];
+  }
+  const open = openCandidateRows(record);
+  return open.length > 0 ? [{ kind: "untested_candidates", open }] : [];
+}
+
+export function openCandidateRows(
+  record: InvestigationRecord,
+): OpenCandidate[] {
+  const byId = new Map(record.candidates.map((c) => [c.id, c]));
+  return openCandidateIds(record).flatMap((id) => {
+    const candidate = byId.get(id);
+    return candidate === undefined
+      ? []
+      : [{ id, statement: candidate.statement }];
+  });
 }
 
 interface OpenCandidatesInput {
@@ -338,22 +346,25 @@ interface RecordFindingInput {
   verdict: Verdict;
   explanation: string;
   evidenceIds: string[];
-  settles?: string;
-  supersedes?: string;
+  candidate: string;
 }
 
-// A link to a record entry that exists, or nothing. Dropped rather than refused:
-// the new finding is worth recording even when what it names was named wrongly.
-function existing(
-  ids: Set<string>,
-  named: string | undefined,
-): string | undefined {
-  if (named === undefined || named === "") return undefined;
-  return ids.has(named) ? named : undefined;
+// Named so the model can correct itself in one turn: a candidate it mistyped is
+// worth naming back, and the ids it may use are the record's own.
+function unknownCandidate(record: InvestigationRecord, named: string): string {
+  const ids = record.candidates.map((c) => c.id);
+  const open = openCandidateIds(record);
+  const opened =
+    ids.length === 0
+      ? "This investigation has opened no candidates yet; open them with OpenCandidates."
+      : `The candidates on this record are ${ids.join(", ")}${
+          open.length > 0 ? `, and ${open.join(", ")} remain open` : ""
+        }.`;
+  return `${named} is not a candidate on this record, so nothing was recorded. ${opened}`;
 }
 
-// One act, recorded once it has been tested. Append-only: a finding the model
-// later disagrees with stays on the record beside the one that replaced it.
+// One act, recorded once the candidate it names has been tested. Append-only: a
+// later finding about that candidate carries the verdict that now stands.
 export async function recordFinding(
   sessionId: string,
   input: RecordFindingInput,
@@ -366,41 +377,41 @@ export async function recordFinding(
     return { recorded: false, message: citationRefusal(entries, unknown) };
   }
   const evidenceIds = kept;
-  const { id, replaced, settled } = await updateRecord(sessionId, (record) => {
-    const supersedes = existing(
-      new Set(record.findings.map((f) => f.id)),
-      input.supersedes,
-    );
-    const settles = existing(
-      new Set(record.candidates.map((c) => c.id)),
-      input.settles,
-    );
+  type Outcome = { refusal: string } | { id: string; open: string[] };
+  const outcome = await updateRecord<Outcome>(sessionId, (record) => {
+    if (!record.candidates.some((c) => c.id === input.candidate)) {
+      return {
+        next: record,
+        value: { refusal: unknownCandidate(record, input.candidate) },
+      };
+    }
     const finding: Finding = {
       id: `f${record.findings.length + 1}`,
       statement: input.statement,
       verdict: input.verdict,
-      ...(settles !== undefined && { settles }),
-      ...(supersedes !== undefined && { supersedes }),
+      candidate: input.candidate,
       explanation: input.explanation,
       evidenceIds,
       recordedAt: new Date().toISOString(),
     };
+    const next = { ...record, findings: [...record.findings, finding] };
     return {
-      next: { ...record, findings: [...record.findings, finding] },
-      value: { id: finding.id, replaced: supersedes, settled: settles },
+      next,
+      value: { id: finding.id, open: openCandidateIds(next) },
     };
   });
+  if ("refusal" in outcome) {
+    return { recorded: false, message: outcome.refusal };
+  }
   publishReportUpdated(sessionId);
-  const replacement =
-    replaced !== undefined
-      ? ` It replaces ${replaced}, which stays on the record.`
-      : input.supersedes !== undefined && input.supersedes !== ""
-        ? ` ${input.supersedes} is not a finding on this record, so nothing was replaced.`
-        : "";
-  const settlement = settled !== undefined ? ` It settles ${settled}.` : "";
+  // The state the call produced, so the next move needs no second call to find.
+  const remaining =
+    outcome.open.length === 0
+      ? "Every candidate is settled."
+      : `Still open: ${outcome.open.join(", ")}.`;
   return {
     recorded: true,
-    message: `Recorded ${id} as "${input.verdict}".${settlement}${replacement}`,
+    message: `Recorded ${outcome.id} about ${input.candidate} as "${input.verdict}". ${remaining}`,
   };
 }
 

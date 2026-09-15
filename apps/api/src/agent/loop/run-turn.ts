@@ -1,4 +1,4 @@
-import { METRICS_SOURCE_KINDS } from "@nightwarden/shared";
+import { METRICS_SOURCE_KINDS, openCandidateIds } from "@nightwarden/shared";
 import type { ToolName } from "@nightwarden/shared";
 import type { ToolDispatchContext } from "../tools/types.js";
 import {
@@ -13,7 +13,6 @@ import { recoveryState } from "../../verification/recovery.js";
 import {
   approvedWriteCount,
   gatedCalls,
-  openCandidateIds,
   recordGaps,
   reportIsBehind,
   setLastStatedCandidates,
@@ -190,6 +189,14 @@ export async function runOneTurn(ctx: RunContext): Promise<TurnResult> {
       (s) => s.name === "OpenCandidates",
     );
     forceTool = "OpenCandidates";
+  } else if (state.forceNext !== undefined) {
+    // Asked for on the turn before, with the tool that answers it and nothing
+    // else, so the ask cannot be met with prose.
+    forceTool = state.forceNext;
+    state.forceNext = undefined;
+    toolSchemas = offeredSchemas(state.offered).filter(
+      (s) => s.name === forceTool,
+    );
   } else {
     toolSchemas = offeredSchemas(state.offered);
   }
@@ -265,8 +272,22 @@ export async function runOneTurn(ctx: RunContext): Promise<TurnResult> {
           "finish gate: record incomplete, pushing back",
         );
         state.sendSystemReminder(pushback.say);
+        // A verdict is what the ask wants, so the turn is held to the tool that
+        // records one rather than answered with another summary.
+        if (pushback.kind === "untested_candidates") {
+          state.forceNext = "RecordFinding";
+        }
         await state.flush();
         return { kind: "continue" };
+      }
+      /* A candidate nothing settled is coverage the write-up would claim without
+         it, so the run closes on a turn addressed to the reader instead. */
+      if (gaps.some((g) => g.kind === "untested_candidates")) {
+        log.warn(
+          { turn, recovery },
+          "finish gate: candidates left open, standing down without a report",
+        );
+        return { kind: "stand_down" };
       }
       log.warn(
         { turn, gaps: gaps.map((g) => g.kind), recovery },

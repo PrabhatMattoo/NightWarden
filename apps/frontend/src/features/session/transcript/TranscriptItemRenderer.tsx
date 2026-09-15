@@ -89,7 +89,11 @@ function AlertArrived({ item }: { item: AlertArrivedItem }): React.JSX.Element {
           <MetaText>{item.severityLabel}</MetaText>
         )}
         <span className="font-medium text-foreground">{item.alertType}</span>
-        <span>fired during this run</span>
+        <span>
+          {item.opening === true
+            ? "opened this investigation"
+            : "fired during this run"}
+        </span>
       </span>
       <span aria-hidden className="h-px min-w-0 flex-1 bg-border" />
     </div>

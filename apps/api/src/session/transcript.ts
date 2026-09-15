@@ -8,7 +8,7 @@ import type {
   ToolGate,
   TranscriptItem,
 } from "@nightwarden/shared";
-import { supersededIds } from "@nightwarden/shared";
+import { openCandidateIds, standingFindings } from "@nightwarden/shared";
 import {
   getPendingHumanInputBySessionId,
   hasPendingHumanInput,
@@ -91,10 +91,12 @@ async function reportCard(sessionId: string): Promise<TranscriptItem | null> {
   }
   if ((await isRunning(sessionId)) || (await hasPendingHumanInput(sessionId)))
     return null;
-  const findings = (await getRecord(sessionId))?.findings ?? [];
-  return findings.length === 0
-    ? null
-    : { kind: "report_card", id: "report", state: { phase: "failed" } };
+  /* Owed only once the record is complete, which is also what unlocks the report
+     turn. Between two runs of one investigation a candidate is still open. */
+  const record = await getRecord(sessionId);
+  if (record === undefined || record.findings.length === 0) return null;
+  if (openCandidateIds(record).length > 0) return null;
+  return { kind: "report_card", id: "report", state: { phase: "failed" } };
 }
 
 // A tool call's state, in precedence order: what the session is suspended on
@@ -117,25 +119,26 @@ function toolCallState(
   return { phase: "complete", result };
 }
 
-// A candidate's state read live off the record: settled by a standing finding,
-// reopened when that finding was superseded, or still open.
+// A candidate's state read live off the record: the verdict of the finding that
+// stands for it, or open until one does.
 function candidateRows(record: InvestigationRecord): CandidateRow[] {
-  const replaced = supersededIds(record.findings);
+  const standing = new Map(
+    standingFindings(record.findings).map((f) => [f.candidate, f]),
+  );
   return record.candidates.map((c) => {
-    const settling = record.findings.find(
-      (f) => f.settles === c.id && !replaced.has(f.id),
-    );
-    if (settling !== undefined) {
-      return {
-        statement: c.statement,
-        state: settling.verdict,
-        ...(settling.explanation.trim() !== "" && {
-          note: settling.explanation,
-        }),
-      };
+    const settling = standing.get(c.id);
+    if (settling === undefined) {
+      return { id: c.id, statement: c.statement, state: "open" };
     }
-    const wasSettled = record.findings.some((f) => f.settles === c.id);
-    return { statement: c.statement, state: wasSettled ? "reopened" : "open" };
+    return {
+      id: c.id,
+      statement: c.statement,
+      state: settling.verdict,
+      findingId: settling.id,
+      ...(settling.explanation.trim() !== "" && {
+        note: settling.explanation,
+      }),
+    };
   });
 }
 
@@ -145,8 +148,8 @@ export async function buildTranscript(
   sessionId: string,
 ): Promise<TranscriptItem[]> {
   const messages: TranscriptRow[] = await getTranscriptRows(sessionId);
-  // The board is drawn once, where OpenCandidates first ran, and shows the live
-  // state; RecordFinding and later OpenCandidates calls fold into it.
+  // The board is docked rather than drawn in the stream, so one item carries the
+  // live state wherever the reader is scrolled.
   const record = await getRecord(sessionId);
   let candidateCardDrawn = false;
   // Which call is waiting, and of what kind. What that call was comes from the
@@ -177,11 +180,10 @@ export async function buildTranscript(
     }
   }
 
-  // The ones that opened the session are excluded, read from the row rather
-  // than from compared clocks: that fact is known when they are written.
-  const arrivals = ((await getSession(sessionId))?.alerts ?? []).filter(
-    (entry) => entry.injected,
-  );
+  const alerts = (await getSession(sessionId))?.alerts ?? [];
+  // Separated by the row rather than by compared clocks: whether an alert opened
+  // the session or interrupted it is known at the moment it is written.
+  const arrivals = alerts.filter((entry) => entry.injected);
   let nextArrival = 0;
 
   // Writes the user already released, in the order they ran, so the approval
@@ -189,6 +191,18 @@ export async function buildTranscript(
   const approved: Array<{ toolName: string; target: string | null }> = [];
 
   const items: TranscriptItem[] = [];
+  // First, because it is what the session began from: an investigation that
+  // opens on the agent thinking reads as one it started of its own accord.
+  for (const entry of alerts.filter((a) => !a.injected)) {
+    items.push({
+      kind: "alert_arrived",
+      id: `alert-${entry.alert.sourceAlertId}-${entry.arrivedAt}`,
+      alertType: entry.alert.alertType,
+      severityLabel: entry.alert.labels["severity"] ?? null,
+      opening: true,
+    });
+  }
+
   for (const msg of messages) {
     // Placed where it interrupted: everything the agent did before this message
     // happened before the alert landed, and everything after it, after.
@@ -260,8 +274,8 @@ export async function buildTranscript(
           });
         }
       } else if (part.type === "tool_call") {
-        // The candidate board stands in for these: OpenCandidates draws it once,
-        // and every RecordFinding folds into it rather than printing a row.
+        /* The docked board carries the live state, so opening the set is read
+           there; settling one stays a row, because it is the work itself. */
         if (part.name === "OpenCandidates") {
           if (
             !candidateCardDrawn &&
@@ -277,7 +291,6 @@ export async function buildTranscript(
           }
           continue;
         }
-        if (part.name === "RecordFinding") continue;
         const awaiting =
           pending?.toolCallId === part.toolCallId ? pending : null;
         // "continue" cannot reach here: its id is synthetic and answers to no

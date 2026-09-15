@@ -352,7 +352,7 @@ describe("TranscriptItemRenderer", () => {
         kind: "tool_call",
         toolCallId: "tu-finding",
         toolName: "RecordFinding",
-        input: { statement: "The pool was exhausted" },
+        input: { id: "c1", statement: "The pool was exhausted" },
         state: { phase: "complete", result: "recorded" },
       });
       expect(screen.getByText(/RecordFinding/)).toBeInTheDocument();
@@ -360,25 +360,52 @@ describe("TranscriptItemRenderer", () => {
   });
 
   describe("the candidate board", () => {
-    it("draws each candidate in the tone of where it stands", () => {
-      wrap({
-        kind: "candidate_card",
-        id: "candidates",
-        rows: [
-          {
-            statement: "The pool was exhausted",
-            state: "root_cause",
-            note: "pool_in_use pinned at 100/100",
-          },
-          { statement: "Postgres was slow", state: "disproven" },
-          { statement: "The deploy triggered it", state: "reopened" },
-        ],
-      });
+    const ROWS = [
+      {
+        id: "c1",
+        statement: "The pool was exhausted",
+        state: "root_cause" as const,
+        findingId: "f1",
+        note: "pool_in_use pinned at 100/100",
+      },
+      {
+        id: "c2",
+        statement: "Postgres was slow",
+        state: "disproven" as const,
+        findingId: "f2",
+      },
+      {
+        id: "c3",
+        statement: "The deploy triggered it",
+        state: "open" as const,
+      },
+    ];
+
+    /* Docked above the input, so the closed line is what a reader sees for most
+       of a run: it answers whether the run still owes a verdict. */
+    it("counts what is settled and what is open before it is opened", () => {
+      wrap({ kind: "candidate_card", id: "candidates", rows: ROWS });
+
       expect(screen.getByText("Candidates")).toBeInTheDocument();
-      expect(screen.getByText("The pool was exhausted")).toBeInTheDocument();
+      expect(
+        screen.getByText("3 opened \u00b7 2 settled \u00b7 1 open"),
+      ).toBeInTheDocument();
+    });
+
+    it("draws each candidate in the tone of where it stands once opened", async () => {
+      const user = userEvent.setup();
+      wrap({ kind: "candidate_card", id: "candidates", rows: ROWS });
+
+      await act(async () => {
+        await user.click(screen.getByRole("button", { name: /Candidates/ }));
+      });
+
+      await waitFor(() => {
+        expect(screen.getByText("The pool was exhausted")).toBeInTheDocument();
+      });
       expect(screen.getByText("root cause")).toBeInTheDocument();
       expect(screen.getByText("ruled out")).toBeInTheDocument();
-      expect(screen.getByText("reopened")).toBeInTheDocument();
+      expect(screen.getByText("open")).toBeInTheDocument();
       expect(
         screen.getByText("pool_in_use pinned at 100/100"),
       ).toBeInTheDocument();

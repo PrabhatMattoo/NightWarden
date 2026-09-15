@@ -19,7 +19,11 @@ import type { NormalizedAlert } from "@nightwarden/shared";
 import type { ProviderMessage } from "../llm/types.js";
 import { runSession, buildSessionMeta } from "../agent/loop/run-session.js";
 import { getRecord } from "../session/record-store.js";
-import { openCandidateIds } from "../agent/report.js";
+import {
+  openCandidateIds,
+  standingFindings,
+  supersededIds,
+} from "@nightwarden/shared";
 import { buildTranscript } from "../session/transcript.js";
 import { seedAlertSession } from "./session-helper.js";
 import {
@@ -110,7 +114,7 @@ describe("candidates, the frontier and falsification", () => {
   const findingTurn = (
     verdict: string,
     statement: string,
-    extra: { settles?: string; supersedes?: string } = {},
+    extra: { candidate?: string } = {},
   ) => ({
     toolUses: [
       {
@@ -182,8 +186,8 @@ describe("candidates, the frontier and falsification", () => {
       createContractFakeProvider([
         readTurn(),
         openTurn([POOL, PG]),
-        findingTurn("root_cause", POOL.statement, { settles: "c1" }),
-        findingTurn("disproven", PG.statement, { settles: "c2" }),
+        findingTurn("root_cause", POOL.statement, { candidate: "c1" }),
+        findingTurn("disproven", PG.statement, { candidate: "c2" }),
         stopTurn,
         stopTurn,
         submitTurn,
@@ -194,7 +198,7 @@ describe("candidates, the frontier and falsification", () => {
 
     const record = (await getRecord(id))!;
     expect(record.candidates.map((c) => c.id)).toEqual(["c1", "c2"]);
-    expect(record.findings.map((f) => f.settles)).toEqual(["c1", "c2"]);
+    expect(record.findings.map((f) => f.candidate)).toEqual(["c1", "c2"]);
     expect(openCandidateIds(record)).toEqual([]);
     expect(record.report).not.toBeNull();
 
@@ -210,9 +214,9 @@ describe("candidates, the frontier and falsification", () => {
       createContractFakeProvider([
         readTurn(),
         openTurn([POOL, PG]),
-        findingTurn("root_cause", POOL.statement, { settles: "c1" }),
+        findingTurn("root_cause", POOL.statement, { candidate: "c1" }),
         stopTurn,
-        findingTurn("disproven", PG.statement, { settles: "c2" }),
+        findingTurn("disproven", PG.statement, { candidate: "c2" }),
         stopTurn,
         stopTurn,
         submitTurn,
@@ -228,13 +232,13 @@ describe("candidates, the frontier and falsification", () => {
     expect((await getRecord(id))!.report).not.toBeNull();
   });
 
-  it("draws the candidate board in the transcript and folds the record tools into it", async () => {
+  it("draws the board live and keeps a row for each finding it records", async () => {
     mockCreateProvider.mockImplementationOnce(() =>
       createContractFakeProvider([
         readTurn(),
         openTurn([POOL, PG]),
-        findingTurn("root_cause", POOL.statement, { settles: "c1" }),
-        findingTurn("disproven", PG.statement, { settles: "c2" }),
+        findingTurn("root_cause", POOL.statement, { candidate: "c1" }),
+        findingTurn("disproven", PG.statement, { candidate: "c2" }),
         stopTurn,
         stopTurn,
         submitTurn,
@@ -252,12 +256,13 @@ describe("candidates, the frontier and falsification", () => {
       [POOL.statement, "root_cause"],
       [PG.statement, "disproven"],
     ]);
-    // The record tools fold into the board rather than printing their own rows.
+    /* Opening the set folds into the board, which carries it live; settling one
+       is the work itself, so it keeps the row a reader checks it by. */
     const toolNames = items.flatMap((i) =>
       i.kind === "tool_call" ? [i.toolName] : [],
     );
     expect(toolNames).not.toContain("OpenCandidates");
-    expect(toolNames).not.toContain("RecordFinding");
+    expect(toolNames.filter((n) => n === "RecordFinding")).toHaveLength(2);
   });
 
   it("runs a falsification turn naming every candidate before the report", async () => {
@@ -265,8 +270,8 @@ describe("candidates, the frontier and falsification", () => {
       createContractFakeProvider([
         readTurn(),
         openTurn([POOL, PG]),
-        findingTurn("root_cause", POOL.statement, { settles: "c1" }),
-        findingTurn("disproven", PG.statement, { settles: "c2" }),
+        findingTurn("root_cause", POOL.statement, { candidate: "c1" }),
+        findingTurn("disproven", PG.statement, { candidate: "c2" }),
         stopTurn,
         stopTurn,
         submitTurn,
@@ -284,17 +289,14 @@ describe("candidates, the frontier and falsification", () => {
     expect(table).toContain("would disprove");
   });
 
-  it("reopens a candidate when a later finding supersedes the one that settled it", async () => {
+  it("lets a later finding about one candidate carry the verdict that stands", async () => {
     mockCreateProvider.mockImplementationOnce(() =>
       createContractFakeProvider([
         readTurn(),
-        openTurn([POOL]),
-        findingTurn("trigger", POOL.statement, { settles: "c1" }),
-        findingTurn("disproven", "the pool reading predated the slowdown", {
-          supersedes: "f1",
-        }),
-        stopTurn,
-        findingTurn("root_cause", POOL.statement, { settles: "c1" }),
+        openTurn([POOL, PG]),
+        findingTurn("trigger", POOL.statement, { candidate: "c1" }),
+        findingTurn("disproven", PG.statement, { candidate: "c2" }),
+        findingTurn("root_cause", POOL.statement, { candidate: "c1" }),
         stopTurn,
         stopTurn,
         submitTurn,
@@ -303,13 +305,39 @@ describe("candidates, the frontier and falsification", () => {
     const id = randomUUID();
     await start(id);
 
-    // The superseding finding withdrew c1's answer, so the gate asked for it again.
-    const pushed = harnessMessages().filter((m) =>
-      m.includes("candidates you have not settled"),
-    );
-    expect(pushed.length).toBeGreaterThanOrEqual(1);
     const record = (await getRecord(id))!;
-    expect(openCandidateIds(record)).toEqual([]);
+    // Three findings, two candidates, and c1 speaks once with its newest verdict.
     expect(record.findings).toHaveLength(3);
+    expect(openCandidateIds(record)).toEqual([]);
+    expect(
+      standingFindings(record.findings).map((f) => [f.candidate, f.id]),
+    ).toEqual([
+      ["c1", "f3"],
+      ["c2", "f2"],
+    ]);
+    expect(supersededIds(record.findings)).toEqual(new Set(["f1"]));
+  });
+
+  it("stands down without a report when a candidate is never settled", async () => {
+    mockCreateProvider.mockImplementationOnce(() =>
+      createContractFakeProvider([
+        readTurn(),
+        openTurn([POOL, PG]),
+        findingTurn("root_cause", POOL.statement, { candidate: "c1" }),
+        // Asked three times for c2, answering each with prose instead.
+        stopTurn,
+        stopTurn,
+        stopTurn,
+        stopTurn,
+        stopTurn,
+      ]),
+    );
+    const id = randomUUID();
+    await start(id);
+
+    const record = (await getRecord(id))!;
+    expect(openCandidateIds(record)).toEqual(["c2"]);
+    // The write-up would claim coverage of c2 that the run never performed.
+    expect(record.report).toBeNull();
   });
 });
