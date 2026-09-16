@@ -46,7 +46,22 @@ import {
   buildAlertTitleSource,
 } from "../session/title.js";
 
-function scriptTitleOnce(text: string): void {
+// The title arrives in a field: the model files it rather than saying it.
+function scriptTitleOnce(title: string): void {
+  mockCreateTitleProvider.mockImplementationOnce(() =>
+    createContractFakeProvider([
+      {
+        toolUses: [
+          { toolCallId: "tu-title", name: "SetTitle", input: { title } },
+        ],
+        text: "",
+      },
+    ]),
+  );
+}
+
+// A model that answers in prose instead, which the text path still reads.
+function scriptTitleAsProse(text: string): void {
   mockCreateTitleProvider.mockImplementationOnce(() =>
     createContractFakeProvider([{ toolUses: [], text }]),
   );
@@ -192,6 +207,18 @@ describe("session title generation", () => {
     await generateSessionTitle(sessionId, "redis is oom", configuredConfig());
 
     expect((await getSession(sessionId))?.title).toBe("Redis Ran Out Of");
+  });
+
+  /* "Here's a thinking process" was the first four words of a reply that had
+     not started: the field cannot carry a preamble, but the fallback still can. */
+  it("reads a title out of prose when the model will not call the tool", async () => {
+    scriptTitleAsProse("Redis OOM Restart");
+    const sessionId = "sess-title-prose";
+    await seedSession(sessionId, "temp");
+
+    await generateSessionTitle(sessionId, "redis is full", configuredConfig());
+
+    expect((await getSession(sessionId))?.title).toBe("Redis OOM Restart");
   });
 
   it("leaves the title untouched when the model returns nothing usable", async () => {

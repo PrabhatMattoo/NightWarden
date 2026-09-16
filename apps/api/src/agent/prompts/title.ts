@@ -7,4 +7,4 @@ Rules:
 - Name the concrete subject when there is one (e.g. "Checkout Latency Spike", "Redis OOM Restart").
 - When there is no concrete subject (a greeting, small talk, a question about the assistant), name the kind of exchange instead (e.g. "Greeting", "Identity Inquiry", "Capability Question").
 - No quotes, no trailing punctuation, no emoji, no prefixes like "Title:".
-- Output only the title, nothing else.`;
+- Call SetTitle with the title as its only argument. Write nothing else.`;

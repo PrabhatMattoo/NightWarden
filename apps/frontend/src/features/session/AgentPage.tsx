@@ -1,6 +1,5 @@
 import { useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Link, useNavigate, useParams } from "@tanstack/react-router";
+import { Link, useParams } from "@tanstack/react-router";
 import {
   ChevronDown,
   ClipboardCopy,
@@ -11,7 +10,6 @@ import {
 
 import { Page } from "@/shared/ui/Page";
 import { SessionView } from "@/features/session/SessionView";
-import { ConfirmDialog } from "@/shared/ui/ConfirmDialog";
 import { Button } from "@/shared/ui/button";
 import {
   DropdownMenu,
@@ -23,12 +21,12 @@ import {
 import { Separator } from "@/shared/ui/separator";
 import { Popover, PopoverContent, PopoverTrigger } from "@/shared/ui/popover";
 import { useSession } from "@/features/session/useSession";
-import { removeSession, useSessions } from "@/features/session/useSessions";
+import { useSessionDeletion } from "@/features/session/useSessionDeletion";
+import { useSessions } from "@/features/session/useSessions";
 import { chatToMarkdown } from "@/features/session/chatMarkdown";
 import { ICON_UI } from "@/shared/lib/iconProps";
 import { DAY_GROUPS, dayGroup, timeAgo } from "@/shared/lib/time";
 import { toast } from "@/shared/lib/toast";
-import { apiFetch } from "@/shared/api/client";
 
 // A session is what it is from the moment it exists, so the kind filter is
 // the whole rule and no row ever leaves this list.
@@ -99,26 +97,14 @@ export function AgentPage(): React.JSX.Element {
   const { id } = useParams({ strict: false });
   const sessionId = id ?? null;
   const session = useSession(sessionId);
-  const navigate = useNavigate();
-  const queryClient = useQueryClient();
   const [historyOpen, setHistoryOpen] = useState(false);
-  const [confirmingDelete, setConfirmingDelete] = useState(false);
   const title = session?.title ?? "New chat";
-
-  const remove = useMutation({
-    mutationFn: () =>
-      apiFetch<void>(`/api/sessions/${sessionId}`, { method: "DELETE" }),
-    onSuccess: () => {
-      if (sessionId !== null) removeSession(queryClient, "chat", sessionId);
-      void navigate({ to: "/agent" });
-    },
-    onError: (err) => {
-      toast.show({
-        title: "Could not delete this chat",
-        message: err instanceof Error ? err.message : "Try again.",
-        variant: "error",
-      });
-    },
+  const deletion = useSessionDeletion({
+    sessionId,
+    kind: "chat",
+    noun: "chat",
+    title,
+    returnTo: "/agent",
   });
 
   const copyMarkdown = (): void => {
@@ -201,7 +187,7 @@ export function AgentPage(): React.JSX.Element {
                     menu says so rather than offering an error. */}
                 <DropdownMenuItem
                   disabled={session?.running === true}
-                  onClick={() => setConfirmingDelete(true)}
+                  onClick={deletion.confirm}
                 >
                   <Trash2 {...ICON_UI} />
                   Delete
@@ -217,17 +203,7 @@ export function AgentPage(): React.JSX.Element {
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden lg:stage-fall">
         <SessionView sessionId={sessionId} />
       </div>
-      <ConfirmDialog
-        open={confirmingDelete}
-        onOpenChange={(open) => {
-          if (!open) setConfirmingDelete(false);
-        }}
-        title="Delete this chat?"
-        description={`"${title}" and its transcript will be removed permanently.`}
-        confirmLabel="Delete"
-        destructive
-        onConfirm={() => remove.mutate()}
-      />
+      {deletion.dialog}
     </Page>
   );
 }

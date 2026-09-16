@@ -136,11 +136,25 @@ function candidateRows(record: InvestigationRecord): CandidateRow[] {
       state: settling.verdict,
       findingId: settling.id,
       ...(settling.explanation.trim() !== "" && {
-        note: settling.explanation,
+        note: firstSentence(settling.explanation),
       }),
     };
   });
 }
+
+/* The board is a glance at what is settled, not the reasoning behind it: the
+   whole explanation belongs under the finding, which the verdict links to. */
+function firstSentence(explanation: string): string {
+  const trimmed = explanation.trim();
+  const end = trimmed.search(/[.!?](\s|$)/);
+  const first = end === -1 ? trimmed : trimmed.slice(0, end + 1);
+  return first.length <= MAX_BOARD_NOTE_CHARS
+    ? first
+    : `${first.slice(0, MAX_BOARD_NOTE_CHARS).trimEnd()}…`;
+}
+
+// One line on a docked strip, which is what the board is read from.
+const MAX_BOARD_NOTE_CHARS = 140;
 
 // Everything the frontend needs about a call is decided here, so the browser
 // never reconciles two sources against each other.
@@ -274,22 +288,21 @@ export async function buildTranscript(
           });
         }
       } else if (part.type === "tool_call") {
-        /* The docked board carries the live state, so opening the set is read
-           there; settling one stays a row, because it is the work itself. */
-        if (part.name === "OpenCandidates") {
-          if (
-            !candidateCardDrawn &&
-            record !== undefined &&
-            record.candidates.length > 0
-          ) {
-            items.push({
-              kind: "candidate_card",
-              id: "candidates",
-              rows: candidateRows(record),
-            });
-            candidateCardDrawn = true;
-          }
-          continue;
+        /* The board is docked and carries live state, so it is drawn once here.
+           The call keeps its own row: committing to what to test is the work,
+           and dropping it left two blocks of reasoning with nothing between. */
+        if (
+          part.name === "OpenCandidates" &&
+          !candidateCardDrawn &&
+          record !== undefined &&
+          record.candidates.length > 0
+        ) {
+          items.push({
+            kind: "candidate_card",
+            id: "candidates",
+            rows: candidateRows(record),
+          });
+          candidateCardDrawn = true;
         }
         const awaiting =
           pending?.toolCallId === part.toolCallId ? pending : null;

@@ -69,7 +69,7 @@ export interface RecordOutcome {
   message: string;
 }
 
-interface ToolCall {
+export interface ToolCall {
   toolCallId: string;
   // Absent until the call answers, and absent for good on a tool no claim may
   // rest on: the handle rides the result rather than the request.
@@ -88,7 +88,7 @@ interface ToolCall {
 
 // One walk of the durable transcript, which is the evidence trail. Handles are
 // read off it rather than counted, so this walk cannot disagree with another.
-function toolCallsFrom(messages: readonly TranscriptRow[]): ToolCall[] {
+export function toolCallsFrom(messages: readonly TranscriptRow[]): ToolCall[] {
   const entries: ToolCall[] = [];
   const byToolCallId = new Map<string, ToolCall>();
   for (const message of messages) {
@@ -342,7 +342,6 @@ export async function setLastStatedCandidates(
 }
 
 interface RecordFindingInput {
-  statement: string;
   verdict: Verdict;
   explanation: string;
   evidenceIds: string[];
@@ -387,7 +386,6 @@ export async function recordFinding(
     }
     const finding: Finding = {
       id: `f${record.findings.length + 1}`,
-      statement: input.statement,
       verdict: input.verdict,
       candidate: input.candidate,
       explanation: input.explanation,

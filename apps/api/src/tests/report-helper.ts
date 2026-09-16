@@ -1,15 +1,18 @@
 import { updateRecord } from "../session/record-store.js";
 import { composeReport } from "../agent/report.js";
 
-// Candidates for a test to settle, so RecordFinding has something to name.
+/* Candidates for a test to settle, so RecordFinding has something to name. The
+   claim lives here, so a test asserting on one names it here too. */
 export async function seedCandidates(
   sessionId: string,
   count = 1,
+  statements: string[] = [],
 ): Promise<string[]> {
   return await updateRecord(sessionId, (record) => {
     const added = Array.from({ length: count }, (_, i) => ({
       id: `c${record.candidates.length + i + 1}`,
-      statement: `seeded candidate ${record.candidates.length + i + 1}`,
+      statement:
+        statements[i] ?? `seeded candidate ${record.candidates.length + i + 1}`,
       ifTrue: "seeded",
       ifFalse: "seeded",
     }));
@@ -37,7 +40,6 @@ export async function seedCompleteReport(sessionId: string): Promise<void> {
       findings: [
         {
           id: "f1",
-          statement: "seeded by test",
           verdict: "disproven",
           candidate: "c1",
           explanation: "",

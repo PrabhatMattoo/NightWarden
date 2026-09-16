@@ -8,12 +8,17 @@ import {
   recordFinding,
   type RecordOutcome,
 } from "../report.js";
+import { recordGaps } from "../report.js";
+import { recordGapsMessage } from "../prompts/report.js";
 import { apiTool, optionalText } from "./schema.js";
 import type { Tool, ToolExecuteResult } from "./types.js";
 
 // Prose the record cannot do without. A blank one is the model skipping the
 // field, which stores a row nobody can read.
 const prose = z.string().trim().min(1);
+
+// Three sentences of reasoning, and the ceiling the candidate board renders at.
+const MAX_EXPLANATION_CHARS = 800;
 
 const OPEN_CANDIDATES_INPUT = z.object({
   candidates: z
@@ -48,18 +53,18 @@ const OPEN_CANDIDATES_INPUT = z.object({
 });
 
 // Reasoning before conclusion: the explanation sits ahead of the verdict, so the
-// model commits to what the evidence showed before it grades it.
+// model commits to what the evidence showed before it grades it. The claim itself
+// is the candidate's, read from there rather than copied to here.
 const RECORD_FINDING_INPUT = z.object({
-  statement: prose.meta({
-    description:
-      "The explanation you tested, stated so that it can be proved or disproved. Name the thing you mean: a container, a file, a metric, a commit. 'Check database connectivity' says nothing; 'the cache bump in PR #482 leaks memory in payments-worker' can be tested.",
-  }),
-  // Allowed to be blank: the explanation is the model's reasoning, and an empty
-  // one is a thin record rather than an unreadable one.
-  explanation: z.string().meta({
-    description:
-      "What the cited results actually showed, and why that settles it this way, in complete sentences. This is read beneath your statement by someone who was not here, so it has to explain rather than remind: quote the value, the line or the timestamp that decided it, and say what it means. Two or three sentences is usually right; a fragment is not.",
-  }),
+  explanation: z
+    .string()
+    .max(
+      MAX_EXPLANATION_CHARS,
+      `an explanation may be at most ${MAX_EXPLANATION_CHARS} characters`,
+    )
+    .meta({
+      description: `What the cited results showed, and why they settle this candidate the way your verdict says, at most ${MAX_EXPLANATION_CHARS} characters. Someone who was not here reads this under the candidate's own statement, so explain rather than remind: quote the value, the log line or the timestamp that decided it, and say what it means. Write between one and three complete sentences, and leave the candidate's statement out of it, since the reader already has it.`,
+    }),
   evidenceIds: z
     .array(z.string())
     .min(
@@ -155,6 +160,23 @@ export const REPORT_TOOLS: Tool[] = [
     citable: false,
     execute: async (input, ctx): Promise<ToolExecuteResult> =>
       toResult(await openCandidates(ctx.sessionId, input)),
+  }),
+  apiTool({
+    name: "CloseInvestigation",
+    description:
+      "Call CloseInvestigation when every candidate you opened carries a finding and no further tool call would change what you have settled. The investigation record is checked first: if a candidate is still unsettled, the call is refused and you continue working.",
+    input: z.object({}),
+    effect: "read",
+    policy: "auto",
+    citable: false,
+    /* The gate the ending already answers to, asked here instead of at silence:
+       a gap is the model's to close, so the refusal names it and the run goes on. */
+    execute: async (_input, ctx): Promise<ToolExecuteResult> => {
+      const gaps = await recordGaps(ctx.sessionId);
+      return gaps.length === 0
+        ? { content: "Accepted. Every candidate you opened carries a finding." }
+        : { content: recordGapsMessage(gaps), isError: true };
+    },
   }),
   apiTool({
     name: "RecordFinding",

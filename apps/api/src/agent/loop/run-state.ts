@@ -3,7 +3,6 @@ import {
   type MessagePart,
   type NormalizedAlert,
   type ResolvedLLMConfig,
-  type ToolName,
   type TranscriptRow,
 } from "@nightwarden/shared";
 import { resultParts } from "../evidence-id.js";
@@ -25,7 +24,13 @@ import type {
   ToolUse,
 } from "../../llm/types.js";
 import { citableIds } from "./guardrails.js";
-import type { BarrenTurns, FinishGate, RecordDebt } from "./guardrails.js";
+import type {
+  BarrenTurns,
+  ClosePrompts,
+  FinishGate,
+  RecordDebt,
+  ReportAttempts,
+} from "./guardrails.js";
 
 // A thrown error is the fourth state, "failed", and the dispatcher's catch
 // owns it: it is never returned here.
@@ -38,7 +43,6 @@ export type ChatFn = (
   tools: ToolSchema[],
   turn: number,
   signal?: AbortSignal,
-  forceTool?: ToolName,
 ) => Promise<ChatResponse>;
 
 /* The transcript this run is building, and the five operations over it. The
@@ -53,14 +57,14 @@ export class RunState {
   turn = 0;
   // A citable call has answered, so candidates can be opened against real
   // evidence rather than before any was gathered.
-  hasAnsweredCitable = false;
-  // OpenCandidates has run, so the forced candidates turn does not fire again.
-  candidatesOpened = false;
-  // The falsification turn has run, so the run composes its report next.
-  falsificationOffered = false;
-  /* The tool the next turn is held to. Set when the harness has asked for one
-     specific act, so the turn cannot answer it in prose. */
-  forceNext: ToolName | undefined;
+  evidenceGathered = false;
+  // The falsification challenge has been put to the model.
+  challengeIssued = false;
+  /* The report phase is reached: the run closed again after the challenge. Per
+     run, so a later one settling something new asks again rather than overwriting. */
+  reportUnlocked = false;
+  // The closing turn has run, so the run has already addressed the reader.
+  closingTurnDone = false;
   // Per name across the whole run, so the fourth ask is answered as the fourth.
   readonly refusedNames = new Map<string, number>();
 
@@ -107,7 +111,7 @@ export class RunState {
   // call made in this reply has no handle until its answer arrives.
   stageResults(uses: readonly ToolUse[], results: readonly ToolResult[]): void {
     const stamped = resultParts(results, citableIds(uses), this.nextEvidence);
-    if (stamped.next > this.nextEvidence) this.hasAnsweredCitable = true;
+    if (stamped.next > this.nextEvidence) this.evidenceGathered = true;
     this.nextEvidence = stamped.next;
     this.stage("user", stamped.parts);
   }
@@ -134,10 +138,15 @@ export interface RunContext {
   readonly deadline: number;
   readonly log: typeof logger;
   readonly opensInvestigation: boolean;
+  // Writes a human already approved, constant for a run: a new approval only ever
+  // lands across a resume, so it is counted once at start rather than per turn.
+  readonly approvedWrites: number;
   readonly llm: ResolvedLLMConfig;
   readonly toolCallCeilingMs: number;
   readonly chat: ChatFn;
   readonly finishGate: FinishGate;
+  readonly closePrompts: ClosePrompts;
+  readonly reportAttempts: ReportAttempts;
   readonly barrenTurns: BarrenTurns;
   readonly recordDebt: RecordDebt;
   readonly drainInbox?: (sessionId: string) => NormalizedAlert[];

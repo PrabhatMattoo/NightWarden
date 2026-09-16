@@ -58,7 +58,7 @@ As you move from gathering evidence to weighing the candidates to testing your o
 
 Gather evidence before you name a cause: the alerting signal over a window wide enough to show whether the condition held beforehand, the service's configuration and running state, its recent lifecycle events, what changed in code or deployment, its recent logs, and the state of the machine under it. Ask for the reads you can in a single turn.
 
-Then weigh the candidate explanations worth testing together, rather than settling on the first plausible cause, and test each against something a tool returned. Test the open candidates before you go deeper into any one of them. When you have found the cause and either applied a fix or worked out what it should be, state both in plain text and stop.`;
+Then weigh the candidate explanations worth testing together, rather than settling on the first plausible cause, and test each against something a tool returned. Test the open candidates before you go deeper into any one of them. When every candidate carries a finding and no further tool call would change what you have settled, call CloseInvestigation: the write-up and the closing message each get a turn of their own after it, so there is nothing to summarise before you call it.`;
 
 // The same ceiling either way - it is the only bound on how long a run can go -
 // so only the noun changes.

@@ -59,6 +59,21 @@ const MAX_METRIC_NAMES = 100;
 const NAME_WINDOW_MINUTES = 10_080;
 const MAX_ALERT_RULES = 50;
 
+/* Prometheus answers a division by zero with these rather than with an error, and
+   they arrive as strings, so nothing else in the pipeline can tell them apart
+   from a reading. Read as one, "+Inf" says "enormous" where it means "no limit". */
+const NON_FINITE = new Set(["+Inf", "-Inf", "NaN"]);
+
+function nonFiniteIn(series: MetricsSeries[]): string[] {
+  const found = new Set<string>();
+  for (const one of series) {
+    for (const [, value] of one.values) {
+      if (NON_FINITE.has(value)) found.add(value);
+    }
+  }
+  return [...found];
+}
+
 // Capped by count, then by size: a range query returns twenty series of two
 // hundred points each, which is several times what one result may occupy.
 function capSeries(data: MetricsQueryData): MetricsQueryResult {
@@ -72,6 +87,11 @@ function capSeries(data: MetricsQueryData): MetricsQueryResult {
     ...(kept.some((series) => series.histogram === true)
       ? [
           "A series marked histogram is a native histogram, and its value is the count of observations rather than a measurement. Read a percentile with histogram_quantile() instead of treating these numbers as the metric.",
+        ]
+      : []),
+    ...(nonFiniteIn(kept).length > 0
+      ? [
+          `This result carries ${nonFiniteIn(kept).join(" and ")}, which is not a measurement: the query divided by zero or by a value that was absent. Treat those points as undefined rather than as a very large or very small reading, and guard the divisor in the query before reading the ratio.`,
         ]
       : []),
   ];

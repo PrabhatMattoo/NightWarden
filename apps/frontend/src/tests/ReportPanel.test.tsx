@@ -46,12 +46,24 @@ function onSession(
 }
 
 const RECORD: InvestigationRecord = {
-  candidates: [],
+  candidates: [
+    {
+      id: "c1",
+      statement: "PR #482's cache bump leaks",
+      ifTrue: "rss climbs from the merge",
+      ifFalse: "rss is flat across the merge",
+    },
+    {
+      id: "c2",
+      statement: "the host ran out of memory",
+      ifTrue: "host free memory falls",
+      ifFalse: "host free memory stays flat",
+    },
+  ],
   lastStatedCandidates: [],
   findings: [
     {
       id: "f1",
-      statement: "PR #482's cache bump leaks",
       verdict: "root_cause",
       candidate: "c1",
       explanation: "climb starts at the merge timestamp",
@@ -60,7 +72,6 @@ const RECORD: InvestigationRecord = {
     },
     {
       id: "f2",
-      statement: "Host memory pressure",
       verdict: "disproven",
       candidate: "c2",
       explanation: "host free memory stayed flat",
@@ -230,19 +241,23 @@ describe("ReportPanel", () => {
         record: {
           ...RECORD,
           findings: [
-            { ...RECORD.findings[0]!, id: "f1", statement: "The pool leaks" },
+            {
+              ...RECORD.findings[0]!,
+              id: "f1",
+              explanation: "the pool looked exhausted",
+            },
             {
               ...RECORD.findings[0]!,
               id: "f2",
-              statement: "The query is unindexed",
+              explanation: "the query turned out to be unindexed",
             },
           ],
         },
       }),
     );
 
-    const standing = screen.getByText("The query is unindexed");
-    const replaced = screen.getByText("The pool leaks");
+    const standing = screen.getByText("the query turned out to be unindexed");
+    const replaced = screen.getByText("the pool looked exhausted");
     expect(replaced).toBeInTheDocument();
     expect(screen.getByText("Superseded")).toBeInTheDocument();
     expect(
@@ -425,12 +440,20 @@ describe("ReportPanel", () => {
       panel({
         record: {
           ...RECORD,
+          candidates: [
+            ...RECORD.candidates,
+            {
+              id: "c3",
+              statement: "The queue backed up first",
+              ifTrue: "depth climbs",
+              ifFalse: "depth is flat",
+            },
+          ],
           findings: [
             {
               id: "f3",
-              statement: "The queue backed up first",
               verdict: "symptom",
-              candidate: "c1",
+              candidate: "c3",
               explanation: "",
               evidenceIds: ["e-never-ran"],
               recordedAt: RESOLVED,
@@ -660,7 +683,6 @@ describe("ReportPanel", () => {
           findings: [
             {
               id: "f1",
-              statement: "Host memory pressure",
               verdict: "disproven",
               candidate: "c1",
               explanation: "host free memory stayed flat",

@@ -6,7 +6,7 @@ import { publishTranscriptItem } from "../../session/stream.js";
 import { toolCallCard } from "../../session/transcript.js";
 import type { logger } from "../../logger.js";
 import type { ToolResult, ToolUse } from "../../llm/types.js";
-import { isToolName } from "@nightwarden/shared";
+import { isToolName, TOOL_NAMES } from "@nightwarden/shared";
 
 // Which interrupt a gated call raises. An elicitation always raises one; a tool
 // raises one only when the user's policy says a human must permit it.
@@ -42,12 +42,14 @@ function editDistance(a: string, b: string): number {
   return prev[b.length]!;
 }
 
-// The offered name closest to what was asked for, or null when nothing is near.
-// Every invented name in the observed run was one word from a real one.
-function nearestOffered(wanted: string, offered: string[]): string | null {
+/* The real tool name closest to what was asked for, or null when nothing is
+   near. Searched across every name the build has rather than the ones this turn
+   offers: correcting a misspelling and saying what is callable are two jobs, and
+   a phase that withholds a tool has not stopped the name from being wrong. */
+function nearestToolName(wanted: string): string | null {
   let best: string | null = null;
   let bestDistance = Infinity;
-  for (const name of offered) {
+  for (const name of TOOL_NAMES) {
     const distance = editDistance(wanted.toLowerCase(), name.toLowerCase());
     if (distance < bestDistance) {
       bestDistance = distance;
@@ -71,7 +73,8 @@ function unavailableMessage(
   const what = exists
     ? `"${wanted}" is a real tool, but it is not available in this investigation: whatever it needs - a Docker host, a Kubernetes cluster, or a connected integration - is not there.`
     : `There is no tool called "${wanted}", in this investigation or anywhere in NightWarden.`;
-  const near = nearestOffered(wanted, offered);
+  // Only a name that is not itself real has a spelling to correct.
+  const near = exists ? null : nearestToolName(wanted);
   const suggestion = near === null ? "" : ` Did you mean ${near}?`;
   const repeat =
     asked > 1

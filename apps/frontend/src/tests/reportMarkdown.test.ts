@@ -30,12 +30,26 @@ const ON_SESSION: SessionAlert = {
 
 const RESPONSE: SessionReportResponse = {
   record: {
-    candidates: [],
+    // The claim a finding settles lives here, so the export reads it from the
+    // candidate rather than from a second copy on the finding.
+    candidates: [
+      {
+        id: "c1",
+        statement: "The worker buffers each source file into memory",
+        ifTrue: "rss tracks accepted job size",
+        ifFalse: "rss is flat across job sizes",
+      },
+      {
+        id: "c2",
+        statement: "The ffmpeg bump leaks",
+        ifTrue: "rss climbs from the bump",
+        ifFalse: "rss is flat across the bump",
+      },
+    ],
     lastStatedCandidates: [],
     findings: [
       {
         id: "f1",
-        statement: "The worker buffers each source file into memory",
         verdict: "root_cause",
         candidate: "c1",
         explanation: "the working set climbs with accepted job size",
@@ -44,7 +58,6 @@ const RESPONSE: SessionReportResponse = {
       },
       {
         id: "f2",
-        statement: "The ffmpeg bump leaks",
         verdict: "disproven",
         candidate: "c2",
         explanation: "the working set was flat across that window",

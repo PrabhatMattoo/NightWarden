@@ -12,7 +12,6 @@ import {
 function claim(id: string, verdict: Verdict, candidate = id): Finding {
   return {
     id,
-    statement: id,
     verdict,
     candidate,
     explanation: "",

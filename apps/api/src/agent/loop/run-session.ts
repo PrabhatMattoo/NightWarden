@@ -2,11 +2,12 @@ import { randomUUID } from "node:crypto";
 import { buildInitialContext, buildChatContext } from "../context.js";
 import type { PromptOptions } from "../prompts/system.js";
 import {
-  EMPTY_RECORD_OPENING,
-  FALSIFICATION_OPENING,
-  RECORD_CHECK_OPENING,
-  UNTESTED_CANDIDATES_OPENING,
+  CLOSE_PROMPT_MESSAGE,
+  EMPTY_RECORD_MESSAGE,
+  RECORD_CHECK_MESSAGE,
+  UNTESTED_CANDIDATES_MESSAGE,
 } from "../prompts/report.js";
+import { approvedWriteCount, gatedCalls, toolCallsFrom } from "../report.js";
 import { highestEvidenceNumber } from "../evidence-id.js";
 import { asSystemReminder, stripSystemReminder } from "../system-reminder.js";
 import { connectedPlatforms } from "../policy.js";
@@ -40,7 +41,6 @@ import { logger } from "../../logger.js";
 import type {
   AlertGroupContext,
   NormalizedAlert,
-  ToolName,
   SessionMeta,
 } from "@nightwarden/shared";
 import type {
@@ -52,6 +52,9 @@ import type {
 import type { PendingHumanInput } from "../../session/gate-store.js";
 import {
   barrenTurnPolicy,
+  closePromptPolicy,
+  deriveRunProgress,
+  reportAttemptPolicy,
   finishGatePolicy,
   recordDebtPolicy,
   spentOn,
@@ -148,7 +151,6 @@ export async function runSession(input: RunSessionInput): Promise<RunOutcome> {
     // The run's effective signal: the user's stop, or that combined with
     // the investigation deadline once the loop has one.
     chatSignal: AbortSignal | undefined = signal,
-    forceTool?: ToolName,
   ): Promise<ChatResponse> =>
     await withLLMRetries(
       async () =>
@@ -157,7 +159,6 @@ export async function runSession(input: RunSessionInput): Promise<RunOutcome> {
           toolSchemas,
           (d) => publishTextMessageContent(sessionId, turn, d),
           chatSignal,
-          forceTool,
         ),
       {
         signal: chatSignal,
@@ -188,21 +189,26 @@ export async function runSession(input: RunSessionInput): Promise<RunOutcome> {
     highestEvidenceNumber(priorRows) + 1,
     seeded,
   );
-  // Recovered from the transcript so a resume continues its phases rather than
-  // reopening candidates or re-running the falsification turn.
-  state.hasAnsweredCitable = highestEvidenceNumber(priorRows) > 0;
-  state.candidatesOpened = priorRows.some((r) =>
-    r.parts.some((p) => p.type === "tool_call" && p.name === "OpenCandidates"),
+  // Recovered in one place from the transcript so a resume continues its phases
+  // rather than reopening candidates or re-running the falsification turn.
+  Object.assign(state, deriveRunProgress(priorRows));
+  // Constant for the run, so counted once here rather than re-scanned per turn.
+  const approvedWrites = approvedWriteCount(
+    gatedCalls(toolCallsFrom(priorRows)),
   );
-  state.falsificationOffered = spentOn(priorRows, FALSIFICATION_OPENING) > 0;
 
-  /* One turn with no tools, so a run that reaches no write-up still ends on
-     words addressed to the reader rather than on its own reasoning. */
-  const closingTurn = async (
+  /* One turn with no tools, so a run that stands down still ends on words
+     addressed to the reader rather than on its own reasoning. */
+  const standDownTurn = async (
     closer: LLMProvider,
     ending: string,
+    reminder?: string,
   ): Promise<RunOutcome> => {
     try {
+      if (reminder !== undefined) {
+        state.sendSystemReminder(reminder);
+        await state.flush();
+      }
       const closing = await chatWithRetries(
         closer,
         state.conversation(),
@@ -231,7 +237,7 @@ export async function runSession(input: RunSessionInput): Promise<RunOutcome> {
       opensInvestigation,
     );
     log.info("time budget ended: user chose to end, running closing turn");
-    return await closingTurn(
+    return await standDownTurn(
       createProvider(systemPrompt, llm, apiKey),
       "investigation ended after user declined to continue",
     );
@@ -305,13 +311,19 @@ export async function runSession(input: RunSessionInput): Promise<RunOutcome> {
   /* The record belongs to the session, so its two allowances carry across a
      resume; a barren turn counts consecutive turns and starts afresh. */
   const finishGate = finishGatePolicy({
-    empty_record: spentOn(priorRows, EMPTY_RECORD_OPENING),
-    untested_candidates: spentOn(priorRows, UNTESTED_CANDIDATES_OPENING),
+    empty_record: spentOn(priorRows, EMPTY_RECORD_MESSAGE),
+    untested_candidates: spentOn(priorRows, UNTESTED_CANDIDATES_MESSAGE),
   });
+  const closePrompts = closePromptPolicy(
+    spentOn(priorRows, CLOSE_PROMPT_MESSAGE),
+  );
+  /* Per run, unlike the gate allowances: a later run revising an earlier report
+     is making its first attempt at a new write-up, not repeating a failed one. */
+  const reportAttempts = reportAttemptPolicy(0);
   const barrenTurns = barrenTurnPolicy();
   const recordDebt = recordDebtPolicy(
     opensInvestigation,
-    spentOn(priorRows, RECORD_CHECK_OPENING),
+    spentOn(priorRows, RECORD_CHECK_MESSAGE),
   );
   // Computed once and never moved, so a run cannot outrun its own clock: every
   // turn spends the same budget and the check-in below always arrives.
@@ -330,12 +342,15 @@ export async function runSession(input: RunSessionInput): Promise<RunOutcome> {
     deadline,
     log,
     opensInvestigation,
+    approvedWrites,
     llm,
     toolCallCeilingMs: config.toolCallCeilingMs,
     // The provider is bound in here, so the turn cycle never sees it.
-    chat: (messages, tools, turn, chatSignal, forceTool) =>
-      chatWithRetries(provider, messages, tools, turn, chatSignal, forceTool),
+    chat: (messages, tools, turn, chatSignal) =>
+      chatWithRetries(provider, messages, tools, turn, chatSignal),
     finishGate,
+    closePrompts,
+    reportAttempts,
     barrenTurns,
     recordDebt,
     drainInbox: input.drainInbox,
@@ -345,11 +360,13 @@ export async function runSession(input: RunSessionInput): Promise<RunOutcome> {
     const result = await runOneTurn(ctx);
     if (result.kind === "outcome") return result.outcome;
     if (result.kind === "stand_down") {
-      return await closingTurn(
+      return await standDownTurn(
         provider,
         "investigation ended with a candidate the run left open",
       );
     }
+    /* The two turns that end an investigation, in the order the reader needs
+       them: the write-up is filed, and only then is the model given words. */
     if (result.kind === "budget") break;
   }
 

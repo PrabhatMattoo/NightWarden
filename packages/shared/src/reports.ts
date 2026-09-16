@@ -29,10 +29,9 @@ export interface Finding {
   // f1, f2..., assigned by the system in recording order, so a later call cannot
   // land on an earlier row and rewrite it.
   id: string;
-  statement: string;
   verdict: Verdict;
-  // The candidate this finding settles. Every finding settles exactly one, so a
-  // later finding on the same candidate carries the verdict that now stands.
+  // The candidate this finding settles, and where its claim is read from. Every
+  // finding settles exactly one, so a later finding carries the verdict that stands.
   candidate: string;
   // What the cited results showed, and why they settle it this way.
   explanation: string;
@@ -62,6 +61,18 @@ export function rankFindings(findings: Finding[]): Finding[] {
           VERDICT_ORDER.indexOf(b.finding.verdict) || b.recorded - a.recorded,
     )
     .map(({ finding }) => finding);
+}
+
+/* A finding's claim is its candidate's: the sentence is stored once, where it
+   was opened. The id stands in where a record has lost the candidate. */
+export function claimOf(
+  candidates: Candidate[],
+  finding: Pick<Finding, "candidate">,
+): string {
+  return (
+    candidates.find((c) => c.id === finding.candidate)?.statement ??
+    finding.candidate
+  );
 }
 
 // The candidates no finding speaks for. Every finding settles exactly one, so a
@@ -130,7 +141,8 @@ export interface SubmittedReport {
   // A short noun phrase naming who was hit. Written by the model today; a blast
   // radius derived from downstream edges once the topology graph can compute one.
   affected: string;
-  // What broke, why, and where it stands now. The deck under the headline.
+  // Where the incident stands as the report is written: whether the condition is
+  // still live, and what the released writes changed. The findings carry the cause.
   summary: string;
   timeline: TimelineEntry[];
   impact: string;

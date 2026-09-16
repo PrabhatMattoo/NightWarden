@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -126,20 +126,9 @@ function ThinkingBlock({
 }: {
   item: ThinkingItem;
 }): React.JSX.Element | null {
-  const [open, setOpen] = useState(item.streaming);
-  const prevStreaming = useRef(item.streaming);
-
-  useEffect(() => {
-    if (prevStreaming.current && !item.streaming) {
-      const timer = setTimeout(() => setOpen(false), 800);
-      prevStreaming.current = item.streaming;
-      return () => clearTimeout(timer);
-    }
-    if (!prevStreaming.current && item.streaming) {
-      setOpen(true);
-    }
-    prevStreaming.current = item.streaming;
-  }, [item.streaming]);
+  // Shut until asked for: reasoning is there to be opened, not to be read at
+  // everyone. The status line above already says the model is thinking.
+  const [open, setOpen] = useState(false);
 
   const trimmed = item.text.trim();
 

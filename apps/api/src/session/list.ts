@@ -26,17 +26,30 @@ function leadingClaim(record: InvestigationRecord | null): Finding | null {
   return principalFindings(record?.findings ?? [])[0] ?? null;
 }
 
+// A finding's claim is the candidate it settles, so the line a person reads is
+// looked up there rather than stored twice.
+function claimOf(
+  record: InvestigationRecord | null,
+  finding: Finding | null | undefined,
+): string | null {
+  if (record === null || finding === undefined || finding === null) return null;
+  return (
+    record.candidates.find((c) => c.id === finding.candidate)?.statement ?? null
+  );
+}
+
 // What a finished run left the user, in descending order of use: what to do,
 // what it concluded, or what it ruled out so nobody repeats the work.
 function whatItLeft(record: InvestigationRecord | null): string | null {
   const written = record?.report?.recommendation.trim();
   if (written) return written;
-  const leading = leadingClaim(record)?.statement;
-  if (leading !== undefined) return leading;
+  const leading = claimOf(record, leadingClaim(record));
+  if (leading !== null) return leading;
   const ruledOut = record?.findings
     .filter((f) => f.verdict === "disproven")
     .at(-1);
-  return ruledOut === undefined ? null : `Ruled out: ${ruledOut.statement}`;
+  const dismissed = claimOf(record, ruledOut);
+  return dismissed === null ? null : `Ruled out: ${dismissed}`;
 }
 
 // Every branch is the system's record or the model's prose, so the failure
@@ -52,7 +65,7 @@ function deriveStatusLine(
     // What it had settled on when the person ended it, if it had settled on
     // anything. The run stopped; the claims it made before that still stand.
     case "stopped":
-      return leadingClaim(facts.record)?.statement ?? null;
+      return claimOf(facts.record, leadingClaim(facts.record));
     case "resolved":
       return "Alert condition recovered";
     case "completed":

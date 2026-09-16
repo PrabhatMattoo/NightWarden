@@ -184,7 +184,6 @@ function makeProvider(
         _tools: unknown,
         onDelta?: (d: { kind: string; text: string }) => void,
         signal?: AbortSignal,
-        forceTool?: string,
       ): Promise<ChatResponse> => {
         // Rebuilt from parts, which is all a real adapter is given.
         const messages = history.map(partsToNative);
@@ -195,29 +194,7 @@ function makeProvider(
         // A real SDK abandons an in-flight request when the signal fires; a fake
         // that returned a turn anyway would hide every abort bug.
         if (signal?.aborted) throw signal.reason;
-        const scripted = nextTurn();
-        // The API prefills the assistant message, so a forced turn always calls
-        // the tool. A script saying otherwise describes no real provider.
-        const forced =
-          forceTool !== undefined &&
-          !scripted.toolUses.some((t) => t.name === forceTool);
-        const turn: ScriptedTurn = forced
-          ? {
-              text: "",
-              toolUses: [
-                {
-                  toolCallId: `forced-${forceTool}`,
-                  name: forceTool!,
-                  input: {},
-                },
-              ],
-              // Carried: a turn cut short at the output limit still reports it,
-              // and the loop reads stopReason before it reads the call.
-              ...(scripted.stopReason !== undefined && {
-                stopReason: scripted.stopReason,
-              }),
-            }
-          : scripted;
+        const turn = nextTurn();
         if (onDelta && turn.text) {
           onDelta({ kind: "text", text: turn.text });
         }

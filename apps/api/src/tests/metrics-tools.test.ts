@@ -581,6 +581,35 @@ describe("metrics tools through the tool dispatch", () => {
       expect(content.note).toContain("histogram_quantile()");
     });
 
+    /* Prometheus answers a division by zero with "+Inf", as a string, and one
+       investigation read it as "enormously over the limit" when the divisor was
+       simply unset. The reading has to say it is not a reading. */
+    it("names a non-finite value rather than letting it read as a measurement", async () => {
+      await connect();
+      mock.body = {
+        status: "success",
+        data: {
+          resultType: "vector",
+          result: [
+            { metric: { job: "redis" }, value: [1757100000, "+Inf"] },
+            { metric: { job: "api" }, value: [1757100000, "NaN"] },
+          ],
+        },
+      };
+
+      const result = await executeTool(
+        instant,
+        { query: "used / max" },
+        await toolContext(ALERT),
+      );
+
+      const content = JSON.parse(result.content) as { note?: string };
+      expect(content.note).toContain("+Inf");
+      expect(content.note).toContain("NaN");
+      expect(content.note).toContain("divided by zero");
+      expect(content.note).toContain("undefined");
+    });
+
     it("reports a warning beside the data, since the read may be partial", async () => {
       await connect();
       mock.body = {

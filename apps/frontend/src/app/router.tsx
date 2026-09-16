@@ -10,6 +10,8 @@ import { useViewportTier } from "../shared/hooks/useViewportTier.js";
 import { AuthProvider } from "../features/auth/AuthContext.js";
 import { AuthGate } from "./AuthGate.js";
 import { METRICS_SOURCE_KINDS } from "@nightwarden/shared";
+import type { SessionDetail } from "@nightwarden/shared";
+import { apiFetch } from "../shared/api/client.js";
 
 /* Each page is fetched when its route is first visited. Loaded eagerly they
    were one bundle, so signing in paid for a report renderer it never draws. */
@@ -124,15 +126,38 @@ const agentRoute = createRoute({
   component: LAZY.AgentPage,
 });
 
+/* Read from the session's own row, which carries the flag from creation. A
+   session the API cannot answer for is left to the page, which says so. */
+async function isInvestigation(sessionId: string): Promise<boolean | null> {
+  try {
+    const session = await apiFetch<SessionDetail>(`/api/sessions/${sessionId}`);
+    return session.investigation;
+  } catch {
+    return null;
+  }
+}
+
+/* What a session is decided its route when it was created, so a link that names
+   the other one is answered by sending the reader where the session lives. */
 const agentSessionRoute = createRoute({
   getParentRoute: () => appRoute,
   path: "/agent/$id",
+  beforeLoad: async ({ params }) => {
+    if ((await isInvestigation(params.id)) === true) {
+      throw redirect({ to: "/investigations/$id", params });
+    }
+  },
   component: LAZY.AgentPage,
 });
 
 const investigationRoute = createRoute({
   getParentRoute: () => appRoute,
   path: "/investigations/$id",
+  beforeLoad: async ({ params }) => {
+    if ((await isInvestigation(params.id)) === false) {
+      throw redirect({ to: "/agent/$id", params });
+    }
+  },
   component: LAZY.InvestigationRecordPage,
 });
 

@@ -36,11 +36,33 @@ function isRetryableNetworkError(err: unknown): boolean {
   return false;
 }
 
+/* A provider can reject with a plain object rather than an Error: OpenRouter's
+   gateway answers a stalled upstream with { message, code, metadata }. */
+interface ReportedFailure {
+  message: string;
+  status: number | null;
+}
+
+function reportedFailure(err: unknown): ReportedFailure | null {
+  if (err === null || typeof err !== "object" || err instanceof Error) {
+    return null;
+  }
+  const { message, code } = err as { message?: unknown; code?: unknown };
+  if (typeof message !== "string" || message === "") return null;
+  return { message, status: typeof code === "number" ? code : null };
+}
+
 // Outages, rate limits and dropped connections are worth waiting out; auth,
 // model and request errors are not, since retrying them cannot succeed.
 export function isTransientLLMError(err: unknown): boolean {
   if (APICallError.isInstance(err)) {
     return err.isRetryable === true || err.statusCode === undefined;
+  }
+  /* A gateway timeout reported as a bare object is the same outage as one
+     wrapped as a provider error, and waiting it out is the same answer. */
+  const reported = reportedFailure(err);
+  if (reported?.status !== null && reported !== null) {
+    return reported.status === 408 || reported.status >= 500;
   }
   return isRetryableNetworkError(err);
 }
@@ -110,10 +132,28 @@ function isContextOverflow(err: APICallError): boolean {
 
 // Plain-language failure text persisted into the transcript. One or two
 // sentences a non-expert can act on, with the raw status in parentheses.
+/* Last resort, so a failure with no message still names its shape rather than
+   the word every unlabelled object prints as. */
+function describeUnknown(err: unknown): string {
+  return err === null || err === undefined
+    ? "the provider gave no reason"
+    : `the provider returned ${typeof err} with no message`;
+}
+
 export function describeLLMError(err: unknown): string {
   if (!APICallError.isInstance(err)) {
-    const message = err instanceof Error ? err.message : String(err);
-    return `The run failed unexpectedly: ${message}`;
+    // String(err) on a plain object reads "[object Object]", which tells the
+    // user nothing about the one thing they most need to know.
+    const reported = reportedFailure(err);
+    const message =
+      err instanceof Error
+        ? err.message
+        : (reported?.message ?? describeUnknown(err));
+    const detail =
+      reported === null || reported.status === null
+        ? ""
+        : ` (HTTP ${reported.status})`;
+    return `The run failed unexpectedly: ${message}${detail}`;
   }
   const status = err.statusCode;
   const attempts = MAX_RETRIES + 1;

@@ -186,7 +186,15 @@ function ToolRow({ item }: { item: ToolCallItem }): React.JSX.Element {
           nativeButton
           className="group flex w-full items-baseline gap-2 py-1 text-left"
         >
-          <span className="shrink-0 font-mono text-sm font-medium">
+          {/* The sweep is what says the call is still going, so the name
+              carries it and the row needs no second word beside it. */}
+          <span
+            data-testid="tool-call-name"
+            className={cn(
+              "shrink-0 font-mono text-sm font-medium",
+              running && "shimmer",
+            )}
+          >
             {toolName}
           </span>
           {target !== null && (
@@ -197,14 +205,6 @@ function ToolRow({ item }: { item: ToolCallItem }): React.JSX.Element {
           {/* Not stretched: the chevron belongs against the text it opens, so the
             row reads as one phrase rather than as a name and a control held
             apart by however much width the window happens to have. */}
-          {running && (
-            <span
-              data-testid="tool-call-pending"
-              className="min-w-0 text-sm text-ink-subtle animate-pulse"
-            >
-              running
-            </span>
-          )}
           {/* Always drawn, dimmed while the call is in flight. Appearing on
             completion moved the row's own text, and now that it sits in the
             reading line rather than at the margin, that jump is unmissable. */}

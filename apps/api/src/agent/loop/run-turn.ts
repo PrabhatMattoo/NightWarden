@@ -1,5 +1,5 @@
 import { METRICS_SOURCE_KINDS, openCandidateIds } from "@nightwarden/shared";
-import type { ToolName } from "@nightwarden/shared";
+import type { ReportCardItem, ToolName } from "@nightwarden/shared";
 import type { ToolDispatchContext } from "../tools/types.js";
 import {
   effectiveToolset,
@@ -20,8 +20,12 @@ import {
 } from "../report.js";
 import {
   CANDIDATES_OPENING_MESSAGE,
+  CLOSE_PROMPT_MESSAGE,
+  closingMessage,
   falsificationMessage,
   frontierMessage,
+  REPORT_RETRY_MESSAGE,
+  reportRequest,
 } from "../prompts/report.js";
 import { appendErrorMessage } from "../../session/transcript-store.js";
 import {
@@ -30,18 +34,13 @@ import {
 } from "../../session/stream.js";
 import { toolCallCard } from "../../session/transcript.js";
 import type { PendingHumanInput } from "../../session/gate-store.js";
-import type {
-  ChatResponse,
-  ToolResult,
-  ToolSchema,
-  ToolUse,
-} from "../../llm/types.js";
+import type { ChatResponse, ToolResult, ToolUse } from "../../llm/types.js";
+import { COMPOSE_REPORT_TOOL } from "../tools/report.js";
 import { processToolUses } from "./turn.js";
-import { turnEnding } from "./endings.js";
+import { REPORT_GIVEN_UP, reportEnding, turnEnding } from "./endings.js";
 import { citableAnswers } from "./guardrails.js";
 import { formatInjectedAlerts } from "./injection.js";
-import { composeReportTurn } from "./report-turn.js";
-import type { RunContext, TurnResult } from "./run-state.js";
+import type { RunContext, RunState, TurnResult } from "./run-state.js";
 
 // What the fleet and the connected integrations currently allow. Read together,
 // because the prompt describing them is built from the same call.
@@ -157,6 +156,141 @@ async function emitFrontierIfChanged(ctx: RunContext): Promise<void> {
   if (open.length > 0) ctx.state.sendSystemReminder(frontierMessage(record));
 }
 
+/* The record's own tools, withheld until the phase that needs each. A chat is
+   offered none of them, so its phase is always the whole of what it was given. */
+const RECORD_TOOL_NAMES: readonly ToolName[] = [
+  "OpenCandidates",
+  "RecordFinding",
+  "CloseInvestigation",
+];
+
+type Phase =
+  | "gatheringEvidence"
+  | "openingCandidates"
+  | "testingCandidates"
+  | "writingReport"
+  | "closingTurn";
+
+/* Every phase is read off what the record and the transcript already hold, so a
+   resumed run continues where it reached rather than repeating a phase. */
+async function phaseOf(ctx: RunContext, state: RunState): Promise<Phase> {
+  if (!ctx.opensInvestigation) return "testingCandidates";
+  if (!state.evidenceGathered) return "gatheringEvidence";
+  const record = await getRecord(ctx.sessionId);
+  if (record === undefined || record.candidates.length === 0)
+    return "openingCandidates";
+  const behind = reportIsBehind(record, ctx.approvedWrites);
+  /* Challenged and settled, write-up behind the record: a refused ComposeReport
+     leaves both true (the retry), and a later run that settles more revises here. */
+  if (behind && state.reportUnlocked) {
+    if (openCandidateIds(record).length === 0) return "writingReport";
+  }
+  // The write-up is current, so the one thing left is to say so to the reader.
+  if (!behind && !state.closingTurnDone) return "closingTurn";
+  return "testingCandidates";
+}
+
+/* One set both shown to the model and executed from, so a turn cannot be offered
+   what it cannot run; a tool the run must not reach for yet is not on the turn. */
+function toolsForPhase(phase: Phase, offered: OfferedToolset): OfferedToolset {
+  const keep = (names: (name: ToolName) => boolean): OfferedToolset => ({
+    tools: offered.tools.filter((tool) => names(tool.schema.name)),
+    elicitations: offered.elicitations,
+  });
+  switch (phase) {
+    case "gatheringEvidence":
+      return keep((name) => !RECORD_TOOL_NAMES.includes(name));
+    case "openingCandidates":
+      return keep((name) => name === "OpenCandidates");
+    case "testingCandidates":
+      return offered;
+    /* The write-up is composed from the record, and asking a human is already
+       settled by the time it runs, so neither is on the turn. */
+    case "writingReport":
+      return { tools: [COMPOSE_REPORT_TOOL], elicitations: [] };
+    case "closingTurn":
+      return { tools: [], elicitations: [] };
+  }
+}
+
+/* An accepted close means the record is whole: the challenge runs first where
+   there is anything to break, otherwise phaseOf reads the write-up off the record. */
+async function offerFalsification(ctx: RunContext): Promise<void> {
+  const { state, sessionId } = ctx;
+  const record = await getRecord(sessionId);
+  if (
+    !state.challengeIssued &&
+    record !== undefined &&
+    record.candidates.length > 0
+  ) {
+    state.challengeIssued = true;
+    state.sendSystemReminder(falsificationMessage(record));
+    return;
+  }
+  // A close once the challenge is out means the run has nothing further to break,
+  // so the report is reached; a close only ever lands a turn later than it.
+  if (state.challengeIssued) state.reportUnlocked = true;
+}
+
+/* The tool already named what is missing, so this only spends the allowance.
+   Null lets the run carry on and settle what it owes. */
+async function spendCloseRefusal(
+  ctx: RunContext,
+  turn: number,
+): Promise<TurnResult | null> {
+  const pushback = ctx.finishGate(await recordGaps(ctx.sessionId));
+  if (pushback !== null) {
+    ctx.log.info(
+      { turn, gap: pushback.kind, count: pushback.count },
+      "close refused: the record is still short",
+    );
+    return null;
+  }
+  ctx.log.warn(
+    { turn },
+    "close refused past its allowance; standing down without a report",
+  );
+  return { kind: "stand_down" };
+}
+
+// One id, because a session has one report: a later phase replaces the card
+// rather than stacking a second one under the first.
+export function publishReportCard(
+  sessionId: string,
+  phase: ReportCardItem["state"]["phase"],
+  headline?: string,
+): void {
+  publishTranscriptItem({
+    sessionId,
+    item: {
+      kind: "report_card",
+      id: "report",
+      state: { phase },
+      ...(headline !== undefined && { headline }),
+    },
+  });
+}
+
+/* Everything the write-up turn is told, assembled from the record and the
+   transcript it is about to describe. */
+async function writeUpRequest(ctx: RunContext): Promise<string> {
+  const record = await getRecord(ctx.sessionId);
+  const gated = gatedCalls(await toolCallsIn(ctx.sessionId));
+  /* Only a run that acted must recommend: ruling things out is a complete
+     ending, but releasing a write and going quiet leaves the user nothing. */
+  const unrecovered =
+    approvedWriteCount(gated) > 0 &&
+    (await recoveryState(ctx.sessionId)) === "unconfirmed";
+  return reportRequest(
+    record?.findings ?? [],
+    gated,
+    unrecovered,
+    /* So a follow-up revises what a previous run wrote rather than rebuilding it
+       from a context that may since have been compacted. */
+    record?.report ?? null,
+  );
+}
+
 // One turn of the loop: send the conversation, read what came back, and tell the
 // driver to loop, break to the continue-request, or end with an outcome.
 export async function runOneTurn(ctx: RunContext): Promise<TurnResult> {
@@ -174,32 +308,34 @@ export async function runOneTurn(ctx: RunContext): Promise<TurnResult> {
     await state.flush();
   }
 
-  // Once evidence has answered and no candidates are open, the run weighs
-  // explanations together before it looks further, forced so it cannot skip them.
-  const forceCandidates =
-    ctx.opensInvestigation &&
-    !state.candidatesOpened &&
-    state.hasAnsweredCitable;
-  let toolSchemas: ToolSchema[];
-  let forceTool: ToolName | undefined;
-  if (forceCandidates) {
+  // Which phase the run is in, read from what the record holds rather than
+  // remembered, so a resumed run lands where it left off.
+  const phase = await phaseOf(ctx, state);
+  /* Each phase says what it wants before it offers the tools to answer with, so
+     the ask and the toolset that serves it are decided in one place. */
+  if (phase === "openingCandidates") {
     state.sendSystemReminder(CANDIDATES_OPENING_MESSAGE);
-    await state.flush();
-    toolSchemas = offeredSchemas(state.offered).filter(
-      (s) => s.name === "OpenCandidates",
+  } else if (phase === "writingReport") {
+    const attempt = ctx.reportAttempts();
+    if (attempt === null) {
+      log.warn({ turn }, "write-up not written within its attempts");
+      await appendErrorMessage(sessionId, REPORT_GIVEN_UP);
+      publishReportCard(sessionId, "failed");
+      return { kind: "outcome", outcome: "completed" };
+    }
+    publishReportCard(sessionId, "building");
+    state.sendSystemReminder(
+      attempt === 1 ? await writeUpRequest(ctx) : REPORT_RETRY_MESSAGE,
     );
-    forceTool = "OpenCandidates";
-  } else if (state.forceNext !== undefined) {
-    // Asked for on the turn before, with the tool that answers it and nothing
-    // else, so the ask cannot be met with prose.
-    forceTool = state.forceNext;
-    state.forceNext = undefined;
-    toolSchemas = offeredSchemas(state.offered).filter(
-      (s) => s.name === forceTool,
-    );
-  } else {
-    toolSchemas = offeredSchemas(state.offered);
+  } else if (phase === "closingTurn") {
+    const record = await getRecord(sessionId);
+    if (record === undefined) return { kind: "outcome", outcome: "completed" };
+    state.closingTurnDone = true;
+    state.sendSystemReminder(closingMessage(record));
   }
+  await state.flush();
+  const forThisPhase = toolsForPhase(phase, state.offered);
+  const toolSchemas = offeredSchemas(forThisPhase);
 
   const startedAt = Date.now();
   let response: ChatResponse;
@@ -209,7 +345,6 @@ export async function runOneTurn(ctx: RunContext): Promise<TurnResult> {
       toolSchemas,
       state.nextSeq,
       ctx.runSignal,
-      forceTool,
     );
     state.stage("assistant", response.parts);
   } catch (err) {
@@ -243,10 +378,20 @@ export async function runOneTurn(ctx: RunContext): Promise<TurnResult> {
   );
   await state.flush();
 
-  /* Without an error row the session derives to completed and a turn that
-     answered nothing is invisible, so the ending is said in the transcript. */
-  const ending = turnEnding(response.stopReason, llm.maxOutputTokens);
+  // A lost write-up says so in its own terms; the ending is written to the
+  // transcript, since without an error row a nothing turn derives to completed.
+  const reportLost =
+    phase === "writingReport"
+      ? reportEnding(response.stopReason, llm.maxOutputTokens)
+      : null;
+  /* The record is the half worth keeping, so a lost write-up says so: without it
+     the failure reads as though the whole investigation came to nothing. */
+  const ending =
+    reportLost !== null
+      ? `${reportLost} Your findings below are complete.`
+      : turnEnding(response.stopReason, llm.maxOutputTokens);
   if (ending !== null) {
+    if (reportLost !== null) publishReportCard(sessionId, "failed");
     log.warn(
       { turn, model: llm.model, stopReason: response.stopReason },
       "turn ended without an answer",
@@ -255,76 +400,34 @@ export async function runOneTurn(ctx: RunContext): Promise<TurnResult> {
     return { kind: "outcome", outcome: "completed" };
   }
 
+  /* The last phase: the reader has been addressed and there is nothing after it,
+     so the run ends here however the model spent the turn. */
+  if (phase === "closingTurn") {
+    log.info({ turn }, "investigation written up and closed");
+    return { kind: "outcome", outcome: "completed" };
+  }
+
   if (response.toolUses.length === 0) {
     if (!ctx.opensInvestigation) {
       log.info({ turn }, "chat finished with free-form response");
       return { kind: "outcome", outcome: "completed" };
     }
-    const gaps = await recordGaps(sessionId);
-    // Read, not asked: the reconciler and the resolved webhook both stamp the
-    // record, so the gate never makes a network call as a run happens to end.
-    const recovery = await recoveryState(sessionId);
-    if (gaps.length > 0) {
-      const pushback = ctx.finishGate(gaps);
-      if (pushback !== null) {
-        log.info(
-          { turn, gap: pushback.kind, count: pushback.count, recovery },
-          "finish gate: record incomplete, pushing back",
-        );
-        state.sendSystemReminder(pushback.say);
-        // A verdict is what the ask wants, so the turn is held to the tool that
-        // records one rather than answered with another summary.
-        if (pushback.kind === "untested_candidates") {
-          state.forceNext = "RecordFinding";
-        }
-        await state.flush();
-        return { kind: "continue" };
-      }
-      /* A candidate nothing settled is coverage the write-up would claim without
-         it, so the run closes on a turn addressed to the reader instead. */
-      if (gaps.some((g) => g.kind === "untested_candidates")) {
-        log.warn(
-          { turn, recovery },
-          "finish gate: candidates left open, standing down without a report",
-        );
-        return { kind: "stand_down" };
-      }
-      log.warn(
-        { turn, gaps: gaps.map((g) => g.kind), recovery },
-        "finish gate: request cap reached, writing up incomplete",
+    /* Finishing is an act here, so a turn that asked for nothing has not asked to
+       finish. Say so, and stand down once the allowance for saying it is spent. */
+    if (ctx.closePrompts()) {
+      log.info(
+        { turn },
+        "investigation turn called no tool; asking it to close",
       );
-    }
-    // The last look, when there are candidates to challenge: test what would
-    // disprove each finding that still stands before the report is composed.
-    const record = await getRecord(sessionId);
-    if (
-      !state.falsificationOffered &&
-      record !== undefined &&
-      record.candidates.length > 0
-    ) {
-      state.falsificationOffered = true;
-      state.sendSystemReminder(falsificationMessage(record));
+      state.sendSystemReminder(CLOSE_PROMPT_MESSAGE);
       await state.flush();
       return { kind: "continue" };
     }
-    // Only a run that acted must recommend: ruling things out is a complete
-    // ending, but releasing a write and going quiet leaves the user nothing.
-    const gated = gatedCalls(await toolCallsIn(sessionId));
-    const approvedWrites = approvedWriteCount(gated);
-    /* Rewriting is lossy, so a write-up that still covers the record is kept.
-       Recovery is not a reason: a cleared alert already reads as Resolved. */
-    if (record !== undefined && !reportIsBehind(record, approvedWrites)) {
-      log.info({ turn }, "write-up still covers the record; keeping it");
-      return { kind: "outcome", outcome: "completed" };
-    }
-    return {
-      kind: "outcome",
-      outcome: await composeReportTurn(
-        ctx,
-        approvedWrites > 0 && recovery === "unconfirmed",
-        gated,
-      ),
-    };
+    log.warn(
+      { turn },
+      "investigation never asked to close; standing down without a report",
+    );
+    return { kind: "stand_down" };
   }
 
   const execCtx: Omit<ToolDispatchContext, "toolCallId"> = {
@@ -339,7 +442,7 @@ export async function runOneTurn(ctx: RunContext): Promise<TurnResult> {
 
   const { toolResults, gated, refused } = await processToolUses({
     toolUses: response.toolUses,
-    offered: state.offered,
+    offered: forThisPhase,
     sessionId,
     execCtx,
     log,
@@ -382,9 +485,6 @@ export async function runOneTurn(ctx: RunContext): Promise<TurnResult> {
   // Drained at the tool boundary, the earliest point the model can act on one,
   // as their own turn after the results.
   state.stageResults(response.toolUses, toolResults);
-  if (response.toolUses.some((t) => t.name === "OpenCandidates")) {
-    state.candidatesOpened = true;
-  }
   // Already durable: the dispatcher wrote each one when it arrived. The inbox
   // exists to tell the model, which is a separate concern from keeping it.
   const injected = ctx.drainInbox?.(sessionId) ?? [];
@@ -393,6 +493,44 @@ export async function runOneTurn(ctx: RunContext): Promise<TurnResult> {
   }
 
   await emitFrontierIfChanged(ctx);
+
+  /* The write-up landed, so the card that was spinning now names what it opens.
+     A refusal leaves the record behind, which is the next turn's write-up phase. */
+  if (phase === "writingReport") {
+    const wrote = response.toolUses.some(
+      (use) =>
+        use.name === "ComposeReport" &&
+        toolResults.some(
+          (result) =>
+            result.toolCallId === use.toolCallId && result.isError !== true,
+        ),
+    );
+    if (wrote) {
+      publishReportCard(
+        sessionId,
+        "ready",
+        (await getRecord(sessionId))?.report?.headline,
+      );
+    }
+  }
+
+  const closing = response.toolUses.find(
+    (use) => use.name === "CloseInvestigation",
+  );
+  if (closing !== undefined) {
+    const accepted = toolResults.some(
+      (result) =>
+        result.toolCallId === closing.toolCallId && result.isError !== true,
+    );
+    if (accepted) await offerFalsification(ctx);
+    else {
+      const ending = await spendCloseRefusal(ctx, turn);
+      if (ending !== null) {
+        await state.flush();
+        return ending;
+      }
+    }
+  }
 
   const claims = ((await getRecord(sessionId))?.findings ?? []).length;
   const ask = ctx.recordDebt.check(

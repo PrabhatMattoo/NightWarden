@@ -25,22 +25,22 @@ Settle a candidate with a tool result you gather after opening it: the calls fro
 
 The record is append-only, and every finding settles exactly one candidate. To state a new view of a candidate you have already settled, record another finding naming that same candidate: the newest finding about a candidate carries the verdict that stands, and the earlier finding stays on the record beneath it as superseded. If you could not work out the cause, record what you tested and say so; that is an honest and useful ending, and inventing a cause to avoid it is not.
 
-Record what you settle as you settle it, while the results are still in front of you. The write-up turn arrives once every candidate you opened carries a finding: it offers one tool and nothing else, you write the report there, and you cannot add to your record from it.`;
+Record what you settle as you settle it, while the results are still in front of you. When every candidate you opened carries a finding, call CloseInvestigation. You are then asked to test your own conclusions once, and after that to write the report, which gets a turn of its own with one tool on it and nothing else.`;
 
-// A distinct opening per gap kind, so the loop counts what it already spent on
-// each by matching these words rather than a second tally.
-export const EMPTY_RECORD_OPENING = "Your investigation record is empty.";
-export const UNTESTED_CANDIDATES_OPENING =
+// One per gap kind, each the fixed part of its message: the loop counts what it
+// already spent on that gap by matching these words rather than a second tally.
+export const EMPTY_RECORD_MESSAGE = "Your investigation record is empty.";
+export const UNTESTED_CANDIDATES_MESSAGE =
   "You have candidates you have not settled.";
-export const RECORD_CHECK_OPENING = "You have answered";
+export const RECORD_CHECK_MESSAGE = "You have answered";
 
 function sentenceFor(gap: RecordGap): string {
   switch (gap.kind) {
     case "empty_record":
-      return `${EMPTY_RECORD_OPENING} Call RecordFinding for each candidate you opened, naming it in 'candidate', with the verdict it earned, so the record says what you settled, including what you ruled out. If you could not work out the cause, record what you tested and settle it as disproven or untestable; that is an honest ending, and inventing a cause to avoid it is not.`;
+      return `${EMPTY_RECORD_MESSAGE} Call RecordFinding for each candidate you opened, naming it in 'candidate', with the verdict it earned, so the record says what you settled, including what you ruled out. If you could not work out the cause, record what you tested and settle it as disproven or untestable; that is an honest ending, and inventing a cause to avoid it is not.`;
     case "untested_candidates": {
       const rows = gap.open.map((c) => `${c.id}  ${c.statement}`).join("\n");
-      return `${UNTESTED_CANDIDATES_OPENING} Settle each of these with RecordFinding, naming it in 'candidate':\n${rows}\nA candidate a tool result settles takes the verdict that result earned. A candidate you have no way to check takes 'untestable', which is a complete answer. The write-up turn arrives once every one of them carries a finding.`;
+      return `${UNTESTED_CANDIDATES_MESSAGE} Settle each of these with RecordFinding, naming it in 'candidate':\n${rows}\nA candidate a tool result settles takes the verdict that result earned. A candidate you have no way to check takes 'untestable', which is a complete answer. Call CloseInvestigation once every one of them carries a finding.`;
     }
   }
 }
@@ -51,7 +51,7 @@ const RECOVERY_SENTENCE =
   "Nothing can confirm whether the condition that opened this investigation has recovered. Check it yourself if you have a way to, and say what the user should do in your recommendation. Do not repeat a write that has already run.";
 
 export function recordCheck(callsSinceClaim: number): string {
-  return `${RECORD_CHECK_OPENING} ${callsSinceClaim} tool calls since your last recorded finding. If any of what you have read has settled a candidate - including one you have ruled out - record it now with RecordFinding, while the results are still close to hand. If you are still narrowing and have settled nothing yet, carry on; this is a question, not an instruction.`;
+  return `${RECORD_CHECK_MESSAGE} ${callsSinceClaim} tool calls since your last recorded finding. If any of what you have read has settled a candidate - including one you have ruled out - record it now with RecordFinding, while the results are still close to hand. If you are still narrowing and have settled nothing yet, carry on; this is a question, not an instruction.`;
 }
 
 // One gap at a time reaches here, so the message names only what remains.
@@ -64,10 +64,6 @@ export function recordGapsMessage(gaps: RecordGap[]): string {
 export const CANDIDATES_OPENING_MESSAGE =
   "You have gathered initial evidence. Open the candidate explanations worth testing now, together, each with what you expect to see if it is true and what would prove it false. Open at least two: one round of reads has answered, which is too early to be certain a single explanation is the only one worth testing, and a candidate you go on to disprove is worth recording because it stops the reader retracing it.";
 
-// Stable opening for the frontier reminder, so a resumed run reads what it
-// already stated off the record rather than restating it.
-const FRONTIER_OPENING = "Still open:";
-
 // Sent when the set of open candidates changes, so the ones still to test stay
 // in view rather than being lost behind a long chain of reads.
 export function frontierMessage(record: InvestigationRecord): string {
@@ -78,11 +74,15 @@ export function frontierMessage(record: InvestigationRecord): string {
       ? []
       : [`${c.id}  ${c.statement}  expect if true: ${c.ifTrue}`];
   });
-  return `${FRONTIER_OPENING}\n${rows.join("\n")}\nTest one of these before you finish.`;
+  return `Still open:\n${rows.join("\n")}\nTest one of these before you finish.`;
 }
 
-// Stable opening for the falsification turn, matched to count whether it has run.
-export const FALSIFICATION_OPENING =
+// Sent when an investigation turn asks for no tool: finishing is an act, and the
+// fixed text lets a resumed run count this message rather than a prefix of it.
+export const CLOSE_PROMPT_MESSAGE = `Your investigation is still open. A turn that calls no tool leaves it where it was. If every candidate you opened carries a finding, call CloseInvestigation. If one is still open, settle it with RecordFinding first. If you need to read something before you can settle it, call the tool that reads it.`;
+
+// The fixed part of the falsification message, matched to count whether it ran.
+export const FALSIFICATION_MESSAGE =
   "Before you finish, test your own conclusions.";
 
 // The last look before the report: every candidate, its verdict, and what the
@@ -98,21 +98,23 @@ export function falsificationMessage(record: InvestigationRecord): string {
   const standing = principalFindings(record.findings);
   const close =
     standing.length === 0
-      ? "You have not established a cause. If there is a candidate you have not tried, open it and test it. Otherwise, state plainly that you could not establish a cause and finish."
-      : "Test what you said would disprove each finding that still stands, if you have not. If something breaks a finding, record another finding naming that same candidate: your new verdict stands and the earlier finding stays on the record beneath it as superseded. If nothing changes your conclusions, finish.";
+      ? "You have not established a cause. If there is a candidate you have not tried, open it and test it. Otherwise call CloseInvestigation, and say plainly in your write-up that no cause was established."
+      : "Test what you said would disprove each finding that still stands, if you have not. If something breaks a finding, record another finding naming that same candidate: your new verdict stands and the earlier finding stays on the record beneath it as superseded. If nothing changes your conclusions, call CloseInvestigation.";
   const table =
     rows.length === 0
       ? "You opened no candidates."
       : `Below is every candidate you opened.\n\n${rows.join("\n")}`;
-  return `${FALSIFICATION_OPENING} ${table}\n\n${close}`;
+  return `${FALSIFICATION_MESSAGE} ${table}\n\n${close}`;
 }
 
+/* The verdict and the handles, not the prose: the write-up renders beneath these
+   findings, and repeating their words here is what invites it to copy them. */
 function findingLine(f: Finding, indent: string): string {
   const cites =
     f.evidenceIds.length > 0
       ? f.evidenceIds.join(", ")
       : "nothing that resolved";
-  return `${indent}${f.id} [${f.verdict}] ${f.statement}\n${indent}    ${f.explanation}\n${indent}    cites: ${cites}`;
+  return `${indent}${f.id} [${f.verdict}] cites: ${cites}`;
 }
 
 /* Grouped by candidate, standing verdict first: a flat list invites a write-up
@@ -176,6 +178,10 @@ ${lines.join("\n")}
 </previous-report>`;
 }
 
+/* The fixed part of the write-up request, matched to count the attempts a run
+   has already made at its report. */
+export const REPORT_REQUEST_MESSAGE = "Your investigation is over.";
+
 // Repeated here rather than left to context: the timeline copies these handles
 // verbatim, and turn forty is a bad place to copy one from.
 export function reportRequest(
@@ -192,8 +198,8 @@ export function reportRequest(
       : `RECORDED FINDINGS, by the candidate each settles\n${findingsByCandidate(findings)}`;
   const sections = [
     previous === null
-      ? "Your investigation is over. Write it up for the user who will read it in the morning."
-      : "This investigation has gone further since you last wrote it up. Write it up again, for the user who will read it in the morning.",
+      ? `${REPORT_REQUEST_MESSAGE} Write the report for the user who will read it in the morning.`
+      : `${REPORT_REQUEST_MESSAGE} The investigation has gone further since your last report, so write the report again.`,
     recorded,
   ];
   if (previous !== null) sections.push(previousReportBlock(previous));
@@ -208,8 +214,32 @@ export function reportRequest(
   return sections.join("\n\n");
 }
 
-// The report turn came back wrong. One sentence naming what to fix, and the
-// same tool offered again - there is nothing else it can do from here.
-export function reportRetry(problem: string): string {
-  return `${problem} Call ComposeReport again.`;
+/* The fixed part of the closing message, matched to count whether the run has
+   already spoken: the closing phase is reached once and never returned to. */
+export const CLOSING_MESSAGE =
+  "Your report is written and is on screen for the person now.";
+
+/* The one turn the reader is addressed in, run after the report with no tools
+   offered, so the words they read are written knowing what the report holds. */
+export function closingMessage(record: InvestigationRecord): string {
+  const ruledOut = record.findings.filter(
+    (f) => f.verdict === "disproven" || f.verdict === "untestable",
+  ).length;
+  const leading = principalFindings(record.findings)[0];
+  const cause =
+    leading === undefined
+      ? "It says no cause was established."
+      : `It leads with a ${leading.verdict.replace("_", " ")}.`;
+  const dismissed =
+    ruledOut === 0
+      ? ""
+      : ` It also lists ${ruledOut === 1 ? "the candidate" : `the ${ruledOut} candidates`} you ruled out.`;
+  return `${CLOSING_MESSAGE} ${cause}${dismissed} Write the closing message to them, in 2 to 4 sentences, in your own words rather than copying a sentence out of the report.
+
+Say where the report is and name which of its sections carry substance. Then close on what the person does next: where your recommendation names an action you can carry out, name the action and ask whether to proceed with it; where the investigation established no cause, name the one observation that would settle the question; where the alert has already cleared, say so.`;
 }
+
+/* A later attempt at the write-up. The refusal is already on the transcript in
+   the tool's own words, so this says what to do rather than repeating why. */
+export const REPORT_RETRY_MESSAGE =
+  "Your last ComposeReport call did not land. Read what it answered, correct the arguments it named, and call ComposeReport again.";

@@ -11,6 +11,7 @@ import type {
   Verdict,
 } from "@nightwarden/shared";
 import {
+  claimOf,
   principalFindings,
   rankFindings,
   supersededIds,
@@ -336,7 +337,14 @@ export function ReportPanel({
       ? elapsed(createdAt, lastActivityAt)
       : null;
 
-  if (record === null) {
+  /* Opening a candidate makes the record exist while every section below is
+     still empty, so the question is whether anything can be drawn, not whether
+     a record is there. What the run is weighing is drawn instead. */
+  const weighing = record?.candidates ?? [];
+  if (
+    record === null ||
+    (record.findings.length === 0 && record.report === null)
+  ) {
     return (
       <div className="mx-auto w-full max-w-report px-8 py-6">
         <AlertBand alerts={alerts} />
@@ -344,8 +352,25 @@ export function ReportPanel({
           Investigation
         </h1>
         <p className="m-0 mt-3 text-sm text-muted-foreground">
-          The agent has not recorded a finding yet.
+          {weighing.length === 0
+            ? "The agent has not recorded a finding yet."
+            : "The agent is testing these explanations. Nothing is settled yet."}
         </p>
+        {weighing.length > 0 && (
+          <ul className="m-0 mt-4 flex list-none flex-col gap-2 p-0">
+            {weighing.map((candidate) => (
+              <li
+                key={candidate.id}
+                className="grid grid-cols-[max-content_1fr] items-baseline gap-x-3 text-sm"
+              >
+                <span className="font-mono text-xs text-ink-subtle">
+                  {candidate.id}
+                </span>
+                <span>{candidate.statement}</span>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
     );
   }
@@ -429,7 +454,7 @@ export function ReportPanel({
           demoted && "text-muted-foreground",
         )}
       >
-        {h.statement}
+        {claimOf(record.candidates, h)}
       </p>
       {h.explanation && (
         <p className="m-0 mt-2 text-sm leading-relaxed">{h.explanation}</p>
@@ -452,7 +477,7 @@ export function ReportPanel({
         </h1>
         {submitted === null && findings[0] !== undefined && (
           <p className="m-0 mt-3 text-lg font-medium">
-            {findings[0].statement}
+            {claimOf(record.candidates, findings[0])}
           </p>
         )}
         {submitted !== null && (
@@ -550,7 +575,7 @@ export function ReportPanel({
                   {VERDICT_VIEW[h.verdict].label}
                 </h4>
                 <p className="m-0 mt-1 text-sm font-medium text-muted-foreground">
-                  {h.statement}
+                  {claimOf(record.candidates, h)}
                 </p>
                 {h.explanation && (
                   <p className="m-0 mt-1.5 text-sm text-muted-foreground">

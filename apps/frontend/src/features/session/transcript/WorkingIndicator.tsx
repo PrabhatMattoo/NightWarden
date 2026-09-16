@@ -1,18 +1,16 @@
 import React from "react";
 
-// Shown when a run is active but nothing is streaming yet. The motion lives in
-// styles.css, so reduced-motion can hold the dots static.
+/* Shown while a run is active and nothing has reached the screen yet, which is
+   the model generating: the word is what it is doing, and the sweep says it is
+   still going. Three dots said only that something was happening. */
 export function WorkingIndicator(): React.JSX.Element {
   return (
     <div
-      className="nw-working animate-in fade-in duration-(--duration-slow) text-muted-foreground"
+      className="animate-in fade-in duration-(--duration-slow) text-sm text-muted-foreground"
       role="status"
-      aria-label="Working"
       data-testid="working-indicator"
     >
-      <span className="nw-working-dot nw-working-dot-a" />
-      <span className="nw-working-dot nw-working-dot-b" />
-      <span className="nw-working-dot nw-working-dot-c" />
+      <span className="shimmer">Thinking</span>
     </div>
   );
 }

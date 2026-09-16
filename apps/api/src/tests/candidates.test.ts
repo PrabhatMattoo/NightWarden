@@ -132,7 +132,20 @@ describe("candidates, the frontier and falsification", () => {
     text: "",
   });
 
-  const stopTurn = { toolUses: [], text: "Done." };
+  // How a run says it has finished, which used to be silence. A fresh id per
+  // call, because a result is read back by the id its call carried.
+  const closeTurn = () => ({
+    toolUses: [
+      {
+        toolCallId: `tu-close-${randomUUID()}`,
+        name: "CloseInvestigation",
+        input: {},
+      },
+    ],
+    text: "",
+  });
+  // The one turn the reader is addressed in, after the write-up, with no tools.
+  const closingTurn = { toolUses: [], text: "The write-up is ready." };
   const submitTurn = {
     toolUses: [
       {
@@ -188,9 +201,10 @@ describe("candidates, the frontier and falsification", () => {
         openTurn([POOL, PG]),
         findingTurn("root_cause", POOL.statement, { candidate: "c1" }),
         findingTurn("disproven", PG.statement, { candidate: "c2" }),
-        stopTurn,
-        stopTurn,
+        closeTurn(),
+        closeTurn(),
         submitTurn,
+        closingTurn,
       ]),
     );
     const id = randomUUID();
@@ -209,26 +223,74 @@ describe("candidates, the frontier and falsification", () => {
     expect(frontier[0]).toContain("c2");
   });
 
-  it("pushes back when a candidate is left untested", async () => {
+  it("refuses a close while a candidate is left untested", async () => {
     mockCreateProvider.mockImplementationOnce(() =>
       createContractFakeProvider([
         readTurn(),
         openTurn([POOL, PG]),
         findingTurn("root_cause", POOL.statement, { candidate: "c1" }),
-        stopTurn,
+        closeTurn(),
         findingTurn("disproven", PG.statement, { candidate: "c2" }),
-        stopTurn,
-        stopTurn,
+        closeTurn(),
+        closeTurn(),
         submitTurn,
+        closingTurn,
       ]),
     );
     const id = randomUUID();
     await start(id);
 
-    const pushed = harnessMessages().filter((m) =>
-      m.includes("candidates you have not settled"),
+    /* The gap reaches the model where it asked: the refusal is the close call's
+       own answer, naming the candidate still open, and the run carries on. */
+    const refusals: string[] = [];
+    for (const item of await buildTranscript(id)) {
+      if (item.kind !== "tool_call") continue;
+      if (item.toolName !== "CloseInvestigation") continue;
+      if (item.state.phase !== "complete") continue;
+      if (typeof item.state.result !== "string") continue;
+      refusals.push(item.state.result);
+    }
+    const named = refusals.filter((result) =>
+      result.includes("candidates you have not settled"),
     );
-    expect(pushed).toHaveLength(1);
+    expect(named).toHaveLength(1);
+    expect(named[0]).toContain("c2");
+    expect((await getRecord(id))!.report).not.toBeNull();
+  });
+
+  /* The order the reader needs: the write-up is filed, and only then is the
+     model given a turn with no tools to speak in. Silence used to do both. */
+  it("files the write-up before it speaks, and speaks with no tools offered", async () => {
+    mockCreateProvider.mockImplementationOnce(() =>
+      createContractFakeProvider([
+        readTurn(),
+        openTurn([POOL, PG]),
+        findingTurn("root_cause", POOL.statement, { candidate: "c1" }),
+        findingTurn("disproven", PG.statement, { candidate: "c2" }),
+        closeTurn(),
+        closeTurn(),
+        submitTurn,
+        closingTurn,
+      ]),
+    );
+    const id = randomUUID();
+    await start(id);
+
+    const provider = mockCreateProvider.mock.results[0]!.value as {
+      chat: ReturnType<typeof vi.fn>;
+    };
+    const offered = provider.chat.mock.calls.map((call) =>
+      (call[1] as Array<{ name: string }>).map((t) => t.name),
+    );
+    // The write-up turn offers one tool; the turn after it offers none.
+    expect(offered.at(-2)).toEqual(["ComposeReport"]);
+    expect(offered.at(-1)).toEqual([]);
+
+    // And the report exists by the time those closing words are asked for.
+    const reminders = harnessMessages().filter((m) =>
+      m.includes("Your report is written"),
+    );
+    expect(reminders).toHaveLength(1);
     expect((await getRecord(id))!.report).not.toBeNull();
   });
 
@@ -239,9 +301,10 @@ describe("candidates, the frontier and falsification", () => {
         openTurn([POOL, PG]),
         findingTurn("root_cause", POOL.statement, { candidate: "c1" }),
         findingTurn("disproven", PG.statement, { candidate: "c2" }),
-        stopTurn,
-        stopTurn,
+        closeTurn(),
+        closeTurn(),
         submitTurn,
+        closingTurn,
       ]),
     );
     const id = randomUUID();
@@ -256,13 +319,16 @@ describe("candidates, the frontier and falsification", () => {
       [POOL.statement, "root_cause"],
       [PG.statement, "disproven"],
     ]);
-    /* Opening the set folds into the board, which carries it live; settling one
-       is the work itself, so it keeps the row a reader checks it by. */
+    /* Both calls keep their row. Committing to what to test is the work as much
+       as settling it is, and dropping the opening left two blocks of reasoning
+       adjacent with nothing between them to explain the jump. */
     const toolNames = items.flatMap((i) =>
       i.kind === "tool_call" ? [i.toolName] : [],
     );
-    expect(toolNames).not.toContain("OpenCandidates");
+    expect(toolNames.filter((n) => n === "OpenCandidates")).toHaveLength(1);
     expect(toolNames.filter((n) => n === "RecordFinding")).toHaveLength(2);
+    // Drawn once, beside the call that opened the set rather than after it.
+    expect(items.filter((i) => i.kind === "candidate_card")).toHaveLength(1);
   });
 
   it("runs a falsification turn naming every candidate before the report", async () => {
@@ -272,9 +338,10 @@ describe("candidates, the frontier and falsification", () => {
         openTurn([POOL, PG]),
         findingTurn("root_cause", POOL.statement, { candidate: "c1" }),
         findingTurn("disproven", PG.statement, { candidate: "c2" }),
-        stopTurn,
-        stopTurn,
+        closeTurn(),
+        closeTurn(),
         submitTurn,
+        closingTurn,
       ]),
     );
     const id = randomUUID();
@@ -297,9 +364,10 @@ describe("candidates, the frontier and falsification", () => {
         findingTurn("trigger", POOL.statement, { candidate: "c1" }),
         findingTurn("disproven", PG.statement, { candidate: "c2" }),
         findingTurn("root_cause", POOL.statement, { candidate: "c1" }),
-        stopTurn,
-        stopTurn,
+        closeTurn(),
+        closeTurn(),
         submitTurn,
+        closingTurn,
       ]),
     );
     const id = randomUUID();
@@ -325,11 +393,11 @@ describe("candidates, the frontier and falsification", () => {
         openTurn([POOL, PG]),
         findingTurn("root_cause", POOL.statement, { candidate: "c1" }),
         // Asked three times for c2, answering each with prose instead.
-        stopTurn,
-        stopTurn,
-        stopTurn,
-        stopTurn,
-        stopTurn,
+        closeTurn(),
+        closeTurn(),
+        closeTurn(),
+        closeTurn(),
+        closeTurn(),
       ]),
     );
     const id = randomUUID();

@@ -148,8 +148,8 @@ function promptFrom(
   return prompt;
 }
 
-// The provider's own six, unmapped. A reason absent from this table is unknown
-// rather than an ending, so nothing new can read as a turn the model finished.
+/* The SDK's own six, unmapped. A reason absent from this table is unknown rather
+   than an ending, so nothing new can read as a turn the model finished. */
 const STOP_REASONS: Readonly<Record<string, StopReason>> = {
   stop: "done",
   "tool-calls": "tools",
@@ -157,6 +157,13 @@ const STOP_REASONS: Readonly<Record<string, StopReason>> = {
   "content-filter": "filtered",
   error: "error",
   other: "unknown",
+};
+
+/* Reasons the SDK folds into "other" because it has nowhere else for them. The
+   raw word says which, and each means something a run must not read as done. */
+const RAW_STOP_REASONS: Readonly<Record<string, StopReason>> = {
+  pause_turn: "paused",
+  model_context_window_exceeded: "length",
 };
 
 /* Model-generated JSON can be malformed; empty input reaches per-tool validation,
@@ -309,7 +316,10 @@ export class SdkProvider implements LLMProvider {
           break;
         }
         case "finish": {
-          stopReason = STOP_REASONS[event.finishReason.unified] ?? "unknown";
+          stopReason =
+            STOP_REASONS[event.finishReason.unified] ??
+            RAW_STOP_REASONS[event.finishReason.raw ?? ""] ??
+            "unknown";
           logger.info(
             {
               model: this.model.modelId,

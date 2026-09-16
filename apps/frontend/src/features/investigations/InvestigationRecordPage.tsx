@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams } from "@tanstack/react-router";
 import {
   ChevronLeft,
@@ -15,7 +14,6 @@ import {
 import { Page } from "@/shared/ui/Page";
 import { ChatRail } from "@/features/session/ChatRail";
 import { SessionView } from "@/features/session/SessionView";
-import { ConfirmDialog } from "@/shared/ui/ConfirmDialog";
 import { ReportPanel } from "@/features/report/ReportPanel";
 import { onOpenReport } from "@/features/session/transcript/openReport";
 import { Button } from "@/shared/ui/button";
@@ -27,14 +25,14 @@ import {
   DropdownMenuTrigger,
 } from "@/shared/ui/dropdown-menu";
 import { useSession } from "@/features/session/useSession";
+import { useSessionDeletion } from "@/features/session/useSessionDeletion";
 import { useSessionReport } from "@/features/report/useSessionReport";
-import { removeSession, useSessions } from "@/features/session/useSessions";
+import { useSessions } from "@/features/session/useSessions";
 import { investigationQueue } from "@/features/investigations/queue";
 import { ICON_UI } from "@/shared/lib/iconProps";
 import { reportToMarkdown } from "@/features/report/reportMarkdown";
 import { toast } from "@/shared/lib/toast";
 import { cn } from "@/shared/lib/utils";
-import { apiFetch } from "@/shared/api/client";
 
 // --duration-panel, which is what the rail animates over.
 const PANEL_MS = 320;
@@ -96,14 +94,18 @@ function QueueStepper({
 export function InvestigationRecordPage(): React.JSX.Element {
   const { id } = useParams({ strict: false });
   const sessionId = id ?? "";
-  const navigate = useNavigate();
-  const queryClient = useQueryClient();
   const session = useSession(sessionId === "" ? null : sessionId);
   const report = useSessionReport(sessionId === "" ? null : sessionId);
   const [chatRailOpen, setChatRailOpen] = useState(true);
   const [chatExpanded, setChatExpanded] = useState(false);
-  const [confirmingDelete, setConfirmingDelete] = useState(false);
   const title = session?.title ?? "";
+  const deletion = useSessionDeletion({
+    sessionId,
+    kind: "investigation",
+    noun: "investigation",
+    title,
+    returnTo: "/investigations",
+  });
 
   /* A count rather than a flag: the card is still clickable once the report is
      already the view, where the swap is a no-op and re-aiming is the answer. */
@@ -151,22 +153,6 @@ export function InvestigationRecordPage(): React.JSX.Element {
     column.focus();
   }, [openRequests]);
 
-  const remove = useMutation({
-    mutationFn: () =>
-      apiFetch<void>(`/api/sessions/${sessionId}`, { method: "DELETE" }),
-    onSuccess: () => {
-      removeSession(queryClient, "investigation", sessionId);
-      void navigate({ to: "/investigations" });
-    },
-    onError: (err) => {
-      toast.show({
-        title: "Could not delete investigation",
-        message: err instanceof Error ? err.message : "Try again.",
-        variant: "error",
-      });
-    },
-  });
-
   const copyMarkdown = (): void => {
     void navigator.clipboard
       .writeText(reportToMarkdown(title, session?.alerts ?? [], report ?? null))
@@ -206,7 +192,7 @@ export function InvestigationRecordPage(): React.JSX.Element {
                 Copy report as Markdown
               </DropdownMenuItem>
               <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={() => setConfirmingDelete(true)}>
+              <DropdownMenuItem onClick={deletion.confirm}>
                 <Trash2 {...ICON_UI} />
                 Delete
               </DropdownMenuItem>
@@ -294,17 +280,7 @@ export function InvestigationRecordPage(): React.JSX.Element {
           />
         </div>
       )}
-      <ConfirmDialog
-        open={confirmingDelete}
-        onOpenChange={(open) => {
-          if (!open) setConfirmingDelete(false);
-        }}
-        title="Delete this investigation?"
-        description={`"${title}" and its transcript will be removed permanently.`}
-        confirmLabel="Delete"
-        destructive
-        onConfirm={() => remove.mutate()}
-      />
+      {deletion.dialog}
     </Page>
   );
 }

@@ -662,7 +662,7 @@ describe("SessionView", () => {
         });
       });
       await waitFor(() => {
-        expect(screen.getByText("Thinking")).toBeInTheDocument();
+        expect(screen.getByTestId("thinking-block")).toBeInTheDocument();
       });
 
       setItems([
@@ -688,7 +688,7 @@ describe("SessionView", () => {
       });
 
       await waitFor(() => {
-        expect(screen.queryByText("Thinking")).not.toBeInTheDocument();
+        expect(screen.queryByTestId("thinking-block")).not.toBeInTheDocument();
         expect(screen.getByText("Done.")).toBeInTheDocument();
       });
     });
@@ -713,7 +713,7 @@ describe("SessionView", () => {
       await waitFor(() => {
         expect(screen.getByTestId("working-indicator")).toBeInTheDocument();
       });
-      expect(screen.queryByText("Thinking")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("thinking-block")).not.toBeInTheDocument();
       expect(screen.getAllByText("check the db")).toHaveLength(1);
 
       // Persisting the user's own turn is a MESSAGE, not a terminal: the run is
@@ -800,13 +800,16 @@ describe("SessionView", () => {
         });
       });
 
-      // The reasoning text surfaces as a single thinking block; the indicator,
-      // now that there is something to show, is gone.
+      /* One thinking block, shut: reasoning is there to be opened rather than
+         read at everyone, so the text appears when the reader asks for it. */
       await waitFor(() => {
-        expect(screen.getByText("Looking at the db metrics")).toBeVisible();
+        expect(screen.getAllByTestId("thinking-block")).toHaveLength(1);
       });
-      expect(screen.getAllByTestId("thinking-block")).toHaveLength(1);
       expect(screen.queryByTestId("working-indicator")).not.toBeInTheDocument();
+      expect(screen.queryByText("Looking at the db metrics")).toBeNull();
+
+      await user.click(screen.getByText("Thinking"));
+      expect(screen.getByText("Looking at the db metrics")).toBeVisible();
     });
 
     it("shows no thinking line when the run goes straight to a tool call", async () => {
@@ -847,7 +850,7 @@ describe("SessionView", () => {
       // aside and no bare "Thinking" line ever appears.
       await waitFor(() => {
         expect(screen.getByText("check_service_status")).toBeInTheDocument();
-        expect(screen.queryByText("Thinking")).not.toBeInTheDocument();
+        expect(screen.queryByTestId("thinking-block")).not.toBeInTheDocument();
       });
       expect(screen.queryByTestId("working-indicator")).not.toBeInTheDocument();
     });

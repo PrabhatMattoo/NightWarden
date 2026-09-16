@@ -15,6 +15,9 @@ export type PlotUnit = "bytes";
 export interface Line {
   label: string;
   points: Point[];
+  /* Points the source returned that no axis can hold - a division by zero comes
+     back as +Inf. Counted rather than dropped in silence, so the caption says so. */
+  undefined: number;
 }
 
 export type Plot =
@@ -40,6 +43,7 @@ export type Plot =
 interface Series {
   metric: Record<string, string>;
   points: Point[];
+  undefined: number;
 }
 
 // Enough to show the shape of a window without drawing a point per pixel.
@@ -88,16 +92,19 @@ function stringMap(value: unknown): Record<string, string> {
 
 // Prometheus and Loki both answer [unix seconds, value-as-string] pairs, so one
 // reader serves both and any future source that speaks the same shape.
-function pointsFrom(value: unknown): Point[] {
-  if (!Array.isArray(value)) return [];
-  return value.flatMap((pair) => {
-    if (!Array.isArray(pair) || pair.length !== 2) return [];
+function pointsFrom(value: unknown): { points: Point[]; undefined: number } {
+  if (!Array.isArray(value)) return { points: [], undefined: 0 };
+  const points: Point[] = [];
+  let undefinedPoints = 0;
+  for (const pair of value) {
+    if (!Array.isArray(pair) || pair.length !== 2) continue;
     const [at, raw] = pair;
+    if (typeof at !== "number") continue;
     const parsed = Number(raw);
-    return typeof at === "number" && Number.isFinite(parsed)
-      ? [{ at: at * 1000, value: parsed }]
-      : [];
-  });
+    if (Number.isFinite(parsed)) points.push({ at: at * 1000, value: parsed });
+    else undefinedPoints += 1;
+  }
+  return { points, undefined: undefinedPoints };
 }
 
 function seriesFrom(result: unknown): Series[] {
@@ -107,10 +114,16 @@ function seriesFrom(result: unknown): Series[] {
   return raw.flatMap((entry) => {
     const series = asRecord(entry);
     if (series === null) return [];
-    const points = pointsFrom(series["values"]);
-    return points.length === 0
+    const read = pointsFrom(series["values"]);
+    return read.points.length === 0
       ? []
-      : [{ metric: stringMap(series["metric"]), points }];
+      : [
+          {
+            metric: stringMap(series["metric"]),
+            points: read.points,
+            undefined: read.undefined,
+          },
+        ];
   });
 }
 
@@ -148,6 +161,7 @@ export function plotFrom(
       lines: overTime.map((s, at) => ({
         label: labels[at] ?? labelOf(s.metric),
         points: downsample(s.points),
+        undefined: s.undefined,
       })),
       alertAt: inWindow ? firedAt : null,
     };
@@ -186,11 +200,19 @@ export function plotCaption(plot: Plot): { of: string; scope: string } {
   const points = Math.max(...plot.lines.map((line) => line.points.length));
   const times = plot.lines.flatMap((line) => line.points.map((p) => p.at));
   const window = `${clock(Math.min(...times))}–${clock(Math.max(...times))}`;
+  // A point no axis can hold is still a point the source returned, so the
+  // caption says how many rather than letting the line close over the gap.
+  const undrawn = plot.lines.reduce((n, line) => n + line.undefined, 0);
+  const undefinedNote =
+    undrawn === 0
+      ? ""
+      : ` · ${undrawn} undefined ${undrawn === 1 ? "point" : "points"} not drawn`;
   return {
     of: plot.metric,
     scope:
-      plot.lines.length === 1
+      (plot.lines.length === 1
         ? `${points} points · ${window}`
-        : `${plot.lines.length} series · ${points} points each · ${window}`,
+        : `${plot.lines.length} series · ${points} points each · ${window}`) +
+      undefinedNote,
   };
 }

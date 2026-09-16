@@ -4,7 +4,7 @@ import type {
   SessionReportResponse,
   Verdict,
 } from "@nightwarden/shared";
-import { supersededIds } from "@nightwarden/shared";
+import { claimOf, supersededIds } from "@nightwarden/shared";
 import { targetOf } from "@/features/session/transcript/toolPresentation";
 
 // The verdict as a sentence rather than the enum, since the export is read
@@ -80,6 +80,7 @@ export function reportToMarkdown(
   }
 
   const claims = report?.record.findings ?? [];
+  const candidates = report?.record.candidates ?? [];
   const replaced = supersededIds(claims);
   const dismissed = (v: Verdict): boolean =>
     v === "disproven" || v === "untestable";
@@ -103,7 +104,7 @@ export function reportToMarkdown(
           const body = f.explanation.trim();
           const cited = citedLines(f.evidenceIds, byId);
           return [
-            `### ${f.statement}`,
+            `### ${claimOf(candidates, f)}`,
             "",
             verdict,
             ...(body === "" ? [] : ["", body]),

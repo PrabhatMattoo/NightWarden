@@ -31,7 +31,14 @@ export interface ToolResult {
 /* One value per reason a provider can report, so nothing it says is folded into
    a word meaning something else. */
 export type StopReason =
-  "done" | "tools" | "length" | "filtered" | "error" | "unknown";
+  | "done"
+  | "tools"
+  | "length"
+  | "filtered"
+  | "error"
+  // The provider stopped a turn it intends to carry on, so nothing has ended.
+  | "paused"
+  | "unknown";
 
 export interface ChatResponse {
   stopReason: StopReason;

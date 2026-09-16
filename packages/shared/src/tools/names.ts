@@ -59,7 +59,11 @@ const API_TOOL_NAMES = [
   // The record
   "OpenCandidates",
   "RecordFinding",
+  "CloseInvestigation",
   "ComposeReport",
+  // Titling a session, offered to its own throwaway provider rather than to a
+  // run: a field cannot carry the preamble that a first-four-words read did.
+  "SetTitle",
   // Asking a human is not a tool, but it is offered as one: tool-calling is the
   // only channel the model has to request anything.
   "AskUserQuestion",

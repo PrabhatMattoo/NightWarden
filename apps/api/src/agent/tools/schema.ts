@@ -75,15 +75,33 @@ export function apiTool<T extends z.ZodObject>(spec: ApiToolSpec<T>): Tool {
   };
 }
 
-// Named fields, because "invalid input" leaves the model nothing to correct.
+/* Named fields, because "invalid input" leaves the model nothing to correct.
+   Absences are grouped: four fields missing is one omission, not four faults. */
 function fieldErrors(error: z.ZodError): string {
-  return error.issues
-    .map((issue) =>
-      issue.path.length > 0
-        ? `${issue.path.join(".")}: ${issue.message}`
-        : issue.message,
-    )
-    .join("; ");
+  const missing: string[] = [];
+  const wrong: string[] = [];
+  for (const issue of error.issues) {
+    const field = issue.path.join(".");
+    if (
+      field !== "" &&
+      issue.code === "invalid_type" &&
+      issue.input === undefined
+    ) {
+      missing.push(field);
+      continue;
+    }
+    wrong.push(field === "" ? issue.message : `${field}: ${issue.message}`);
+  }
+  const said: string[] = [];
+  if (missing.length > 0) {
+    said.push(
+      missing.length === 1
+        ? `${missing[0]} is required and was not given`
+        : `these are required and were not given: ${missing.join(", ")}`,
+    );
+  }
+  said.push(...wrong);
+  return said.join("; ");
 }
 
 // The failure narrows content to a string, since the turn renders it directly.
@@ -115,7 +133,7 @@ export function parseInput(schema: z.ZodObject, input: unknown): Parsed {
   return {
     ok: false,
     failure: {
-      content: `That call could not be made - ${fieldErrors(parsed.error)}. Correct the arguments against the tool's description and call it again.`,
+      content: `The tool call could not be made - ${fieldErrors(parsed.error)}. Correct the arguments against the tool's description and call it again.`,
       isError: true,
     },
   };

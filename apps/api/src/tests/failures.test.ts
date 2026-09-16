@@ -55,6 +55,18 @@ describe("isTransientLLMError", () => {
     });
     expect(isTransientLLMError(err)).toBe(true);
   });
+
+  /* OpenRouter's gateway answers a stalled upstream with a bare object rather
+     than an Error, which is how one investigation lost its write-up. */
+  it("waits out a gateway timeout reported as a plain object", () => {
+    expect(
+      isTransientLLMError({
+        message: "Upstream idle timeout exceeded",
+        code: 504,
+        metadata: { error_type: "timeout" },
+      }),
+    ).toBe(true);
+  });
 });
 
 describe("withLLMRetries", () => {
@@ -220,6 +232,18 @@ describe("describeLLMError", () => {
     const text = describeLLMError(connectionError());
     expect(text).toContain("Could not reach the model provider");
     expect(text).not.toContain("HTTP");
+  });
+
+  // String(err) on an object reads "[object Object]", which named nothing.
+  it("reads the message off a failure reported as a plain object", () => {
+    expect(
+      describeLLMError({
+        message: "Upstream idle timeout exceeded",
+        code: 504,
+      }),
+    ).toBe(
+      "The run failed unexpectedly: Upstream idle timeout exceeded (HTTP 504)",
+    );
   });
 
   it("falls back to the raw message for non-provider errors", () => {

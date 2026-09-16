@@ -1,6 +1,12 @@
 import type { TranscriptRow } from "@nightwarden/shared";
 import { isCitable, type RecordGap } from "../report.js";
-import { recordGapsMessage, recordCheck } from "../prompts/report.js";
+import { highestEvidenceNumber } from "../evidence-id.js";
+import {
+  CLOSING_MESSAGE,
+  FALSIFICATION_MESSAGE,
+  recordGapsMessage,
+  recordCheck,
+} from "../prompts/report.js";
 import { offeredSchemas, type OfferedToolset } from "../tools/toolset.js";
 import type { ToolResult, ToolUse } from "../../llm/types.js";
 
@@ -30,6 +36,40 @@ export function finishGatePolicy(
       };
     }
     return null;
+  };
+}
+
+// Investigation turns that asked for no tool at all. Three is enough to tell a
+// model pausing from one that will not call CloseInvestigation at all.
+const MAX_CLOSE_PROMPTS = 3;
+
+/* Null once spent, which stands the run down: a model that will not call
+   CloseInvestigation cannot be made to, and the record is what it is. */
+export type ClosePrompts = () => boolean;
+
+export function closePromptPolicy(spent: number): ClosePrompts {
+  let sent = spent;
+  return () => {
+    if (sent >= MAX_CLOSE_PROMPTS) return false;
+    sent += 1;
+    return true;
+  };
+}
+
+/* Attempts at the write-up. Matching the close allowance: the deliverable is
+   worth several tries, and a model that will not call the tool cannot be made to. */
+const MAX_REPORT_ATTEMPTS = 5;
+
+/* The attempt this turn is, or null once spent - which ends the run with the
+   record and no write-up. The number says whether to ask in full or to nudge. */
+export type ReportAttempts = () => number | null;
+
+export function reportAttemptPolicy(spent: number): ReportAttempts {
+  let made = spent;
+  return () => {
+    if (made >= MAX_REPORT_ATTEMPTS) return null;
+    made += 1;
+    return made;
   };
 }
 
@@ -110,6 +150,52 @@ export function spentOn(
   return rows.filter(
     (r) => r.kind === "system_reminder" && r.content.includes(opening),
   ).length;
+}
+
+// Pending: closed after the challenge but no ComposeReport landed yet. A report
+// already written is not restored - a follow-up re-earns it with a fresh close.
+function reportPending(rows: readonly TranscriptRow[]): boolean {
+  const accepted = new Set<string>();
+  for (const row of rows)
+    for (const part of row.parts)
+      if (part.type === "tool_result" && part.isError !== true)
+        accepted.add(part.toolCallId);
+  let challenged = false;
+  let closedAfterChallenge = false;
+  for (const row of rows) {
+    if (
+      row.kind === "system_reminder" &&
+      row.content.includes(FALSIFICATION_MESSAGE)
+    ) {
+      challenged = true;
+      continue;
+    }
+    for (const part of row.parts) {
+      if (part.type !== "tool_call" || !accepted.has(part.toolCallId)) continue;
+      if (part.name === "ComposeReport") return false;
+      if (challenged && part.name === "CloseInvestigation")
+        closedAfterChallenge = true;
+    }
+  }
+  return closedAfterChallenge;
+}
+
+// The four phase milestones this session has passed. Read once from the durable
+// transcript on resume; the live run keeps them in memory as each event lands.
+export interface RunProgress {
+  evidenceGathered: boolean;
+  challengeIssued: boolean;
+  reportUnlocked: boolean;
+  closingTurnDone: boolean;
+}
+
+export function deriveRunProgress(rows: readonly TranscriptRow[]): RunProgress {
+  return {
+    evidenceGathered: highestEvidenceNumber(rows) > 0,
+    challengeIssued: spentOn(rows, FALSIFICATION_MESSAGE) > 0,
+    reportUnlocked: reportPending(rows),
+    closingTurnDone: spentOn(rows, CLOSING_MESSAGE) > 0,
+  };
 }
 
 // Read from the turn, because a harness turn orphans a tool_use from its result.

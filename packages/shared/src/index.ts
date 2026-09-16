@@ -179,6 +179,7 @@ export type {
 } from "./reports.js";
 export {
   rankFindings,
+  claimOf,
   principalFindings,
   openCandidateIds,
   standingFindings,

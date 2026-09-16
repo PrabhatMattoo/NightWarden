@@ -548,7 +548,6 @@ describe("API-local session store", () => {
 
       const named = await investigation();
       await recordFinding(named, {
-        statement: "the deploy set the cache size",
         verdict: "trigger",
         candidate: (await seedCandidates(named))[0]!,
         explanation: "the climb starts at the merge",
@@ -728,7 +727,6 @@ describe("API-local session store", () => {
     it("gives every investigation a group, whatever its record holds", async () => {
       const sessionId = await investigation();
       await recordFinding(sessionId, {
-        statement: "something downstream broke",
         verdict: "symptom",
         candidate: (await seedCandidates(sessionId))[0]!,
         explanation: "it followed the upstream failure",
@@ -824,16 +822,20 @@ describe("API-local session store", () => {
     it("leads with the most confident claim, the newer of two equals winning", async () => {
       const sessionId = await investigation();
       await recordFinding(sessionId, {
-        statement: "the cache size grew at the merge",
         verdict: "symptom",
-        candidate: (await seedCandidates(sessionId))[0]!,
+        candidate: (
+          await seedCandidates(sessionId, 1, ["memory climbs with the cache"])
+        )[0]!,
         explanation: "it climbs with the cache",
         evidenceIds: [await cite(sessionId, "tu-1", 0)],
       });
       await recordFinding(sessionId, {
-        statement: "the sidecar leaks between deploys",
         verdict: "root_cause",
-        candidate: (await seedCandidates(sessionId))[0]!,
+        candidate: (
+          await seedCandidates(sessionId, 1, [
+            "the sidecar leaks between deploys",
+          ])
+        )[0]!,
         explanation: "the leak survives the restart",
         evidenceIds: [await cite(sessionId, "tu-2", 1)],
       });
@@ -843,9 +845,12 @@ describe("API-local session store", () => {
       );
 
       await recordFinding(sessionId, {
-        statement: "the pool never returns its connections",
         verdict: "root_cause",
-        candidate: (await seedCandidates(sessionId))[0]!,
+        candidate: (
+          await seedCandidates(sessionId, 1, [
+            "the pool never returns its connections",
+          ])
+        )[0]!,
         explanation: "the pool is full at the crash",
         evidenceIds: [await cite(sessionId, "tu-3", 2)],
       });
