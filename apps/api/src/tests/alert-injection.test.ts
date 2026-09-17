@@ -256,9 +256,8 @@ describe("mid-run alert injection (loop seam)", () => {
     expect(JSON.stringify(transcript)).not.toContain(
       "Another alert in this same alert group",
     );
-    /* The alert that opened the session leads, then where the second one landed:
-       it arrived while the model was still composing turn 1, so the tool call
-       that ran afterwards reads afterwards. */
+    /* The opening alert leads, then the second where it landed: it arrived mid
+       turn 1, so the tool call that ran afterwards reads afterwards. */
     expect(transcript.slice(0, 4).map((i) => i.kind)).toEqual([
       "alert_arrived",
       "alert_arrived",
@@ -489,7 +488,11 @@ describe("mid-run alert injection (loop seam)", () => {
     await waitFor(async () => !(await dispatcher.isSessionRunning(sessionId)));
 
     // Approve: the resume dispatch this issues carries no `alert` field.
-    await respondToPendingHumanInput(sessionId, { decision: "approve" });
+    await respondToPendingHumanInput(
+      sessionId,
+      { decision: "approve" },
+      { id: "u1", name: "Tester", email: "tester@nw.local" },
+    );
     await waitFor(async () => await dispatcher.isSessionRunning(sessionId));
 
     // The resumed session is still the one covering this group, even though the

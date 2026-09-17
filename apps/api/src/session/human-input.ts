@@ -24,6 +24,7 @@ import { messagePartsToText } from "@nightwarden/shared";
 import type {
   ApprovalResponse,
   ApprovalStatus,
+  Actor,
   MessagePart,
   RespondRequest,
   TranscriptRow,
@@ -100,10 +101,8 @@ async function ensureDeleted(sessionId: string): Promise<void> {
   }
 }
 
-// The whole turn's results as one row, since the wire needs one message. Written
-// here because the result of a command that already ran must survive a crash.
-// The calls are already on the transcript, so which of them a claim may rest on
-// is read from the names they were recorded under.
+// One row for the whole turn, since the wire needs one message and a ran
+// command's result must survive a crash; citability reads the recorded names.
 function citableIds(
   rows: readonly TranscriptRow[],
   results: readonly ToolResult[],
@@ -153,18 +152,25 @@ async function unpause(
   answer: ToolResult,
   card: { toolName: string; input: Record<string, unknown> },
   said: string,
+  actor: Actor,
 ): Promise<HumanInputActionResult> {
   const resolvedAt = new Date().toISOString();
   // A part of its own rather than a field on the result: being asked a question
   // and permitting a write are different acts, and only this records either.
   const decision: MessagePart =
     status === "answered"
-      ? { type: "elicitation_answer", toolCallId, text: said }
+      ? {
+          type: "elicitation_answer",
+          toolCallId,
+          text: said,
+          actor: actor,
+        }
       : {
           type: "tool_approval",
           toolCallId,
           approved: status === "approved",
           ...(said !== "" && { reason: said }),
+          actor: actor,
         };
 
   // One transaction with the gate clear, so the seed the resumed run builds
@@ -190,6 +196,7 @@ async function unpause(
       state: {
         phase: "resolved",
         decision: status,
+        actor: actor,
         // An approved tool ran and an answer is what the person said; a
         // rejection ran nothing, and already reads as Declined.
         ...(status !== "rejected" && { result: answer.content }),
@@ -213,6 +220,7 @@ async function unpause(
 export async function respondToPendingHumanInput(
   sessionId: string,
   request: RespondRequest,
+  actor: Actor,
 ): Promise<HumanInputActionResult> {
   const pending = await requirePendingHumanInput(sessionId);
   const { decision, text } = request;
@@ -299,6 +307,7 @@ export async function respondToPendingHumanInput(
       },
       { toolName: call.name, input: call.input },
       "",
+      actor,
     );
   }
 
@@ -312,6 +321,7 @@ export async function respondToPendingHumanInput(
       { toolCallId: pending.toolCallId, content: answer },
       { toolName: call.name, input: call.input },
       "",
+      actor,
     );
   }
 
@@ -329,6 +339,7 @@ export async function respondToPendingHumanInput(
       result,
       { toolName: call.name, input: call.input },
       "",
+      actor,
     );
   }
 
@@ -354,5 +365,6 @@ export async function respondToPendingHumanInput(
     gatedResult,
     { toolName: call.name, input: call.input },
     answer,
+    actor,
   );
 }

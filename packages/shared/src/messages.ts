@@ -40,6 +40,14 @@ export interface ToolResultPart {
   isError?: boolean;
 }
 
+// The signed-in person who made a human decision, stamped from the request's own
+// session so the audit trail names who, not just what. Optional on older parts.
+export interface Actor {
+  id: string;
+  name: string;
+  email: string;
+}
+
 // Written only where a person was asked to release a write, which is the only
 // place approval can be known. A refused call never reached a gate.
 export interface ToolApprovalPart {
@@ -47,6 +55,7 @@ export interface ToolApprovalPart {
   toolCallId: string;
   approved: boolean;
   reason?: string;
+  actor?: Actor;
 }
 
 // The answer to an elicitation. Separate from an approval because being asked
@@ -55,6 +64,7 @@ export interface ElicitationAnswerPart {
   type: "elicitation_answer";
   toolCallId: string;
   text: string;
+  actor?: Actor;
 }
 
 /* The summary a provider wrote in place of everything above it, replayed as

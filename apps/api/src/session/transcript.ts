@@ -2,6 +2,7 @@ import type {
   ApprovalStatus,
   CandidateRow,
   ContinueCardItem,
+  Actor,
   InvestigationRecord,
   TranscriptRow,
   ToolCallState,
@@ -105,6 +106,7 @@ function toolCallState(
   result: string | undefined,
   gate: ToolGate | null,
   decided: ApprovalStatus | null,
+  actor: Actor | null,
 ): ToolCallState {
   if (gate !== null) return { phase: "awaiting_human", gate };
   // The decision was recorded when they were asked, so nothing has to work out
@@ -114,6 +116,7 @@ function toolCallState(
       phase: "resolved",
       decision: decided,
       ...(result !== undefined && { result }),
+      ...(actor !== null && { actor }),
     };
   if (result === undefined) return { phase: "running" };
   return { phase: "complete", result };
@@ -182,14 +185,17 @@ export async function buildTranscript(
   // about it, each read from the part that records it.
   const results = new Map<string, string>();
   const decisions = new Map<string, ApprovalStatus>();
+  const deciders = new Map<string, Actor>();
   for (const msg of messages) {
     for (const part of msg.parts) {
       if (part.type === "tool_result") {
         results.set(part.toolCallId, part.output);
       } else if (part.type === "tool_approval") {
         decisions.set(part.toolCallId, part.approved ? "approved" : "rejected");
+        if (part.actor) deciders.set(part.toolCallId, part.actor);
       } else if (part.type === "elicitation_answer") {
         decisions.set(part.toolCallId, "answered");
+        if (part.actor) deciders.set(part.toolCallId, part.actor);
       }
     }
   }
@@ -288,9 +294,8 @@ export async function buildTranscript(
           });
         }
       } else if (part.type === "tool_call") {
-        /* The board is docked and carries live state, so it is drawn once here.
-           The call keeps its own row: committing to what to test is the work,
-           and dropping it left two blocks of reasoning with nothing between. */
+        /* The board is docked and drawn once here; the call keeps its own row,
+           because committing to what to test is itself the work worth showing. */
         if (
           part.name === "OpenCandidates" &&
           !candidateCardDrawn &&
@@ -312,16 +317,22 @@ export async function buildTranscript(
           awaiting !== null && awaiting.kind !== "continue"
             ? awaiting.kind
             : null;
-        const decided = decisionFor(
-          part.toolCallId,
-          results.has(part.toolCallId) && awaiting === null,
-        );
+        const settled = results.has(part.toolCallId) && awaiting === null;
+        const decided = decisionFor(part.toolCallId, settled);
+        const decider = settled
+          ? (deciders.get(part.toolCallId) ?? null)
+          : null;
         items.push(
           toolCallCard({
             toolCallId: part.toolCallId,
             toolName: part.name,
             input: part.input,
-            state: toolCallState(results.get(part.toolCallId), gate, decided),
+            state: toolCallState(
+              results.get(part.toolCallId),
+              gate,
+              decided,
+              decider,
+            ),
             priorRuns: priorRunsOf(part.name, part.input, approved),
           }),
         );

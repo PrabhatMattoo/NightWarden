@@ -3,6 +3,7 @@
 
 import type {
   Candidate,
+  Actor,
   EvidenceKind,
   Finding,
   GatedCall,
@@ -83,6 +84,8 @@ export interface ToolCall {
   // Absent unless a person was asked about this call, which is the only thing
   // that makes it a released write rather than a call the harness ran or refused.
   approved?: boolean;
+  // Who released the write, read from the same approval part that carries `approved`.
+  actor?: Actor;
   timestamp: string;
 }
 
@@ -114,6 +117,7 @@ export function toolCallsFrom(messages: readonly TranscriptRow[]): ToolCall[] {
         const entry = byToolCallId.get(part.toolCallId);
         if (entry) {
           entry.approved = part.approved;
+          if (part.actor !== undefined) entry.actor = part.actor;
         }
       }
     }
@@ -220,6 +224,7 @@ export function gatedCalls(entries: readonly ToolCall[]): GatedCall[] {
         at: entry.timestamp,
         decision: approved ? "approved" : "rejected",
         ...(isError === true && { isError: true }),
+        ...(entry.actor !== undefined && { actor: entry.actor }),
         result: entry.result,
       },
     ];

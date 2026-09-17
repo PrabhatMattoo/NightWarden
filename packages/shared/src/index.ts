@@ -145,6 +145,7 @@ export type {
   CompactionPart,
   MessagePart,
   PartProviderOptions,
+  Actor,
 } from "./messages.js";
 export { messagePartsToText, toolResultText } from "./messages.js";
 export type {

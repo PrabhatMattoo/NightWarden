@@ -20,7 +20,7 @@ import {
 import { buildSessionMeta } from "../agent/loop/run-session.js";
 import { listSessionPage } from "./list.js";
 import { buildTranscript } from "./transcript.js";
-import { requireSession } from "../auth/session.js";
+import { currentUser, actorOf, requireSession } from "../auth/session.js";
 import { logger } from "../logger.js";
 import { buildSeed } from "./seed.js";
 import { teardown } from "../sandbox/workspace.js";
@@ -149,10 +149,17 @@ export async function registerSessionRoutes(
     async (request, reply) => {
       const body = parseRequest(respondRequestSchema, request.body ?? {});
       if (!body.ok) return reply.code(400).send({ error: body.error });
+      // Behind requireSession, so a null here is a race with sign-out, not an
+      // anonymous caller: refuse rather than record a decision with no author.
+      const user = await currentUser(request);
+      if (user === null) {
+        return reply.code(401).send({ error: "authentication required" });
+      }
       try {
         const response = await respondToPendingHumanInput(
           request.params.id,
           body.data,
+          actorOf(user),
         );
         return reply.code(200).send(response);
       } catch (error) {

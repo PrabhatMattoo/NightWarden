@@ -181,6 +181,11 @@ describe("a suspended session serves its pending row with its transcript", async
       phase: "resolved",
       decision: "rejected",
       result: expect.any(String),
+      actor: {
+        id: expect.any(String),
+        name: expect.any(String),
+        email: expect.any(String),
+      },
     });
 
     unregisterRunner(conn);

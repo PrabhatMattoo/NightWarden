@@ -13,7 +13,7 @@ import {
 import { onRevealToolCall, REVEAL_MS } from "./revealToolCall.js";
 import { cn } from "@/shared/lib/utils";
 import { isTool, parseTargetKey } from "@nightwarden/shared";
-import type { ToolName } from "@nightwarden/shared";
+import type { ApprovalStatus, ToolName } from "@nightwarden/shared";
 import { stringAt as inputString } from "@/shared/lib/toolResult";
 import type { ToolCallItem } from "./types.js";
 import { DiffCard, parseFileChange } from "./DiffCard.js";
@@ -142,6 +142,16 @@ function ToolBody({
   return <CappedText text={text} />;
 }
 
+// How a settled decision reads on the resolved row. "Declined" rather than
+// "Rejected", to match the report and the language the card used when asking.
+const DECISION_WORD: Record<ApprovalStatus, string> = {
+  pending: "",
+  approved: "Approved",
+  rejected: "Declined",
+  answered: "Answered",
+  continued: "Continued",
+};
+
 function ToolRow({ item }: { item: ToolCallItem }): React.JSX.Element {
   const [open, setOpen] = useState(false);
   const [revealed, setRevealed] = useState(false);
@@ -167,6 +177,11 @@ function ToolRow({ item }: { item: ToolCallItem }): React.JSX.Element {
 
   const running = result === null;
   const target = targetOf(input) ?? inputString(input, "path");
+  // Who settled this call, drawn on the resolved row so the audit reads inline.
+  const actor =
+    item.state.phase === "resolved" ? (item.state.actor ?? null) : null;
+  const decisionWord =
+    item.state.phase === "resolved" ? DECISION_WORD[item.state.decision] : null;
 
   return (
     // Anchor for the report's evidence links: a citation there names the tool
@@ -200,6 +215,11 @@ function ToolRow({ item }: { item: ToolCallItem }): React.JSX.Element {
           {target !== null && (
             <span className="shrink-0 font-mono text-sm text-ink-subtle">
               {target}
+            </span>
+          )}
+          {actor !== null && decisionWord !== null && (
+            <span className="min-w-0 truncate text-sm text-ink-subtle">
+              {decisionWord} by {actor.name} ({actor.email})
             </span>
           )}
           {/* Not stretched: the chevron belongs against the text it opens, so the

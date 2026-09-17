@@ -2,6 +2,7 @@
 // is suspended on. The browser draws these and never derives a call's state.
 
 import type { ApprovalStatus } from "./approvals.js";
+import type { Actor } from "./messages.js";
 import type { Verdict } from "./reports.js";
 
 // Named as the gate names it, so there is one vocabulary. It lives on the one
@@ -14,7 +15,13 @@ export type ToolCallState =
   | { phase: "running" }
   | { phase: "awaiting_human"; gate: ToolGate }
   // A human decided; `result` arrives once the tool that was waiting has run.
-  | { phase: "resolved"; decision: ApprovalStatus; result?: unknown }
+  // `actor` names who, absent on a decision recorded before it was tracked.
+  | {
+      phase: "resolved";
+      decision: ApprovalStatus;
+      result?: unknown;
+      actor?: Actor;
+    }
   | { phase: "complete"; result: unknown };
 
 export interface UserTurnItem {

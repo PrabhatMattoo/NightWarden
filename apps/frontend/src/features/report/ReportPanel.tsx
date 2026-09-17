@@ -69,7 +69,7 @@ function Band({
 }
 
 // Three words for the three outcomes worth telling apart: it ran, they said
-// no, or it broke. Who decided is not shown, since there is one user.
+// no, or it broke. Who decided is drawn beside the row, from `actor`.
 function decisionView(call: {
   decision: "approved" | "rejected";
   isError?: boolean;
@@ -151,6 +151,7 @@ function timelineRows(
         target: call.target,
         decision: call.decision,
         ...(call.isError === true && { isError: true }),
+        ...(call.actor !== undefined && { actor: call.actor }),
       },
     },
   }));
@@ -227,6 +228,12 @@ function TimelineRow({
               <span className="text-muted-foreground"> {action.target}</span>
             )}
           </span>
+          {/* Muted, so who approved sits beside the action without outranking it. */}
+          {action.actor !== undefined && (
+            <span className="shrink-0 text-sm text-ink-subtle">
+              by {action.actor.name} ({action.actor.email})
+            </span>
+          )}
         </span>
       )}
     </li>
@@ -337,9 +344,8 @@ export function ReportPanel({
       ? elapsed(createdAt, lastActivityAt)
       : null;
 
-  /* Opening a candidate makes the record exist while every section below is
-     still empty, so the question is whether anything can be drawn, not whether
-     a record is there. What the run is weighing is drawn instead. */
+  /* A record exists once a candidate opens while every section is still empty,
+     so the test is whether anything can be drawn, not whether a record is there. */
   const weighing = record?.candidates ?? [];
   if (
     record === null ||

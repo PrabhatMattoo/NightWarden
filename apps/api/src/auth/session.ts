@@ -1,4 +1,5 @@
 import { fromNodeHeaders } from "better-auth/node";
+import type { Actor } from "@nightwarden/shared";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import { getAuth } from "./instance.js";
 
@@ -7,6 +8,12 @@ export interface SignedInUser {
   email: string;
   name: string;
   role: string | null;
+}
+
+// The audit-trail slice of a signed-in user: who released a write, without the
+// role, which is not part of the record a decision carries.
+export function actorOf(user: SignedInUser): Actor {
+  return { id: user.id, name: user.name, email: user.email };
 }
 
 // Validated against the auth_session row rather than a signature alone, so a

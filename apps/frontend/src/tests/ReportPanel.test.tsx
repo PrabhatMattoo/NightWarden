@@ -326,6 +326,32 @@ describe("ReportPanel", () => {
     expect(screen.getByText("the container was killed")).toBeInTheDocument();
   });
 
+  it("names who released a write on its timeline row", () => {
+    render(
+      panel({
+        decisions: [
+          {
+            toolCallId: "tu-1",
+            toolName: "RestartDockerService",
+            target: "prod-1/encodr/cache",
+            at: "2026-07-21T12:20:00.000Z",
+            decision: "approved",
+            result: '{"restarted":true}',
+            actor: {
+              id: "u-7",
+              name: "Prabhat",
+              email: "prabhat@nw.local",
+            },
+          },
+        ],
+      }),
+    );
+
+    expect(
+      screen.getByText("by Prabhat (prabhat@nw.local)"),
+    ).toBeInTheDocument();
+  });
+
   it("puts the tool output that backs a claim underneath the claim", () => {
     // Both citations on the standing claim: what a run ruled out draws no
     // evidence, so a change cited there would never be reached.

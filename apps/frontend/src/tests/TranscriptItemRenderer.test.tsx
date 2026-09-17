@@ -50,6 +50,40 @@ describe("TranscriptItemRenderer", () => {
     });
   });
 
+  describe("a settled call", () => {
+    const settled = (actor?: {
+      id: string;
+      name: string;
+      email: string;
+    }): TranscriptItem => ({
+      kind: "tool_call",
+      toolCallId: "tu-done",
+      toolName: "RestartDockerService",
+      input: { target: "prod-1/app/web", reason: "OOM" },
+      state: {
+        phase: "resolved",
+        decision: "approved",
+        result: "restarted",
+        ...(actor !== undefined && { actor }),
+      },
+    });
+
+    it("names who approved the released write", () => {
+      wrap(settled({ id: "u-7", name: "Prabhat", email: "prabhat@nw.local" }));
+
+      expect(
+        screen.getByText("Approved by Prabhat (prabhat@nw.local)"),
+      ).toBeInTheDocument();
+    });
+
+    it("renders a decision recorded before an approver was tracked", () => {
+      wrap(settled(undefined));
+
+      expect(screen.getByText("RestartDockerService")).toBeInTheDocument();
+      expect(screen.queryByText(/Approved by/)).not.toBeInTheDocument();
+    });
+  });
+
   describe("a call awaiting approval", () => {
     const approvalItem: TranscriptItem = {
       kind: "tool_call",

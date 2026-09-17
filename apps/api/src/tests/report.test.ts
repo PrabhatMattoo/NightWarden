@@ -184,6 +184,7 @@ describe("the investigation record", () => {
     at: string,
     isError?: true,
     approved?: boolean,
+    actor?: { id: string; name: string; email: string },
   ): Promise<void> {
     // Stamped as the loop stamps it, so a call here is citable exactly when a
     // call in a real run would be.
@@ -222,6 +223,7 @@ describe("the investigation record", () => {
                   type: "tool_approval" as const,
                   toolCallId: entry.toolCallId,
                   approved,
+                  ...(actor !== undefined && { actor }),
                 },
               ]),
         ],
@@ -984,6 +986,33 @@ describe("the investigation record", () => {
 
       // Nobody was asked, so there is nothing to report either way.
       expect(gatedCalls(await toolCallsIn(sessionId))).toHaveLength(0);
+    });
+
+    it("carries who released a write onto the gated call", async () => {
+      const sessionId = randomUUID();
+      await seedTranscript(sessionId);
+      await appendCall(
+        sessionId,
+        4,
+        {
+          toolCallId: "tu-restart",
+          name: "RestartDockerService",
+          input: { target: "prod-1/app/web", reason: "OOM" },
+        },
+        "restarted",
+        "2026-07-03T02:05:00.000Z",
+        undefined,
+        true,
+        { id: "u-7", name: "Prabhat", email: "prabhat@nw.local" },
+      );
+
+      const [call] = gatedCalls(await toolCallsIn(sessionId));
+      expect(call?.decision).toBe("approved");
+      expect(call?.actor).toEqual({
+        id: "u-7",
+        name: "Prabhat",
+        email: "prabhat@nw.local",
+      });
     });
   });
 

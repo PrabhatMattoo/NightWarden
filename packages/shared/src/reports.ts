@@ -1,6 +1,8 @@
 // Three parts, three authors, three moments: the candidates the agent opens as
 // it reasons, the findings it appends as it settles them, and the report at the end.
 
+import type { Actor } from "./messages.js";
+
 // Six, so a run has a home for "I had no way to test it" apart from "I tested it
 // and it is false". Recorded once tested, so there is no "open" finding.
 export type Verdict =
@@ -129,6 +131,7 @@ export interface TimelineEntry {
     target: string | null;
     decision: "approved" | "rejected";
     isError?: boolean;
+    actor?: Actor;
   };
 }
 
@@ -196,8 +199,8 @@ export interface ResolvedEvidence {
   approved?: boolean;
 }
 
-// Who decided is not recorded: there is one user, and a multi-tenant build
-// would get the name from the session that approved it.
+// The person who released the write is stamped from their signed-in session at
+// the moment they decided; `actor` is absent only on a pre-attribution row.
 export interface GatedCall {
   toolCallId: string;
   toolName: string;
@@ -206,6 +209,7 @@ export interface GatedCall {
   // When it answered, which is what places it on the timeline.
   at: string;
   decision: "approved" | "rejected";
+  actor?: Actor;
   // The API's reading of the tool; what the person said is `decision` above.
   isError?: boolean;
   // Only worth reading on a failure: a success is its own output, which the
