@@ -146,9 +146,12 @@ describe("AuthGate", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("navigates to /login when a 401 arrives from any fetch mid-session", async () => {
+  it("signs out on a data-route 401 only when auth-status says the session is gone", async () => {
     vi.stubGlobal("EventSource", MockEventSource);
 
+    // The authority the interceptor consults on a 401; flipped to model a session
+    // that dies between two otherwise identical failures.
+    let authenticated = true;
     const fetchMock = vi.fn().mockImplementation((url: string) => {
       if (url.includes("/auth-status")) {
         return Promise.resolve({
@@ -157,7 +160,7 @@ describe("AuthGate", () => {
           json: () =>
             Promise.resolve({
               ownerExists: true,
-              authenticated: true,
+              authenticated,
               email: "a@b.com",
             }),
         });
@@ -165,11 +168,12 @@ describe("AuthGate", () => {
       if (url.includes("/sessions")) {
         return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
       }
-      if (url.endsWith("/trigger-401")) {
+      // A bad integration credential: a real 401 from a data route.
+      if (url.endsWith("/data-401")) {
         return Promise.resolve({
           ok: false,
           status: 401,
-          json: () => Promise.resolve({ error: "expired" }),
+          json: () => Promise.resolve({ error: "bad github token" }),
         });
       }
       return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
@@ -197,8 +201,14 @@ describe("AuthGate", () => {
       ).toBeInTheDocument();
     });
 
-    await fetch("/trigger-401");
+    // Session still valid: the interceptor revalidates and stays put, so an
+    // upstream 401 no longer signs the person out.
+    await fetch("/data-401");
+    expect(router.state.location.pathname).not.toBe("/login");
 
+    // The session dies, so the same 401 now revalidates to a sign-out.
+    authenticated = false;
+    await fetch("/data-401");
     await waitFor(() => {
       expect(router.state.location.pathname).toBe("/login");
     });
