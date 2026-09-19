@@ -236,7 +236,7 @@ describe("GitHubConnectPage - onboarding (not yet connected)", () => {
 
     await waitFor(() => {
       expect(
-        screen.getByRole("button", { name: "Disconnect" }),
+        screen.getByRole("button", { name: "Disconnect GitHub" }),
       ).toBeInTheDocument();
     });
 
@@ -354,6 +354,24 @@ describe("GitHubConnectPage - management (already connected)", () => {
     ).toBeDisabled();
   });
 
+  it("brings back the token input when GitHub rejects the stored token, not a Validated line", async () => {
+    setup({
+      status: configuredStatus("acme/api", 5),
+      repos: {
+        status: 401,
+        body: { error: "Token invalid or expired", code: "invalid_token" },
+      },
+    });
+
+    // The live repos load rejects the stored token, so the page asks for a
+    // replacement rather than claiming the old one is valid.
+    expect(
+      await screen.findByText(/token invalid or expired/i),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText(/personal access token/i)).toBeInTheDocument();
+    expect(screen.queryByText(/^validated/i)).not.toBeInTheDocument();
+  });
+
   it("changes the repository via the stored token, with no token in the request", async () => {
     const user = userEvent.setup();
     const { fetchMock } = setup({ status: configuredStatus("acme/api") });
@@ -424,7 +442,7 @@ describe("GitHubConnectPage - management (already connected)", () => {
     const { fetchMock } = setup({ status: configuredStatus("acme/api") });
 
     await screen.findByText(/validated/i);
-    await user.click(screen.getByRole("button", { name: "Disconnect" }));
+    await user.click(screen.getByRole("button", { name: "Disconnect GitHub" }));
     const dialog = await screen.findByRole("alertdialog");
     await user.click(
       within(dialog).getByRole("button", { name: "Disconnect" }),

@@ -9,15 +9,15 @@ import { cn } from "@/shared/lib/utils";
    as a box anyway is a box the eye stops at for nothing. */
 type AlertVariant = "destructive" | "warning";
 
+/* One accent, not a flood: the icon carries the tone, the title and body stay
+   neutral. A whole block in the status colour reads as louder than it is. */
 const alertVariants = cva(
-  "group/alert relative grid w-full grid-cols-[auto_1fr] gap-x-2 gap-y-1 rounded-lg border px-3 py-2 text-left text-sm *:[svg]:row-span-2 *:[svg]:translate-y-0.5 *:[svg]:text-current",
+  "group/alert relative grid w-full grid-cols-[auto_1fr] gap-x-2 gap-y-1 rounded-lg border px-3 py-2 text-left text-sm text-foreground *:[svg]:row-span-2 *:[svg]:translate-y-0.5",
   {
     variants: {
       variant: {
-        destructive:
-          "bg-destructive-tint text-destructive *:data-[slot=alert-description]:text-destructive",
-        warning:
-          "bg-warning-tint text-warning *:data-[slot=alert-description]:text-warning",
+        destructive: "bg-destructive-tint *:[svg]:text-destructive",
+        warning: "bg-warning-tint *:[svg]:text-warning",
       },
     },
   },
@@ -71,7 +71,7 @@ function AlertDescription({
     <div
       data-slot="alert-description"
       className={cn(
-        "col-start-2 text-sm text-balance md:text-pretty [&_a]:underline [&_a]:underline-offset-3 [&_a]:hover:text-foreground [&_p:not(:last-child)]:mb-4",
+        "col-start-2 text-sm text-balance text-muted-foreground md:text-pretty [&_a]:underline [&_a]:underline-offset-3 [&_a]:hover:text-foreground [&_p:not(:last-child)]:mb-4",
         className,
       )}
       {...props}

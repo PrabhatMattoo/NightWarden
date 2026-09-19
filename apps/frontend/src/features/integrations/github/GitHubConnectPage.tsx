@@ -21,6 +21,7 @@ import {
 } from "@/shared/ui/combobox";
 import { Field, FieldDescription, FieldLabel } from "@/shared/ui/field";
 import { Input } from "@/shared/ui/input";
+import { Skeleton } from "@/shared/ui/skeleton";
 import { Spinner } from "@/shared/ui/spinner";
 import { ConfirmDialog } from "@/shared/ui/ConfirmDialog";
 import { DetailPage } from "@/shared/ui/Page";
@@ -67,6 +68,8 @@ const githubPatch = <T,>(url: string, payload: unknown): Promise<T> =>
   });
 
 interface LadderContent {
+  // Something to act on is a warning; a failure nothing here can fix is red.
+  tone: "warning" | "destructive";
   title: string;
   detail: string;
   showRegenerate: boolean;
@@ -81,6 +84,7 @@ function ladderContent(err: unknown): LadderContent {
     switch (body.code) {
       case "invalid_token":
         return {
+          tone: "warning",
           title: "Token invalid or expired",
           detail:
             "GitHub rejected the token. Regenerate it and paste the new one.",
@@ -88,6 +92,7 @@ function ladderContent(err: unknown): LadderContent {
         };
       case "sso_required":
         return {
+          tone: "warning",
           title: "SSO authorization required",
           detail:
             "Authorize this token for your organization's SSO on GitHub, then try again.",
@@ -95,6 +100,7 @@ function ladderContent(err: unknown): LadderContent {
         };
       case "repo_not_found":
         return {
+          tone: "warning",
           title: "Repository not reachable",
           detail:
             body.orgApprovalUrl !== undefined
@@ -108,12 +114,14 @@ function ladderContent(err: unknown): LadderContent {
       // Reachable and authenticated, so neither a retry nor a new token helps.
       case "bad_response":
         return {
+          tone: "destructive",
           title: "GitHub answered in a shape NightWarden cannot read",
           detail: err.message,
           showRegenerate: false,
         };
       default:
         return {
+          tone: "destructive",
           title: "GitHub unreachable",
           detail: err.message,
           showRegenerate: false,
@@ -121,6 +129,7 @@ function ladderContent(err: unknown): LadderContent {
     }
   }
   return {
+    tone: "destructive",
     title: "Request failed",
     detail: err instanceof Error ? err.message : "Try again.",
     showRegenerate: false,
@@ -130,7 +139,7 @@ function ladderContent(err: unknown): LadderContent {
 function LadderAlert({ error }: { error: unknown }): React.JSX.Element {
   const content = ladderContent(error);
   return (
-    <Alert variant="destructive">
+    <Alert variant={content.tone}>
       <AlertTitle>{content.title}</AlertTitle>
       <AlertDescription>
         <span>{content.detail}</span>
@@ -165,7 +174,7 @@ function LadderAlert({ error }: { error: unknown }): React.JSX.Element {
    missing it can still finish connecting and fix the host afterwards. */
 function PreflightWarning({ issue }: { issue: string }): React.JSX.Element {
   return (
-    <Alert variant="destructive">
+    <Alert variant="warning">
       <AlertTitle>Code sandbox prerequisites missing</AlertTitle>
       <AlertDescription>
         {issue}. You can finish connecting, but code sessions will fail until
@@ -237,11 +246,12 @@ function RepoCombobox({
 export function GitHubConnectPage(): React.JSX.Element {
   const queryClient = useQueryClient();
 
-  const { data: status } = useQuery<GitHubIntegrationStatus>({
-    queryKey: ["github-integration"],
-    queryFn: () =>
-      apiFetch<GitHubIntegrationStatus>("/api/integrations/github"),
-  });
+  const { data: status, isPending: statusPending } =
+    useQuery<GitHubIntegrationStatus>({
+      queryKey: ["github-integration"],
+      queryFn: () =>
+        apiFetch<GitHubIntegrationStatus>("/api/integrations/github"),
+    });
   const configured = status?.configured === true;
 
   const [token, setToken] = useState("");
@@ -273,7 +283,20 @@ export function GitHubConnectPage(): React.JSX.Element {
       : null;
 
   const usingFreshToken = token.trim() !== "";
-  const showTokenInput = changingToken || (!configured && repos === null);
+  // A stored token GitHub has just rejected is no longer a connection to
+  // summarise, so the input returns for a replacement rather than reading valid.
+  const tokenRejected =
+    error instanceof ApiError &&
+    (errorBody(error).code === "invalid_token" ||
+      errorBody(error).code === "sso_required");
+  const showTokenInput =
+    changingToken || (!configured && repos === null) || tokenRejected;
+  // The initial load, before we know whether the stored token still reaches a
+  // repo: skeleton it so "Validated" never flashes ahead of the repo list.
+  const settling =
+    !changingToken &&
+    !usingFreshToken &&
+    (statusPending || (configured && repos === null && error === null));
 
   function tokenSummaryText(): string {
     if (!usingFreshToken && configured) {
@@ -415,8 +438,13 @@ export function GitHubConnectPage(): React.JSX.Element {
             </a>{" "}
             with repo scope instead.
           </FieldDescription>
-          {showTokenInput ? (
-            <>
+          {settling ? (
+            <div className="mt-2 flex flex-col gap-3">
+              <Skeleton className="h-5 w-48" />
+              <Skeleton className="h-9 w-full max-w-field" />
+            </div>
+          ) : showTokenInput ? (
+            <div className="mt-2 flex flex-col gap-3">
               <div className="flex flex-wrap items-center gap-2">
                 <Button
                   size="sm"
@@ -451,15 +479,14 @@ export function GitHubConnectPage(): React.JSX.Element {
                   Validate
                 </Button>
               </div>
-            </>
+            </div>
           ) : (
             <div className="flex items-center gap-2 text-sm">
               <CircleCheckIcon {...ICON_UI} className="text-success" />
               <span>{tokenSummaryText()}</span>
               <Button
                 size="sm"
-                variant="ghost"
-                className="text-muted-foreground"
+                variant="secondary"
                 onClick={() => setChangingToken(true)}
               >
                 Change
@@ -470,7 +497,7 @@ export function GitHubConnectPage(): React.JSX.Element {
 
         {error !== null && <LadderAlert error={error} />}
 
-        {!showTokenInput && repos === null && configured && (
+        {!settling && !showTokenInput && loadingRepos && (
           <Spinner className="size-4" />
         )}
 
@@ -526,17 +553,19 @@ export function GitHubConnectPage(): React.JSX.Element {
             </div>
           ))}
 
+        {/* A destructive escape, not the task: it recedes below a divider so it
+            never competes with reconnecting. */}
         {configured && (
-          <div>
+          <div className="border-t border-border pt-4">
             <Button
               size="sm"
-              variant="secondary"
-              className="self-start"
+              variant="ghost"
+              className="self-start text-muted-foreground hover:text-destructive"
               disabled={disconnecting}
               onClick={() => setConfirmOpen(true)}
             >
               {disconnecting && <Spinner className="size-4" />}
-              Disconnect
+              Disconnect GitHub
             </Button>
           </div>
         )}
