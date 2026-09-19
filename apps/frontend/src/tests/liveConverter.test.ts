@@ -10,19 +10,19 @@ import type {
   ThinkingItem,
 } from "@/features/session/transcript/types";
 
-function textDelta(delta: string, turn = 1): FrontendEvent {
+function textDelta(delta: string, turn = 1, block = 0): FrontendEvent {
   return {
     messageId: "m1",
     type: "TEXT_MESSAGE_CONTENT",
-    payload: { sessionId: "s1", kind: "text", delta, turn },
+    payload: { sessionId: "s1", kind: "text", delta, turn, block },
   };
 }
 
-function thinkingDelta(delta: string, turn = 1): FrontendEvent {
+function thinkingDelta(delta: string, turn = 1, block = 0): FrontendEvent {
   return {
     messageId: "m1",
     type: "TEXT_MESSAGE_CONTENT",
-    payload: { sessionId: "s1", kind: "thinking", delta, turn },
+    payload: { sessionId: "s1", kind: "thinking", delta, turn, block },
   };
 }
 
@@ -136,7 +136,13 @@ describe("applyLiveEvent — continue interrupt", () => {
       {
         messageId: "m1",
         type: "TEXT_MESSAGE_CONTENT",
-        payload: { sessionId: "s1", kind: "thinking", delta: "Hmm…", turn: 1 },
+        payload: {
+          sessionId: "s1",
+          kind: "thinking",
+          delta: "Hmm…",
+          turn: 1,
+          block: 0,
+        },
       },
       "s1",
     );
@@ -174,7 +180,7 @@ describe("applyLiveEvent — thinking", () => {
   /* One rule with three ways of arriving: anything that is not another thinking
      delta settles the burst. A row per event, not a case per event. */
   it.each([
-    ["a text delta", () => textDelta("Checked."), "agent_text"],
+    ["a text delta", () => textDelta("Checked.", 1, 1), "agent_text"],
     ["a tool call", () => toolCallStart("tu-1"), "tool_call"],
     ["an interrupt", () => interrupt("tu-gate"), "tool_call"],
   ])("stops streaming the moment %s arrives", (_label, event, kind) => {
@@ -189,9 +195,9 @@ describe("applyLiveEvent — thinking", () => {
 
   it("starts a new, independent thinking item for the next burst", () => {
     let items: TranscriptItem[] = [];
-    items = applyLiveEvent(items, thinkingDelta("First burst"), "s1");
+    items = applyLiveEvent(items, thinkingDelta("First burst", 1, 0), "s1");
     items = applyLiveEvent(items, toolCallStart("tu-1"), "s1");
-    items = applyLiveEvent(items, thinkingDelta("Second burst"), "s1");
+    items = applyLiveEvent(items, thinkingDelta("Second burst", 1, 1), "s1");
 
     expect(items).toHaveLength(3);
     expect((items[0] as ThinkingItem).text).toBe("First burst");
@@ -209,21 +215,46 @@ describe("applyLiveEvent — thinking", () => {
 
   it("drops a whitespace-only thinking burst instead of leaving a bare item", () => {
     let items: TranscriptItem[] = [];
-    items = applyLiveEvent(items, thinkingDelta("\n  "), "s1");
+    items = applyLiveEvent(items, thinkingDelta("\n  ", 1, 0), "s1");
     // Still streaming, so it lingers until finalized.
     expect(items).toHaveLength(1);
     // A text delta finalizes the burst; whitespace-only means it is discarded.
-    items = applyLiveEvent(items, textDelta("Answer."), "s1");
+    items = applyLiveEvent(items, textDelta("Answer.", 1, 1), "s1");
     expect(items).toHaveLength(1);
     expect(items[0]).toMatchObject({ kind: "agent_text", text: "Answer." });
+  });
+});
+
+describe("applyLiveEvent — block identity", () => {
+  // The projection ids a saved part `assistant-${seq}-${block}`, and the stream
+  // carries the same turn and block, so the two key alike and never remount.
+  it("keys a streamed row with the id the server will save it under", () => {
+    const items = applyLiveEvent([], thinkingDelta("Reasoning", 7, 2), "s1");
+    expect((items[0] as ThinkingItem).id).toBe("assistant-7-2");
+  });
+
+  it("splits two reasoning blocks that arrive back to back into distinct rows", () => {
+    let items: TranscriptItem[] = [];
+    items = applyLiveEvent(items, thinkingDelta("First", 1, 0), "s1");
+    items = applyLiveEvent(items, thinkingDelta("Second", 1, 1), "s1");
+
+    expect(items).toHaveLength(2);
+    expect((items[0] as ThinkingItem).id).toBe("assistant-1-0");
+    expect((items[1] as ThinkingItem).id).toBe("assistant-1-1");
+    expect((items[0] as ThinkingItem).streaming).toBe(false);
+    expect((items[1] as ThinkingItem).streaming).toBe(true);
   });
 });
 
 describe("applyLiveEvent — a retry restarts the turn's stream", () => {
   it("drops the partial reasoning and text so the re-stream replaces it", () => {
     let items: TranscriptItem[] = [];
-    items = applyLiveEvent(items, thinkingDelta("Half a thou"), "s1");
-    items = applyLiveEvent(items, textDelta("The api container was OOM"), "s1");
+    items = applyLiveEvent(items, thinkingDelta("Half a thou", 1, 0), "s1");
+    items = applyLiveEvent(
+      items,
+      textDelta("The api container was OOM", 1, 1),
+      "s1",
+    );
     items = applyLiveEvent(items, retrying(), "s1");
     expect(items).toHaveLength(0);
 

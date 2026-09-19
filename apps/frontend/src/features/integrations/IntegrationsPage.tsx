@@ -10,15 +10,13 @@ import type {
 } from "@nightwarden/shared";
 import { METRICS_SOURCE_KINDS } from "@nightwarden/shared";
 
-import { Page, SectionHeading } from "@/shared/ui/Page";
-import { Card } from "@/shared/ui/card";
+import { SectionPage } from "@/shared/ui/Page";
 import { StatusText } from "@/shared/ui/status";
 import { IntegrationLogo } from "@/features/integrations/IntegrationHeader";
 import { apiFetch } from "@/shared/api/client";
 import { INTEGRATION_CATALOG } from "./catalog";
 
-// Named for what a connection gives an investigation. A section appears with
-// its first row.
+// Named for what a connection gives an investigation, and the order they read in.
 const CATEGORIES = [
   "Alerting",
   "Metrics",
@@ -44,42 +42,45 @@ interface IntegrationRow {
   unavailable?: boolean;
 }
 
-/* A full-width row, not a tile. The whole row is the link, so there is no
-   Connect button duplicating the one action it already has. */
-function CatalogRow({ row }: { row: IntegrationRow }): React.JSX.Element {
+/* Each card is the link. When connected, title + status sit as a group beside
+   the logo, vertically centred.  When not, the title alone centres. */
+function CatalogCard({ row }: { row: IntegrationRow }): React.JSX.Element {
   const body = (
     <>
-      <IntegrationLogo logo={row.logo} />
-      <span className="flex min-w-0 flex-1 flex-col gap-1">
-        <span className="text-sm leading-tight font-medium text-foreground">
-          {row.title}
+      {/* Icon row: logo + title (+ status when connected) */}
+      <span className="flex items-center gap-3">
+        <IntegrationLogo logo={row.logo} className="size-8" />
+        <span className="flex min-w-0 flex-1 flex-col">
+          <span className="text-sm leading-tight font-normal text-foreground">
+            {row.title}
+          </span>
+          {row.status !== null && (
+            <StatusText tone={row.statusVariant === "muted" ? "muted" : "ok"}>
+              {row.status}
+            </StatusText>
+          )}
         </span>
-        <span className="text-sm text-muted-foreground">{row.description}</span>
       </span>
-      {row.status !== null && (
-        <StatusText tone={row.statusVariant === "muted" ? "muted" : "ok"}>
-          {row.status}
-        </StatusText>
-      )}
+      {/* Description, aligned with the logo's left edge. */}
+      <span className="text-sm font-light text-foreground">
+        {row.description}
+      </span>
     </>
   );
-  const shape = "flex items-start gap-3 px-4 py-3";
-  return (
-    <li className="not-last:border-b not-last:border-border">
-      {row.unavailable === true ? (
-        <div aria-label={row.title} className={`${shape} opacity-55`}>
-          {body}
-        </div>
-      ) : (
-        <Link
-          to={row.to}
-          aria-label={row.title}
-          className={`${shape} no-underline transition-colors hover:bg-card-hover`}
-        >
-          {body}
-        </Link>
-      )}
-    </li>
+  const shape =
+    "flex flex-col gap-1.5 rounded-lg border border-border px-4 py-3 transition-colors";
+  return row.unavailable === true ? (
+    <div aria-label={row.title} className={`${shape} opacity-55`}>
+      {body}
+    </div>
+  ) : (
+    <Link
+      to={row.to}
+      aria-label={row.title}
+      className={`group/card ${shape} no-underline hover:bg-card-hover`}
+    >
+      {body}
+    </Link>
   );
 }
 
@@ -155,8 +156,8 @@ export function IntegrationsPage(): React.JSX.Element {
 
   const connectedRunners = (runners ?? []).filter((r) => r.hostname !== null);
 
-  // Two entries, because the two install and are addressed differently. Each
-  // routes to its own list rather than its wizard.
+  // Two entries, because the two install and are addressed differently. An
+  // empty platform routes straight to setup rather than an empty list.
   function platformCard(
     platform: "docker" | "kubernetes",
     noun: string,
@@ -170,7 +171,10 @@ export function IntegrationsPage(): React.JSX.Element {
       description: identity.description,
       category: "Fleet",
       logo: identity.logo,
-      to: `/integrations/${platform}`,
+      to:
+        count > 0
+          ? `/integrations/${platform}`
+          : `/integrations/${platform}/add`,
       status: count > 0 ? `${count} ${count === 1 ? noun : `${noun}s`}` : null,
     };
   }
@@ -233,26 +237,21 @@ export function IntegrationsPage(): React.JSX.Element {
     },
   ];
 
+  // Read in capability order whatever order the rows were built in.
+  const shown = [...rows].sort(
+    (a, b) => CATEGORIES.indexOf(a.category) - CATEGORIES.indexOf(b.category),
+  );
+
   return (
-    <Page crumbs={[{ label: "Integrations" }]} measure="form">
-      <div className="flex flex-col gap-8">
-        {CATEGORIES.map((category) => {
-          const inCategory = rows.filter((r) => r.category === category);
-          if (inCategory.length === 0) return null;
-          return (
-            <section key={category} className="flex flex-col gap-3">
-              <SectionHeading>{category}</SectionHeading>
-              <Card className="gap-0 py-0">
-                <ul className="m-0 flex list-none flex-col p-0">
-                  {inCategory.map((row) => (
-                    <CatalogRow key={row.title} row={row} />
-                  ))}
-                </ul>
-              </Card>
-            </section>
-          );
-        })}
+    <SectionPage
+      title="Integrations"
+      description="Connect your monitoring, error tracking, and developer platforms to NightWarden."
+    >
+      <div className="grid grid-cols-3 gap-3">
+        {shown.map((row) => (
+          <CatalogCard key={row.title} row={row} />
+        ))}
       </div>
-    </Page>
+    </SectionPage>
   );
 }

@@ -10,37 +10,34 @@ import {
 import { timeAgo } from "@/shared/lib/time";
 import { cn } from "@/shared/lib/utils";
 
-const COLLAPSED_SERVICES = 6;
-
-// A server owns a variable-length list of services, which is why this is a card
-// and not a table row: a row has one line of height and clips the rest.
+// A summary line, not the whole advertised list: the count says the shape and
+// the disclosure holds the keys for whoever needs one.
 export function ServerCard({
   runner,
   actions,
+  // The verify step exists to confirm the wiring, so it opens the list; a
+  // managed fleet only needs the count until someone asks.
+  defaultServicesOpen = false,
 }: {
   runner: RunnerRecord;
   actions?: React.ReactNode;
+  defaultServicesOpen?: boolean;
 }): React.JSX.Element {
   const online = runner.online;
   const keys = (runner.manifest?.services ?? []).map((entry) => entry.target);
-  const shown = keys.slice(0, COLLAPSED_SERVICES);
-  const rest = keys.slice(COLLAPSED_SERVICES);
 
   return (
     <Card
       data-testid="server-card"
       data-offline={!runner.online || undefined}
-      className={cn("gap-2 px-4 py-4", !runner.online && "opacity-60")}
+      className={cn("gap-3 px-4 py-4", !runner.online && "opacity-60")}
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="font-medium">{runner.serverName}</p>
+          <p className="text-sm font-medium">{runner.serverName}</p>
           <p className="mt-1 text-sm text-muted-foreground">
             {runner.hostname !== null && runner.hostname !== runner.serverName
-              ? `host ${runner.hostname}`
-              : null}
-            {runner.hostname !== null && runner.hostname !== runner.serverName
-              ? " · "
+              ? `host ${runner.hostname} · `
               : null}
             {runner.platform}
           </p>
@@ -49,7 +46,7 @@ export function ServerCard({
           <StatusText tone={online ? "ok" : "muted"}>
             {online ? "Online" : "Offline"}
           </StatusText>
-          <span className="font-mono text-sm tabular-nums text-muted-foreground">
+          <span className="text-sm tabular-nums text-muted-foreground">
             {timeAgo(runner.lastSeen)}
           </span>
         </div>
@@ -60,28 +57,25 @@ export function ServerCard({
           No services advertised yet.
         </p>
       ) : (
-        <Collapsible className="flex flex-col gap-1">
-          {shown.map((key) => (
-            <span key={key} className="font-mono text-sm break-all">
-              {key}
-            </span>
-          ))}
-          {rest.length > 0 && (
-            <>
-              <CollapsibleContent className="flex flex-col gap-1">
-                {rest.map((key) => (
-                  <span key={key} className="font-mono text-sm break-all">
-                    {key}
-                  </span>
-                ))}
-              </CollapsibleContent>
-              <CollapsibleTrigger
-                render={<Button variant="link" className="self-start" />}
+        <Collapsible
+          defaultOpen={defaultServicesOpen}
+          className="flex flex-col gap-2"
+        >
+          <CollapsibleTrigger
+            render={<Button variant="link" className="self-start" />}
+          >
+            {keys.length} {keys.length === 1 ? "service" : "services"}
+          </CollapsibleTrigger>
+          <CollapsibleContent className="flex flex-col gap-1">
+            {keys.map((key) => (
+              <span
+                key={key}
+                className="font-mono text-sm break-all text-muted-foreground"
               >
-                {rest.length} more
-              </CollapsibleTrigger>
-            </>
-          )}
+                {key}
+              </span>
+            ))}
+          </CollapsibleContent>
         </Collapsible>
       )}
 

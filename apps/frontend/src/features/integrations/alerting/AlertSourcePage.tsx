@@ -7,7 +7,7 @@ import { Button } from "@/shared/ui/button";
 import { FieldDescription, FieldTitle } from "@/shared/ui/field";
 import { StatusText } from "@/shared/ui/status";
 import { Spinner } from "@/shared/ui/spinner";
-import { Page } from "@/shared/ui/Page";
+import { DESCRIPTION, DetailPage } from "@/shared/ui/Page";
 import { ConfirmDialog } from "@/shared/ui/ConfirmDialog";
 import { CopyableSnippet } from "@/shared/ui/CopyableSnippet";
 import { IntegrationHeader } from "@/features/integrations/IntegrationHeader";
@@ -98,15 +98,11 @@ export function AlertSourcePage({
   const configured = status?.configured === true;
 
   return (
-    <Page
-      measure="form"
-      crumbs={[
-        { label: "Integrations", to: "/integrations" },
-        { label: identity.label },
-      ]}
+    <DetailPage
+      back={{ to: "/integrations", label: "Integrations" }}
       /* Withheld while a freshly minted secret is on screen: that moment is a
          step to finish, not a delivery report to read. */
-      controls={
+      actions={
         configured && !unsaved && status ? (
           <StatusText tone={status.lastReceivedAt !== null ? "ok" : "muted"}>
             {status.lastReceivedAt !== null
@@ -128,7 +124,7 @@ export function AlertSourcePage({
 
         {status && (
           <>
-            <p className="text-sm">{content.where}</p>
+            <p className={`m-0 ${DESCRIPTION}`}>{content.where}</p>
 
             {/* Three rows in a fixed order that never reflows. Only the secret
                 row changes state, so nothing moves under whoever is copying. */}
@@ -232,6 +228,6 @@ export function AlertSourcePage({
           if (blocker.status === "blocked") blocker.proceed();
         }}
       />
-    </Page>
+    </DetailPage>
   );
 }

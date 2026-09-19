@@ -35,19 +35,26 @@ export function applyLiveEvent(
     const payload = env.payload;
     if (payload.sessionId !== sessionId) return items;
 
+    // The id the server will save this block under, so the streamed row and its
+    // persisted twin share a key and the swap never remounts.
+    const id = `assistant-${payload.turn}-${payload.block}`;
+
     if (payload.kind === "thinking") {
       const last = items[items.length - 1];
-      if (last?.kind === "thinking" && last.streaming) {
+      // Grow the block already open; a new block opens its own item, even when
+      // the previous one was also reasoning.
+      if (last?.kind === "thinking" && last.streaming && last.id === id) {
         return [
           ...items.slice(0, -1),
           { ...last, text: last.text + payload.delta },
         ];
       }
+      const settled = finalizeTrailingThinking(items);
       return [
-        ...items,
+        ...settled,
         {
           kind: "thinking",
-          id: `thinking-${Date.now()}`,
+          id,
           text: payload.delta,
           streaming: true,
           turn: payload.turn,
@@ -59,22 +66,15 @@ export function applyLiveEvent(
 
     const settled = finalizeTrailingThinking(items);
     const last = settled[settled.length - 1];
-    if (last?.kind === "agent_text") {
+    if (last?.kind === "agent_text" && last.id === id) {
       return [
         ...settled.slice(0, -1),
         { ...last, text: last.text + payload.delta },
       ];
     }
-    // The id is this browser's own and never matches the saved row's, so the
-    // turn number is what says the two are the same turn.
     return [
       ...settled,
-      {
-        kind: "agent_text",
-        id: `agent-${Date.now()}`,
-        text: payload.delta,
-        turn: payload.turn,
-      },
+      { kind: "agent_text", id, text: payload.delta, turn: payload.turn },
     ];
   }
 

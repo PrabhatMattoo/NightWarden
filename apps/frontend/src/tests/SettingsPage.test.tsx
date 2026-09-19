@@ -146,6 +146,8 @@ function makeFetchMock(
 
 /* Settings is a route now, so it renders under a router with somewhere to
    navigate away to - which is what the unsaved-provider guard reacts to. */
+let sectionRouter: ReturnType<typeof renderSettings>["router"] | null = null;
+
 function renderSettings(fetchMock: ReturnType<typeof vi.fn>) {
   vi.stubGlobal("fetch", fetchMock);
 
@@ -168,6 +170,7 @@ function renderSettings(fetchMock: ReturnType<typeof vi.fn>) {
     routeTree: rootRoute.addChildren([settingsRoute, awayRoute]),
     history: createMemoryHistory({ initialEntries: ["/settings/provider"] }),
   });
+  sectionRouter = router;
 
   render(
     <TestProviders>
@@ -190,15 +193,22 @@ function setup(
   return renderSettings(makeFetchMock(config, modelsOverride));
 }
 
+// The section nav lives in the sidebar shell, absent from this isolated page
+// render, so a section change is a route change like the nav's own links make.
 async function openSection(
-  user: ReturnType<typeof userEvent.setup>,
+  _user: ReturnType<typeof userEvent.setup>,
   name: RegExp,
 ): Promise<void> {
-  // The page is a route now, so its tabs arrive a tick after render.
-  const tablist = await screen.findByRole("tablist", {
-    name: /settings sections/i,
+  const section =
+    ["provider", "agent", "sandbox", "account"].find((s) =>
+      name.source.includes(s),
+    ) ?? "provider";
+  await act(async () => {
+    await sectionRouter?.navigate({
+      to: "/settings/$section",
+      params: { section },
+    });
   });
-  await user.click(within(tablist).getByRole("tab", { name }));
 }
 
 // A Select is a button and a listbox that exists only while open, so a test

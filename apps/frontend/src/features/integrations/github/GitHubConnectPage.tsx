@@ -23,7 +23,7 @@ import { Field, FieldDescription, FieldLabel } from "@/shared/ui/field";
 import { Input } from "@/shared/ui/input";
 import { Spinner } from "@/shared/ui/spinner";
 import { ConfirmDialog } from "@/shared/ui/ConfirmDialog";
-import { Page } from "@/shared/ui/Page";
+import { DetailPage } from "@/shared/ui/Page";
 import { expiryDaysFrom } from "@/features/integrations/github/useGitHubExpiryDays";
 import { ICON_UI } from "@/shared/lib/iconProps";
 import { toast } from "@/shared/lib/toast";
@@ -398,14 +398,8 @@ export function GitHubConnectPage(): React.JSX.Element {
   const disconnecting = disconnect.isPending;
 
   return (
-    <Page
-      measure="form"
-      crumbs={[
-        { label: "Integrations", to: "/integrations" },
-        { label: "Connect GitHub" },
-      ]}
-    >
-      <div className="flex flex-col gap-6">
+    <DetailPage back={{ to: "/integrations", label: "Integrations" }}>
+      <div className="flex flex-col gap-8">
         <IntegrationHeader identity={INTEGRATION_CATALOG.github} />
         {preflightIssue !== null && <PreflightWarning issue={preflightIssue} />}
 
@@ -443,6 +437,7 @@ export function GitHubConnectPage(): React.JSX.Element {
                 <Input
                   id="github-token"
                   type="password"
+                  measure="field"
                   placeholder="Paste token"
                   autoComplete="off"
                   value={token}
@@ -556,6 +551,6 @@ export function GitHubConnectPage(): React.JSX.Element {
         destructive
         onConfirm={() => disconnect.mutate()}
       />
-    </Page>
+    </DetailPage>
   );
 }

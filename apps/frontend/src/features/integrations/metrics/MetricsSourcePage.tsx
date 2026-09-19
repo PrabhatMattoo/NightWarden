@@ -9,7 +9,7 @@ import type {
 } from "@nightwarden/shared";
 
 import { Alert, AlertDescription, AlertTitle } from "@/shared/ui/alert";
-import { MetaText, StatusText } from "@/shared/ui/status";
+import { StatusText } from "@/shared/ui/status";
 import { Button } from "@/shared/ui/button";
 import { Checkbox } from "@/shared/ui/checkbox";
 import { Input } from "@/shared/ui/input";
@@ -23,9 +23,10 @@ import {
   SelectValue,
 } from "@/shared/ui/select";
 import { Spinner } from "@/shared/ui/spinner";
-import { Page, SectionHeading } from "@/shared/ui/Page";
+import { DetailPage, SectionHeading } from "@/shared/ui/Page";
 import { ConfirmDialog } from "@/shared/ui/ConfirmDialog";
 import { IntegrationHeader } from "@/features/integrations/IntegrationHeader";
+import { ConnectedState, type Fact } from "@/features/integrations/FactGrid";
 import { IntegrationWarnings } from "@/features/integrations/IntegrationWarnings";
 import { ICON_UI } from "@/shared/lib/iconProps";
 import { toast } from "@/shared/lib/toast";
@@ -135,6 +136,7 @@ function CredentialFields({
         <Input
           id={`${idPrefix}-bearer`}
           type="password"
+          measure="field"
           placeholder="Bearer ..."
           value={credential.bearer}
           onChange={(e) => set({ bearer: e.currentTarget.value })}
@@ -192,6 +194,7 @@ function CredentialFields({
         <Input
           id={`${idPrefix}-secret-key`}
           type="password"
+          measure="field"
           value={credential.secretAccessKey}
           onChange={(e) => set({ secretAccessKey: e.currentTarget.value })}
         />
@@ -214,6 +217,7 @@ function CredentialFields({
         <Input
           id={`${idPrefix}-session-token`}
           type="password"
+          measure="field"
           value={credential.sessionToken}
           onChange={(e) => set({ sessionToken: e.currentTarget.value })}
         />
@@ -323,6 +327,7 @@ function ConnectForm({ kind }: { kind: MetricsSourceKind }): React.JSX.Element {
           )}
           <Input
             id="metrics-query-url"
+            measure="field"
             placeholder={content.queryPlaceholder}
             value={queryUrl}
             onChange={(e) => setQueryUrl(e.currentTarget.value)}
@@ -365,6 +370,7 @@ function ConnectForm({ kind }: { kind: MetricsSourceKind }): React.JSX.Element {
           <FieldDescription>{content.rulesHelp}</FieldDescription>
           <Input
             id="metrics-rules-url"
+            measure="field"
             placeholder={content.rulesPlaceholder}
             value={rulesUrl}
             onChange={(e) => setRulesUrl(e.currentTarget.value)}
@@ -432,40 +438,41 @@ function ConnectedSource({
   source: MetricsSourceStatus;
   onRemove: () => void;
 }): React.JSX.Element {
+  const facts: Fact[] = [
+    { label: "Status", value: <StatusText tone="ok">Connected</StatusText> },
+    { label: "Endpoint", value: source.query?.url },
+    {
+      label: "Auth",
+      value: source.query?.hasAuth === true ? "Configured" : "None",
+    },
+  ];
+  if (source.query?.hasOrgId === true)
+    facts.push({ label: "Tenant", value: "Configured" });
+  if (source.rules !== null)
+    facts.push({ label: "Rules", value: source.rules.url });
+
   return (
-    /* The header above names the product, so the address is what identifies
-       this connection - the same line Loki's connected state shows. */
-    <div className="flex flex-col gap-2">
-      <div className="flex items-center gap-2">
-        <p className="text-sm font-medium">{source.query?.url}</p>
-        <StatusText tone="ok">Connected</StatusText>
-        {source.query?.hasAuth && <MetaText>Auth</MetaText>}
-        {source.query?.hasOrgId && <MetaText>Tenant</MetaText>}
-      </div>
-      {source.rules === null ? (
-        /* Said here rather than discovered at 3am: this is the difference
-           between an investigation that can close itself and one that cannot. */
-        <p className="flex items-start gap-2 text-sm text-warning">
-          <TriangleAlert {...ICON_UI} className="shrink-0" />
-          <span>
-            No rules endpoint. This source reaches Resolved only when your alert
-            source sends a resolved notification.
-          </span>
-        </p>
-      ) : (
-        <p className="text-sm text-muted-foreground">
-          Rules: {source.rules.url}
-        </p>
-      )}
-      <Button
-        size="sm"
-        variant="secondary"
-        className="self-start"
-        onClick={onRemove}
-      >
-        Disconnect
-      </Button>
-    </div>
+    <ConnectedState
+      facts={facts}
+      note={
+        source.rules === null ? (
+          /* Said here rather than discovered at 3am: this is the difference
+             between an investigation that can close itself and one that cannot. */
+          <p className="flex items-start gap-2 text-sm text-warning">
+            <TriangleAlert {...ICON_UI} className="shrink-0" />
+            <span>
+              No rules endpoint. This source reaches Resolved only when your
+              alert source sends a resolved notification.
+            </span>
+          </p>
+        ) : undefined
+      }
+      actions={
+        <Button size="sm" variant="secondary" onClick={onRemove}>
+          Disconnect
+        </Button>
+      }
+    />
   );
 }
 
@@ -494,13 +501,7 @@ export function MetricsSourcePage({
   });
 
   return (
-    <Page
-      measure="form"
-      crumbs={[
-        { label: "Integrations", to: "/integrations" },
-        { label: identity.label },
-      ]}
-    >
+    <DetailPage back={{ to: "/integrations", label: "Integrations" }}>
       <div className="flex flex-col gap-8">
         <IntegrationHeader identity={identity} />
 
@@ -542,6 +543,6 @@ export function MetricsSourcePage({
         destructive
         onConfirm={() => disconnect.mutate()}
       />
-    </Page>
+    </DetailPage>
   );
 }

@@ -250,13 +250,6 @@ function sidebarState(): string | null {
   return el === null ? null : el.getAttribute("data-state");
 }
 
-// The bar says where you are through the breadcrumb's current entry. Scoped to
-// the nav, because an active sidebar link carries aria-current too.
-async function currentCrumb(): Promise<HTMLElement> {
-  const nav = await screen.findByRole("navigation", { name: "breadcrumb" });
-  return within(nav).getByRole("link", { current: "page" });
-}
-
 function precedes(a: HTMLElement, b: HTMLElement): boolean {
   return (
     (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0
@@ -297,7 +290,9 @@ describe("Shell", () => {
       await waitFor(() => {
         expect(router.state.location.pathname).toBe("/investigations");
       });
-      expect(await currentCrumb()).toHaveTextContent("Investigations");
+      expect(
+        await screen.findByRole("heading", { name: "Investigations" }),
+      ).toBeInTheDocument();
     });
   });
 
@@ -372,40 +367,34 @@ describe("Shell", () => {
   });
 
   describe("the top bar", () => {
-    it("gives a page with no controls a lone crumb and no controls row", async () => {
+    it("gives a section page a title heading and no breadcrumb", async () => {
       setup({ path: "/investigations" });
 
-      expect(await currentCrumb()).toHaveTextContent("Investigations");
-      // One entry and no ancestor above it, so no chevron is drawn.
       expect(
-        within(
-          screen.getByRole("navigation", { name: "breadcrumb" }),
-        ).getAllByRole("link"),
-      ).toHaveLength(1);
+        await screen.findByRole("heading", { name: "Investigations" }),
+      ).toBeInTheDocument();
       expect(
-        screen.queryByRole("group", { name: /page controls/i }),
+        screen.queryByRole("navigation", { name: "breadcrumb" }),
       ).not.toBeInTheDocument();
     });
 
-    it("gives a record its breadcrumb, with the collection linked", async () => {
+    it("gives a detail page a back link to its parent, no breadcrumb", async () => {
       setup({ path: "/integrations/alerting/alertmanager" });
 
-      expect(await currentCrumb()).toHaveTextContent("Alertmanager");
-      // The breadcrumb absorbed the standalone back link: the way up is the
-      // first crumb, not a separate control above the title.
-      const crumb = within(
-        screen.getByRole("navigation", { name: "breadcrumb" }),
-      ).getByRole("link", { name: "Integrations" });
-      expect(crumb).toHaveAttribute("href", "/integrations");
+      // The back link names its target, distinct from the sidebar's own link.
+      const back = await screen.findByRole("link", {
+        name: /back to integrations/i,
+      });
+      expect(back).toHaveAttribute("href", "/integrations");
+      expect(
+        screen.queryByRole("navigation", { name: "breadcrumb" }),
+      ).not.toBeInTheDocument();
     });
 
-    it("renders the controls row on a page that has controls", async () => {
+    it("shows the live delivery status on a detail page", async () => {
       setup({ path: "/integrations/alerting/alertmanager" });
 
-      const controls = await screen.findByRole("group", {
-        name: /page controls/i,
-      });
-      expect(controls).toHaveTextContent(/receiving/i);
+      expect(await screen.findByText(/receiving/i)).toBeInTheDocument();
     });
   });
 
@@ -746,16 +735,16 @@ describe("Shell", () => {
   });
 
   describe("the investigation record", () => {
-    it("heads the record with a breadcrumb back to the list", async () => {
+    it("heads the record with a back link to the list, keeping its title", async () => {
       setup({ path: "/investigations/inv-crit" });
 
-      await waitFor(async () => {
-        expect(await currentCrumb()).toHaveTextContent("Container memory high");
+      const back = await screen.findByRole("link", {
+        name: /back to investigations/i,
       });
-      const back = within(
-        screen.getByRole("navigation", { name: "breadcrumb" }),
-      ).getByRole("link", { name: "Investigations" });
       expect(back).toHaveAttribute("href", "/investigations");
+      expect(
+        await screen.findByText("Container memory high"),
+      ).toBeInTheDocument();
     });
 
     it("carries its place in the queue and steps to the next record", async () => {

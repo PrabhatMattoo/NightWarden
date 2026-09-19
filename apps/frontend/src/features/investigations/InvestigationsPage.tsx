@@ -1,12 +1,31 @@
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { Telescope } from "lucide-react";
-import type { QueueState, SessionListRow } from "@nightwarden/shared";
+import { ListFilter, Telescope } from "lucide-react";
+import type {
+  InvestigationStatus,
+  QueueState,
+  SessionListRow,
+} from "@nightwarden/shared";
 
-import { Page, SectionHeading } from "@/shared/ui/Page";
-import { Button } from "@/shared/ui/button";
+import { SectionPage, SECTION_HEADING } from "@/shared/ui/Page";
+import { Button, buttonVariants } from "@/shared/ui/button";
+import { Card } from "@/shared/ui/card";
 import { Spinner } from "@/shared/ui/spinner";
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/shared/ui/empty";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/shared/ui/select";
 import { useFrontendEvents } from "@/shared/events/FrontendEventsProvider";
 import {
   renameSession,
@@ -36,13 +55,12 @@ function InvestigationRow({
   running: boolean;
 }): React.JSX.Element {
   return (
-    <li>
+    <li className="not-last:border-b not-last:border-border">
       <Link
         to="/investigations/$id"
         params={{ id: row.sessionId }}
-        // Depth says a row is a row, not that this one matters: the heading
-        // above names the group already, and saying it twice left the list ragged.
-        className="flex flex-col gap-1 rounded-lg bg-card px-3 py-3 no-underline transition-colors hover:bg-card-hover"
+        // Stitched into the group card, so hover moves the fill and nothing else.
+        className="flex flex-col gap-1 px-4 py-3 no-underline transition-colors hover:bg-card-hover"
       >
         <span className="flex items-baseline gap-3">
           <span className="min-w-0 flex-1 truncate font-medium">
@@ -105,35 +123,44 @@ function QueueBand({
   );
 }
 
-// Centred on the stage and left-aligned inside, so the eye lands on the icon
-// and reads down rather than tracking back to a centre line for every line.
+// The first state of every fresh install: no alert has arrived, so the panel
+// points at the one thing that changes that.
 function NothingYet(): React.JSX.Element {
   return (
-    <div className="flex flex-1 items-center justify-center">
-      <div className="flex max-w-note flex-col gap-4">
-        <Telescope
-          aria-hidden
-          className="size-12 text-ink-subtle"
-          strokeWidth={1.5}
-        />
-        <span className="flex flex-col gap-1">
-          <span className="font-medium">Investigations</span>
-          <span className="text-ink-subtle">
-            Every investigation NightWarden has opened, grouped by what each one
-            needs. One opens when an alert arrives from a connected source, or
-            when you pick Investigate on the Agent page.
-          </span>
-        </span>
-      </div>
-    </div>
+    <Empty>
+      <EmptyHeader>
+        <EmptyMedia variant="icon">
+          <Telescope aria-hidden strokeWidth={1.5} />
+        </EmptyMedia>
+        <EmptyTitle>No investigations yet</EmptyTitle>
+        <EmptyDescription>
+          One opens when an alert arrives from a connected source. Connect your
+          alerting to start.
+        </EmptyDescription>
+      </EmptyHeader>
+      <Link to="/integrations" className={buttonVariants()}>
+        Connect an alert source
+      </Link>
+    </Empty>
   );
 }
+
+type StatusFilter = InvestigationStatus | "all";
+
+const FILTER_LABEL: Record<StatusFilter, string> = {
+  all: "All",
+  action_required: STATUS_LABEL.action_required,
+  running: STATUS_LABEL.running,
+  resolved: STATUS_LABEL.resolved,
+  completed: STATUS_LABEL.completed,
+  stopped: STATUS_LABEL.stopped,
+  failed: STATUS_LABEL.failed,
+};
 
 export function InvestigationsPage(): React.JSX.Element {
   const queryClient = useQueryClient();
   const {
     sessions,
-    investigationTotal,
     isLoading,
     hasMore,
     isLoadingMore,
@@ -143,6 +170,7 @@ export function InvestigationsPage(): React.JSX.Element {
   // Null until an event lands, and the fetch stands in: a reload receives no
   // event, so without it the band is blank while alerts wait.
   const [pushed, setPushed] = useState<QueueState | null>(null);
+  const [status, setStatus] = useState<StatusFilter>("all");
   const queue = pushed ?? fetched;
 
   useFrontendEvents((env) => {
@@ -171,24 +199,45 @@ export function InvestigationsPage(): React.JSX.Element {
     }
   });
 
-  const groups = groupByStatus(sessions);
+  const groups = groupByStatus(sessions).filter(
+    (group) => status === "all" || group.status === status,
+  );
 
   return (
-    <Page
-      crumbs={[{ label: "Investigations" }]}
-      measure="page"
-      /* The one true total: a group's count describes the page that happens to
-         be loaded, and stops matching anything after Load older. */
-      beside={
-        investigationTotal > 0 ? (
-          <span className="ml-2 shrink-0 text-sm tabular-nums text-ink-subtle">
-            {investigationTotal}
-          </span>
-        ) : undefined
+    <SectionPage
+      title="Investigations"
+      description="Every investigation NightWarden has opened, grouped by what each one needs."
+      toolbar={
+        <Select
+          items={FILTER_LABEL}
+          value={status}
+          onValueChange={(value) => setStatus(value as StatusFilter)}
+        >
+          <SelectTrigger aria-label="Filter by status" className="w-44">
+            <ListFilter
+              className="size-4 shrink-0 text-muted-foreground"
+              aria-hidden
+            />
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {Object.entries(FILTER_LABEL).map(([value, label]) => (
+              <SelectItem key={value} value={value}>
+                {label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       }
     >
       {!isLoading && groups.length === 0 ? (
-        <NothingYet />
+        status !== "all" ? (
+          <p className="py-8 text-sm text-muted-foreground">
+            No investigations match.
+          </p>
+        ) : (
+          <NothingYet />
+        )
       ) : (
         <>
           <QueueBand queue={queue} />
@@ -199,20 +248,20 @@ export function InvestigationsPage(): React.JSX.Element {
                 key={group.status}
                 aria-label={STATUS_LABEL[group.status]}
               >
-                {/* An eyebrow, not a filled band: the band's fill was the value
-                    a row hovers to, so it read as a row under the cursor. */}
-                <SectionHeading className="mb-2 px-3">
+                <h2 className={cn("mb-2 px-1", SECTION_HEADING)}>
                   {STATUS_LABEL[group.status]}
-                </SectionHeading>
-                <ul className="m-0 flex list-none flex-col gap-1 p-0">
-                  {group.rows.map((row) => (
-                    <InvestigationRow
-                      key={row.sessionId}
-                      row={row}
-                      running={group.status === "running"}
-                    />
-                  ))}
-                </ul>
+                </h2>
+                <Card className="gap-0 py-0">
+                  <ul className="m-0 flex list-none flex-col p-0">
+                    {group.rows.map((row) => (
+                      <InvestigationRow
+                        key={row.sessionId}
+                        row={row}
+                        running={group.status === "running"}
+                      />
+                    ))}
+                  </ul>
+                </Card>
               </section>
             ))}
           </div>
@@ -229,6 +278,6 @@ export function InvestigationsPage(): React.JSX.Element {
           )}
         </>
       )}
-    </Page>
+    </SectionPage>
   );
 }

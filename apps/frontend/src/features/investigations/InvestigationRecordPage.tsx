@@ -164,10 +164,8 @@ export function InvestigationRecordPage(): React.JSX.Element {
 
   return (
     <Page
-      crumbs={[
-        { label: "Investigations", to: "/investigations" },
-        { label: title },
-      ]}
+      crumbs={[{ label: title }]}
+      back={{ to: "/investigations", label: "Investigations" }}
       measure="none"
       // One bar, so the rail's edge runs the full height of the stage. The
       // menu sits against the name because it acts on the record.

@@ -745,7 +745,7 @@ function expectUtilityValues(
 
 // Sizes are dimensions, not rhythm: only gaps, padding and margins are held.
 // 1.5 and 2.5 are the 6px and 10px half-steps; density needs them.
-const SPACING = ["0", "1", "1.5", "2", "2.5", "3", "4", "6", "8", "12"];
+const SPACING = ["0", "1", "1.5", "2", "2.5", "3", "4", "6", "8", "12", "16"];
 
 describe("widths", () => {
   // A raw `max-w-120` on a Field is how help text ended up clamped to half the

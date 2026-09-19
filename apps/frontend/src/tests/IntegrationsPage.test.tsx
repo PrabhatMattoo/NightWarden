@@ -207,32 +207,30 @@ function rowFor(title: string): HTMLElement {
   return screen.getByRole("link", { name: title });
 }
 
-function categoryHeadings(): string[] {
-  return screen.getAllByRole("heading").map((h) => h.textContent ?? "");
-}
-
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
 
 describe("IntegrationsPage", () => {
-  describe("categories", () => {
-    it("groups by what the integration gives the agent, and renders no empty category", async () => {
+  describe("the list", () => {
+    it("renders every adapter as a row, across all capabilities", async () => {
       setup();
 
       await screen.findByText("GitHub");
-      expect(categoryHeadings()).toEqual([
-        "Alerting",
-        "Metrics",
-        "Logs",
-        "Error tracking",
-        "Fleet",
-        "Code",
-      ]);
+      for (const title of [
+        "Prometheus Alertmanager",
+        "Prometheus",
+        "Grafana Loki",
+        "Sentry",
+        "Docker hosts",
+        "GitHub",
+      ]) {
+        expect(rowFor(title)).toBeInTheDocument();
+      }
     });
 
-    it("keeps a connected integration in its own category rather than moving it", async () => {
+    it("keeps a connected integration in the flat list rather than moving it", async () => {
       setup({ github: CONFIGURED });
 
       await screen.findByText("GitHub");
@@ -241,14 +239,8 @@ describe("IntegrationsPage", () => {
           within(rowFor("GitHub")).getByText("Connected"),
         ).toBeInTheDocument();
       });
-      expect(categoryHeadings()).toEqual([
-        "Alerting",
-        "Metrics",
-        "Logs",
-        "Error tracking",
-        "Fleet",
-        "Code",
-      ]);
+      expect(rowFor("Prometheus Alertmanager")).toBeInTheDocument();
+      expect(rowFor("Docker hosts")).toBeInTheDocument();
     });
   });
 
@@ -295,7 +287,7 @@ describe("IntegrationsPage", () => {
       expect(screen.getByText("Kubernetes clusters")).toBeInTheDocument();
     });
 
-    it("routes to the platform's own page, wizard or not", async () => {
+    it("routes an empty platform straight into its setup wizard", async () => {
       const user = userEvent.setup();
       setup({ runners: [] });
 
@@ -303,7 +295,7 @@ describe("IntegrationsPage", () => {
       await user.click(rowFor("Kubernetes clusters"));
 
       expect(
-        await screen.findByText(/kubernetes clusters destination/i),
+        await screen.findByText(/add kubernetes cluster destination/i),
       ).toBeInTheDocument();
     });
 

@@ -294,7 +294,9 @@ describe("AddRunnerPage", () => {
         expect(screen.getByText(/install-docker/)).toBeInTheDocument();
       });
 
-      await user.click(screen.getByRole("link", { name: /integrations/i }));
+      await user.click(
+        screen.getByRole("link", { name: /back to integrations/i }),
+      );
 
       const dialog = await screen.findByRole("alertdialog");
       await user.click(
@@ -321,16 +323,20 @@ describe("AddRunnerPage", () => {
         expect(screen.getByText(/install-docker/)).toBeInTheDocument();
       });
 
-      await user.click(screen.getByRole("link", { name: /integrations/i }));
+      await user.click(
+        screen.getByRole("link", { name: /back to integrations/i }),
+      );
 
       const dialog = await screen.findByRole("alertdialog");
       await user.click(
         within(dialog).getByRole("button", { name: /^cancel$/i }),
       );
 
-      expect(screen.getByRole("link", { current: "page" })).toHaveTextContent(
-        /add a docker host/i,
-      );
+      // Declining keeps the wizard on screen rather than reaching a destination.
+      expect(
+        screen.queryByText(/integrations destination/i),
+      ).not.toBeInTheDocument();
+      expect(screen.getByText(/install-docker/)).toBeInTheDocument();
       expect(fetchMock).not.toHaveBeenCalledWith(
         expect.stringContaining("/api/tokens/"),
         expect.objectContaining({ method: "DELETE" }),
@@ -346,10 +352,10 @@ describe("AddRunnerPage", () => {
         expect(screen.getByText(/runner connected/i)).toBeInTheDocument();
       });
 
-      await user.click(screen.getByRole("link", { name: /integrations/i }));
+      await user.click(screen.getByRole("link", { name: /docker hosts/i }));
 
       expect(
-        await screen.findByText(/integrations destination/i),
+        await screen.findByText(/runner servers destination/i),
       ).toBeInTheDocument();
       expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
       expect(fetchMock).not.toHaveBeenCalledWith(

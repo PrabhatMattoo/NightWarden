@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link, useBlocker, useParams } from "@tanstack/react-router";
+import { useBlocker, useParams } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
   AgentConfig,
@@ -9,8 +9,7 @@ import type {
   ProviderSettings,
 } from "@nightwarden/shared";
 
-import { Page } from "@/shared/ui/Page";
-import { Tabs, TabsList, TabsTrigger } from "@/shared/ui/tabs";
+import { SectionPage } from "@/shared/ui/Page";
 import { toast } from "@/shared/lib/toast";
 import { apiFetch } from "@/shared/api/client";
 import { ConfirmDialog } from "@/shared/ui/ConfirmDialog";
@@ -267,30 +266,11 @@ export function SettingsPage(): React.JSX.Element {
     withResolver: true,
   });
 
+  const activeLabel =
+    SECTIONS.find((s) => s.id === active)?.label ?? "Settings";
+
   return (
-    <Page
-      crumbs={[{ label: "Settings" }]}
-      controls={
-        <Tabs value={active}>
-          <TabsList variant="line" aria-label="Settings sections">
-            {SECTIONS.map((s) => (
-              <TabsTrigger
-                key={s.id}
-                value={s.id}
-                // A tab is an address here, so it renders as a link rather
-                // than a button and Base UI is told not to expect one.
-                nativeButton={false}
-                render={
-                  <Link to="/settings/$section" params={{ section: s.id }} />
-                }
-              >
-                {s.label}
-              </TabsTrigger>
-            ))}
-          </TabsList>
-        </Tabs>
-      }
-    >
+    <SectionPage title={activeLabel} measure="wide">
       {config && form && active === "provider" && (
         <ProviderSection
           form={form}
@@ -334,6 +314,6 @@ export function SettingsPage(): React.JSX.Element {
           if (blocker.status === "blocked") blocker.proceed();
         }}
       />
-    </Page>
+    </SectionPage>
   );
 }

@@ -2,72 +2,45 @@ import {
   createRootRoute,
   createRoute,
   createRouter,
-  lazyRouteComponent,
   Outlet,
   redirect,
 } from "@tanstack/react-router";
 import { useViewportTier } from "../shared/hooks/useViewportTier.js";
 import { AuthProvider } from "../features/auth/AuthContext.js";
 import { AuthGate } from "./AuthGate.js";
+import { LoginPage } from "../features/auth/LoginPage.js";
+import { IntegrationsPage } from "../features/integrations/IntegrationsPage.js";
+import { InvestigationsPage } from "../features/investigations/InvestigationsPage.js";
+import { InvestigationRecordPage } from "../features/investigations/InvestigationRecordPage.js";
+import { AgentPage } from "../features/session/AgentPage.js";
+import { GitHubConnectPage } from "../features/integrations/github/GitHubConnectPage.js";
+import { AddRunnerPage } from "../features/integrations/runners/AddRunnerPage.js";
+import { RunnerListPage } from "../features/integrations/runners/RunnerListPage.js";
+import { AlertSourcePage } from "../features/integrations/alerting/AlertSourcePage.js";
+import { MetricsSourcePage } from "../features/integrations/metrics/MetricsSourcePage.js";
+import { LokiPage } from "../features/integrations/loki/LokiPage.js";
+import { SentryPage } from "../features/integrations/sentry/SentryPage.js";
+import { SettingsPage } from "../features/settings/SettingsPage.js";
 import { METRICS_SOURCE_KINDS } from "@nightwarden/shared";
 import type { SessionDetail } from "@nightwarden/shared";
 import { apiFetch } from "../shared/api/client.js";
 
-/* Each page is fetched when its route is first visited. Loaded eagerly they
-   were one bundle, so signing in paid for a report renderer it never draws. */
+/* Pages ship in the app bundle. It is small, so a per-route chunk only buys a
+   loading flash on navigation that costs more than the split saves. */
 const LAZY = {
-  LoginPage: lazyRouteComponent(
-    () => import("../features/auth/LoginPage.js"),
-    "LoginPage",
-  ),
-  IntegrationsPage: lazyRouteComponent(
-    () => import("../features/integrations/IntegrationsPage.js"),
-    "IntegrationsPage",
-  ),
-  InvestigationsPage: lazyRouteComponent(
-    () => import("../features/investigations/InvestigationsPage.js"),
-    "InvestigationsPage",
-  ),
-  InvestigationRecordPage: lazyRouteComponent(
-    () => import("../features/investigations/InvestigationRecordPage.js"),
-    "InvestigationRecordPage",
-  ),
-  AgentPage: lazyRouteComponent(
-    () => import("../features/session/AgentPage.js"),
-    "AgentPage",
-  ),
-  GitHubConnectPage: lazyRouteComponent(
-    () => import("../features/integrations/github/GitHubConnectPage.js"),
-    "GitHubConnectPage",
-  ),
-  AddRunnerPage: lazyRouteComponent(
-    () => import("../features/integrations/runners/AddRunnerPage.js"),
-    "AddRunnerPage",
-  ),
-  RunnerListPage: lazyRouteComponent(
-    () => import("../features/integrations/runners/RunnerListPage.js"),
-    "RunnerListPage",
-  ),
-  AlertSourcePage: lazyRouteComponent(
-    () => import("../features/integrations/alerting/AlertSourcePage.js"),
-    "AlertSourcePage",
-  ),
-  MetricsSourcePage: lazyRouteComponent(
-    () => import("../features/integrations/metrics/MetricsSourcePage.js"),
-    "MetricsSourcePage",
-  ),
-  LokiPage: lazyRouteComponent(
-    () => import("../features/integrations/loki/LokiPage.js"),
-    "LokiPage",
-  ),
-  SentryPage: lazyRouteComponent(
-    () => import("../features/integrations/sentry/SentryPage.js"),
-    "SentryPage",
-  ),
-  SettingsPage: lazyRouteComponent(
-    () => import("../features/settings/SettingsPage.js"),
-    "SettingsPage",
-  ),
+  LoginPage,
+  IntegrationsPage,
+  InvestigationsPage,
+  InvestigationRecordPage,
+  AgentPage,
+  GitHubConnectPage,
+  AddRunnerPage,
+  RunnerListPage,
+  AlertSourcePage,
+  MetricsSourcePage,
+  LokiPage,
+  SentryPage,
+  SettingsPage,
 } as const;
 
 // Above sign-in, not just above the frontend: finishing a sign-up on a phone

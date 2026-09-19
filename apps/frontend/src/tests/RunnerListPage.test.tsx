@@ -118,10 +118,14 @@ afterEach(() => {
 describe("RunnerListPage", () => {
   describe("server list", () => {
     it("shows every advertised identity key in full", async () => {
+      const user = userEvent.setup();
       setup([WEB_RUNNER]);
 
-      // A row clipped this to its first key; the user needs the whole list,
-      // since these are exactly what an alert's labels have to match.
+      // The card summarises to a count; opening it shows the whole list, since
+      // these are exactly what an alert's labels have to match.
+      await user.click(
+        await screen.findByRole("button", { name: /2 services/i }),
+      );
       expect(await screen.findByText("web-01/nginx/nginx")).toBeInTheDocument();
       expect(screen.getByText("web-01/api/api")).toBeInTheDocument();
     });

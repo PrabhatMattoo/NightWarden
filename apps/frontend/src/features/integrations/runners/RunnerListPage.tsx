@@ -1,8 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import type { Platform, RunnerRecord } from "@nightwarden/shared";
-import { Boxes, Plus, Server } from "lucide-react";
+import { Plus } from "lucide-react";
 import { Alert, AlertTitle, AlertDescription } from "@/shared/ui/alert";
 import { Field, FieldLabel } from "@/shared/ui/field";
 import {
@@ -15,15 +15,8 @@ import {
 import { ServerCard } from "@/features/integrations/runners/ServerCard";
 import { Button } from "@/shared/ui/button";
 import { Spinner } from "@/shared/ui/spinner";
-import { Page } from "@/shared/ui/Page";
-import {
-  Empty,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle,
-} from "@/shared/ui/empty";
-import { ICON_DISPLAY, ICON_INLINE } from "@/shared/lib/iconProps";
+import { DetailPage } from "@/shared/ui/Page";
+import { ICON_INLINE } from "@/shared/lib/iconProps";
 import { apiFetch } from "@/shared/api/client";
 import { INTEGRATION_CATALOG } from "../catalog";
 import { IntegrationHeader } from "@/features/integrations/IntegrationHeader";
@@ -127,6 +120,13 @@ export function RunnerListPage({
     compareRunners(a, b, sortField, sortDir),
   );
 
+  // Nothing to list, so an empty fleet goes to the wizard, not an empty page.
+  useEffect(() => {
+    if (!isLoading && !isError && connected.length === 0) {
+      void navigate({ to: `/integrations/${platform}/add`, replace: true });
+    }
+  }, [isLoading, isError, connected.length, navigate, platform]);
+
   function handleSort(field: SortField): void {
     if (field === sortField) {
       setSortDir((d) => (d === "asc" ? "desc" : "asc"));
@@ -152,18 +152,13 @@ export function RunnerListPage({
   }
 
   return (
-    <Page
-      measure="form"
-      crumbs={[
-        { label: "Integrations", to: "/integrations" },
-        { label: copy.plural },
-      ]}
+    <DetailPage
+      back={{ to: "/integrations", label: "Integrations" }}
       /* The empty state carries this action itself, so offering it twice on
          the one screen where it is the only thing to do reads as a mistake. */
-      controls={
+      actions={
         connected.length > 0 ? (
           <Button
-            className="ml-auto"
             size="sm"
             onClick={() =>
               void navigate({ to: `/integrations/${platform}/add` })
@@ -231,35 +226,6 @@ export function RunnerListPage({
         </Field>
       )}
 
-      {/* An empty fleet is the ordinary first state, so the list says what to
-          do next rather than sending you somewhere. */}
-      {!isLoading && !isError && connected.length === 0 && (
-        <Empty>
-          <EmptyHeader>
-            <EmptyMedia variant="icon">
-              {platform === "docker" ? (
-                <Server {...ICON_DISPLAY} />
-              ) : (
-                <Boxes {...ICON_DISPLAY} />
-              )}
-            </EmptyMedia>
-            <EmptyTitle>No {copy.plural.toLowerCase()} yet</EmptyTitle>
-            <EmptyDescription>
-              Install a runner to connect your first{" "}
-              {copy.singular.toLowerCase()}. It takes one command.
-            </EmptyDescription>
-          </EmptyHeader>
-          <Button
-            onClick={() =>
-              void navigate({ to: `/integrations/${platform}/add` })
-            }
-          >
-            <Plus {...ICON_INLINE} />
-            Add a {copy.singular.toLowerCase()}
-          </Button>
-        </Empty>
-      )}
-
       {!isLoading && !isError && connected.length > 0 && (
         <div className="flex flex-col gap-3">
           {sorted.map((runner) => (
@@ -282,6 +248,6 @@ export function RunnerListPage({
           ))}
         </div>
       )}
-    </Page>
+    </DetailPage>
   );
 }

@@ -43,7 +43,14 @@ export function CopyableSnippet({
       >
         {text}
       </CodeBlock>
-      <div className="absolute top-1.5 right-1.5 flex items-center gap-1">
+      {/* A tall block anchors its controls at the top; a single-line field
+          centres them in its own height. */}
+      <div
+        className={cn(
+          "absolute right-1.5 flex items-center gap-1",
+          text.includes("\n") ? "top-1.5" : "inset-y-0",
+        )}
+      >
         {actions}
         {copyable && (
           <Button

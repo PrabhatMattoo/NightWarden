@@ -17,7 +17,7 @@ import {
 } from "@/shared/ui/field";
 import { Input } from "@/shared/ui/input";
 import { Spinner } from "@/shared/ui/spinner";
-import { Page } from "@/shared/ui/Page";
+import { DetailPage } from "@/shared/ui/Page";
 import {
   WizardStepper,
   WizardActions,
@@ -74,6 +74,19 @@ export function AddRunnerPage({
   const connectedRunner = runners?.find(
     (r) => r.id === mintedToken?.id && r.online && r.hostname !== null,
   );
+
+  const { data: fleet } = useQuery<RunnerRecord[]>({
+    queryKey: ["runners"],
+    queryFn: () => apiFetch<RunnerRecord[]>("/api/runners"),
+  });
+  // With nothing to list, back skips the list page so a first install returns
+  // to Integrations rather than an empty intermediary.
+  const hasConnected = (fleet ?? []).some(
+    (r) => r.hostname !== null && r.platform === platform,
+  );
+  const back = hasConnected
+    ? { to: listPath, label: copy.plural }
+    : { to: "/integrations", label: "Integrations" };
 
   // Read from the manifest the runner already sent: nothing is dispatched, so
   // checking the wiring cannot start an investigation or spend a token.
@@ -142,14 +155,7 @@ export function AddRunnerPage({
   }
 
   return (
-    <Page
-      measure="form"
-      crumbs={[
-        { label: "Integrations", to: "/integrations" },
-        { label: copy.plural, to: listPath },
-        { label: `Add a ${copy.singular.toLowerCase()}` },
-      ]}
-    >
+    <DetailPage back={back}>
       <WizardStepper step={step} total={3} title={STEP_TITLES[step]} />
 
       {step === 0 && (
@@ -275,7 +281,9 @@ export function AddRunnerPage({
             </Alert>
           )}
 
-          {connectedRunner && <ServerCard runner={connectedRunner} />}
+          {connectedRunner && (
+            <ServerCard runner={connectedRunner} defaultServicesOpen />
+          )}
 
           <WizardActions>
             <Button variant="outline" onClick={() => setStep(1)}>
@@ -302,6 +310,6 @@ export function AddRunnerPage({
         destructive
         onConfirm={confirmLeaveSetup}
       />
-    </Page>
+    </DetailPage>
   );
 }

@@ -3,13 +3,14 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { LokiIntegrationStatus } from "@nightwarden/shared";
 
 import { Alert, AlertTitle, AlertDescription } from "@/shared/ui/alert";
-import { MetaText, StatusText } from "@/shared/ui/status";
+import { StatusText } from "@/shared/ui/status";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import { Field, FieldLabel, FieldDescription } from "@/shared/ui/field";
 import { Spinner } from "@/shared/ui/spinner";
-import { Page } from "@/shared/ui/Page";
+import { DetailPage } from "@/shared/ui/Page";
 import { ConfirmDialog } from "@/shared/ui/ConfirmDialog";
+import { ConnectedState, type Fact } from "@/features/integrations/FactGrid";
 import { toast } from "@/shared/lib/toast";
 import { dayClock } from "@/shared/lib/time";
 import { apiFetch } from "@/shared/api/client";
@@ -58,14 +59,31 @@ export function LokiPage(): React.JSX.Element {
     endpoint: () => "/api/integrations/loki",
   });
 
+  const facts: Fact[] =
+    status?.configured === true
+      ? [
+          {
+            label: "Status",
+            value: <StatusText tone="ok">Connected</StatusText>,
+          },
+          { label: "Endpoint", value: status.url },
+          { label: "Auth", value: status.hasAuth ? "Configured" : "None" },
+          ...(status.hasOrgId
+            ? [{ label: "Tenant", value: "Configured" } satisfies Fact]
+            : []),
+          ...(status.validatedAt !== null
+            ? [
+                {
+                  label: "Last verified",
+                  value: dayClock(status.validatedAt),
+                } satisfies Fact,
+              ]
+            : []),
+        ]
+      : [];
+
   return (
-    <Page
-      measure="form"
-      crumbs={[
-        { label: "Integrations", to: "/integrations" },
-        { label: "Loki" },
-      ]}
-    >
+    <DetailPage back={{ to: "/integrations", label: "Integrations" }}>
       <div className="flex flex-col gap-8">
         <IntegrationHeader identity={INTEGRATION_CATALOG.loki} />
 
@@ -78,14 +96,14 @@ export function LokiPage(): React.JSX.Element {
 
         {status && !status.configured && (
           <section className="flex flex-col gap-4">
-            <p className="text-sm text-muted-foreground">
-              Where NightWarden reads log lines from. It dials this from its own
-              machine, so the address has to be reachable from there.
-            </p>
             <Field>
               <FieldLabel htmlFor="loki-url">Loki URL</FieldLabel>
+              <FieldDescription>
+                Reachable from the NightWarden host.
+              </FieldDescription>
               <Input
                 id="loki-url"
+                measure="field"
                 placeholder="http://loki.internal:3100"
                 value={url}
                 onChange={(e) => setUrl(e.currentTarget.value)}
@@ -99,6 +117,7 @@ export function LokiPage(): React.JSX.Element {
               <Input
                 id="loki-auth"
                 type="password"
+                measure="field"
                 placeholder="Bearer ..."
                 value={authHeader}
                 onChange={(e) => setAuthHeader(e.currentTarget.value)}
@@ -137,19 +156,9 @@ export function LokiPage(): React.JSX.Element {
         )}
 
         {status?.configured === true && (
-          <section className="flex flex-col gap-3">
-            <div className="flex items-center gap-2">
-              <p className="text-sm font-medium">{status.url}</p>
-              <StatusText tone="ok">Connected</StatusText>
-              {status.hasAuth && <MetaText>Auth</MetaText>}
-              {status.hasOrgId && <MetaText>Tenant</MetaText>}
-            </div>
-            {status.validatedAt !== null && (
-              <p className="text-sm text-muted-foreground">
-                Last verified {dayClock(status.validatedAt)}
-              </p>
-            )}
-            <div className="flex items-center gap-2">
+          <ConnectedState
+            facts={facts}
+            actions={
               <Button
                 size="sm"
                 variant="secondary"
@@ -157,8 +166,8 @@ export function LokiPage(): React.JSX.Element {
               >
                 Disconnect
               </Button>
-            </div>
-          </section>
+            }
+          />
         )}
       </div>
 
@@ -171,6 +180,6 @@ export function LokiPage(): React.JSX.Element {
         destructive
         onConfirm={() => disconnect.mutate()}
       />
-    </Page>
+    </DetailPage>
   );
 }

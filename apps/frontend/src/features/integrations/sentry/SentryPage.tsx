@@ -3,13 +3,14 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { SentryIntegrationStatus } from "@nightwarden/shared";
 
 import { Alert, AlertTitle, AlertDescription } from "@/shared/ui/alert";
-import { MetaText, StatusText } from "@/shared/ui/status";
+import { StatusText } from "@/shared/ui/status";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import { Field, FieldLabel, FieldDescription } from "@/shared/ui/field";
 import { Spinner } from "@/shared/ui/spinner";
-import { Page } from "@/shared/ui/Page";
+import { DetailPage } from "@/shared/ui/Page";
 import { ConfirmDialog } from "@/shared/ui/ConfirmDialog";
+import { ConnectedState, type Fact } from "@/features/integrations/FactGrid";
 import { toast } from "@/shared/lib/toast";
 import { dayClock } from "@/shared/lib/time";
 import { apiFetch } from "@/shared/api/client";
@@ -59,14 +60,30 @@ export function SentryPage(): React.JSX.Element {
     endpoint: () => "/api/integrations/sentry",
   });
 
+  const facts: Fact[] =
+    status?.configured === true
+      ? [
+          {
+            label: "Status",
+            value: <StatusText tone="ok">Connected</StatusText>,
+          },
+          { label: "Base URL", value: status.url },
+          ...(status.orgSlug !== null
+            ? [{ label: "Organization", value: status.orgSlug } satisfies Fact]
+            : []),
+          ...(status.validatedAt !== null
+            ? [
+                {
+                  label: "Last verified",
+                  value: dayClock(status.validatedAt),
+                } satisfies Fact,
+              ]
+            : []),
+        ]
+      : [];
+
   return (
-    <Page
-      measure="form"
-      crumbs={[
-        { label: "Integrations", to: "/integrations" },
-        { label: "Sentry" },
-      ]}
-    >
+    <DetailPage back={{ to: "/integrations", label: "Integrations" }}>
       <div className="flex flex-col gap-8">
         <IntegrationHeader identity={INTEGRATION_CATALOG.sentry} />
 
@@ -79,18 +96,15 @@ export function SentryPage(): React.JSX.Element {
 
         {status && !status.configured && (
           <section className="flex flex-col gap-4">
-            <p className="text-sm text-muted-foreground">
-              Where NightWarden reads exceptions and releases from. It dials
-              this from its own machine, so the address has to be reachable from
-              there. Both sentry.io and a self-hosted Sentry work.
-            </p>
             <Field>
               <FieldLabel htmlFor="sentry-url">Sentry URL</FieldLabel>
               <FieldDescription>
-                The base address, without the /api/0 path.
+                The base address, without the /api/0 path. sentry.io or
+                self-hosted.
               </FieldDescription>
               <Input
                 id="sentry-url"
+                measure="field"
                 placeholder="https://sentry.example.com"
                 value={url}
                 onChange={(e) => setUrl(e.currentTarget.value)}
@@ -113,14 +127,13 @@ export function SentryPage(): React.JSX.Element {
             <Field>
               <FieldLabel htmlFor="sentry-token">Auth token</FieldLabel>
               <FieldDescription>
-                Create an internal integration in Sentry, under Settings then
-                Developer Settings, and grant it both event:read and
-                project:read. Issues need the first; releases and commits need
-                the second.
+                An internal integration token with both event:read and
+                project:read.
               </FieldDescription>
               <Input
                 id="sentry-token"
                 type="password"
+                measure="field"
                 placeholder="sntrys_..."
                 value={token}
                 onChange={(e) => setToken(e.currentTarget.value)}
@@ -151,18 +164,9 @@ export function SentryPage(): React.JSX.Element {
         )}
 
         {status?.configured === true && (
-          <section className="flex flex-col gap-3">
-            <div className="flex items-center gap-2">
-              <p className="text-sm font-medium">{status.url}</p>
-              <StatusText tone="ok">Connected</StatusText>
-              {status.orgSlug !== null && <MetaText>{status.orgSlug}</MetaText>}
-            </div>
-            {status.validatedAt !== null && (
-              <p className="text-sm text-muted-foreground">
-                Last verified {dayClock(status.validatedAt)}
-              </p>
-            )}
-            <div className="flex items-center gap-2">
+          <ConnectedState
+            facts={facts}
+            actions={
               <Button
                 size="sm"
                 variant="secondary"
@@ -170,8 +174,8 @@ export function SentryPage(): React.JSX.Element {
               >
                 Disconnect
               </Button>
-            </div>
-          </section>
+            }
+          />
         )}
       </div>
 
@@ -184,6 +188,6 @@ export function SentryPage(): React.JSX.Element {
         destructive
         onConfirm={() => disconnect.mutate()}
       />
-    </Page>
+    </DetailPage>
   );
 }

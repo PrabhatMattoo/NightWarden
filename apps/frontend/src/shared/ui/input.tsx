@@ -9,6 +9,7 @@ const MEASURE = {
   column: "w-full",
   beside: "w-control",
   short: "w-full max-w-control-sm",
+  field: "w-full max-w-field",
 } as const;
 
 function Input({

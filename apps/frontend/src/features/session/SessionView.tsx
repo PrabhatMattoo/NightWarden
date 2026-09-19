@@ -109,7 +109,7 @@ function TranscriptColumn({
       data-testid="transcript-column"
       role="log"
       aria-label="Session transcript"
-      className="mx-auto w-full max-w-chat gap-0 px-6 pb-8 pt-4"
+      className="mx-auto w-full max-w-narrow gap-0 px-6 pb-8 pt-4"
     >
       {items.map((item, index) => (
         <MessageScrollerItem
@@ -278,14 +278,13 @@ export function SessionView({
       }
 
       if (env.type === "RUN_FINISHED") {
-        // The one terminal event for a self-completed run: settle run state.
-        // The transcript is already whole - every row arrived as a MESSAGE.
+        // Settle run state only; the streamed rows stay until each one's own
+        // MESSAGE lands, so a fast finish never blanks the answer between them.
         const { sessionId } = env.payload;
         if (sessionId !== sid) return;
         setIsRunning(false);
         setActivityNotice(null);
         setPendingEcho(null);
-        setLiveItems([]);
         return;
       }
 
@@ -471,7 +470,7 @@ export function SessionView({
         </MessageScroller>
 
         {activityNotice && (
-          <div className="mx-auto w-full max-w-chat px-6 pb-2">
+          <div className="mx-auto w-full max-w-narrow px-6 pb-2">
             <span className="animate-pulse text-sm text-muted-foreground">
               {activityNotice}
             </span>
@@ -481,7 +480,7 @@ export function SessionView({
         {/* Highest of the three: it is the standing state of the work, while
             the two below it are things asking to be acted on. */}
         {candidateItem && (
-          <div className="mx-auto mb-2 w-full max-w-chat px-6">
+          <div className="mx-auto mb-2 w-full max-w-narrow px-6">
             <TranscriptItemRenderer
               item={candidateItem}
               onResolve={handleResolve}
@@ -494,7 +493,7 @@ export function SessionView({
         {/* Above the gated card, so whatever is waiting on an answer stays
             nearest the input; both can be present at once. */}
         {reportItem && (
-          <div className="mx-auto mb-2 w-full max-w-chat px-6">
+          <div className="mx-auto mb-2 w-full max-w-narrow px-6">
             <TranscriptItemRenderer
               item={reportItem}
               onResolve={handleResolve}
@@ -505,7 +504,7 @@ export function SessionView({
         )}
 
         {dockedItem && (
-          <div className="mx-auto mb-2 w-full max-w-chat px-6">
+          <div className="mx-auto mb-2 w-full max-w-narrow px-6">
             <TranscriptItemRenderer
               item={dockedItem}
               submitting={
