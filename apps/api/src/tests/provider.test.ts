@@ -221,6 +221,7 @@ describe("what the run sends a model, and what it makes of the answer", () => {
       type: "reasoning",
       text: "weighing it",
       providerOptions: { anthropic: { signature: "sig-abc" } },
+      block: 0,
     });
 
     // Replayed with the signature, without which the provider rejects the block.
@@ -247,7 +248,7 @@ describe("what the run sends a model, and what it makes of the answer", () => {
     const p = provider(model);
     const turn = await p.chat(opening("first"), NO_TOOLS);
     expect(turn.parts).toEqual([
-      { type: "compaction", text: "what came before" },
+      { type: "compaction", text: "what came before", block: 0 },
     ]);
 
     await p.chat([...opening("first"), msg("assistant", turn.parts)], NO_TOOLS);
@@ -290,8 +291,8 @@ describe("what the run sends a model, and what it makes of the answer", () => {
     await p.chat(opening("first"), NO_TOOLS, (d) => seen.push(d));
 
     expect(seen).toEqual([
-      { kind: "thinking", text: "thinking" },
-      { kind: "text", text: "answer" },
+      { kind: "thinking", text: "thinking", block: 0 },
+      { kind: "text", text: "answer", block: 1 },
     ]);
   });
 

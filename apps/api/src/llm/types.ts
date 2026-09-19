@@ -54,6 +54,9 @@ export interface ChatResponse {
 export interface StreamDelta {
   kind: "text" | "thinking";
   text: string;
+  // The ordinal of the block this fragment belongs to within the turn, so the
+  // client keys each streamed row to the row it is saved as.
+  block: number;
 }
 
 export type OnDelta = (delta: StreamDelta) => void;

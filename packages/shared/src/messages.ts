@@ -11,6 +11,9 @@ export type PartProviderOptions = Record<string, JsonObject>;
 export interface TextPart {
   type: "text";
   text: string;
+  // The block's ordinal within its turn, stamped as the stream opens it, so a
+  // streamed row and its persisted twin key the same and never remount.
+  block?: number;
 }
 
 // The model's reasoning. Portable as prose, and the signed or encrypted original
@@ -19,6 +22,7 @@ export interface ReasoningPart {
   type: "reasoning";
   text: string;
   providerOptions?: PartProviderOptions;
+  block?: number;
 }
 
 export interface ToolCallPart {
@@ -72,6 +76,7 @@ export interface ElicitationAnswerPart {
 export interface CompactionPart {
   type: "compaction";
   text: string;
+  block?: number;
 }
 
 export type MessagePart =

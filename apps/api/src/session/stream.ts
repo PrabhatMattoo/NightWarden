@@ -29,7 +29,13 @@ export function publishTextMessageContent(
   const env: FrontendTextMessageContent = {
     messageId: randomUUID(),
     type: "TEXT_MESSAGE_CONTENT",
-    payload: { sessionId, kind: delta.kind, delta: delta.text, turn },
+    payload: {
+      sessionId,
+      kind: delta.kind,
+      delta: delta.text,
+      turn,
+      block: delta.block,
+    },
   };
   publishFrontendEvent(env);
 }

@@ -182,7 +182,7 @@ function makeProvider(
       async (
         history: readonly ProviderMessage[],
         _tools: unknown,
-        onDelta?: (d: { kind: string; text: string }) => void,
+        onDelta?: (d: { kind: string; text: string; block: number }) => void,
         signal?: AbortSignal,
       ): Promise<ChatResponse> => {
         // Rebuilt from parts, which is all a real adapter is given.
@@ -196,7 +196,7 @@ function makeProvider(
         if (signal?.aborted) throw signal.reason;
         const turn = nextTurn();
         if (onDelta && turn.text) {
-          onDelta({ kind: "text", text: turn.text });
+          onDelta({ kind: "text", text: turn.text, block: 0 });
         }
 
         const content: AssistantContent = [];

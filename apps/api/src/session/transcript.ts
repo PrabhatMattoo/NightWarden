@@ -273,7 +273,17 @@ export async function buildTranscript(
 
     let idx = 0;
     for (const part of msg.parts) {
-      const id = `${msg.kind}-${msg.seq}-${idx++}`;
+      // A streamed block carries its own ordinal, so its id matches the row the
+      // client already drew; an older part falls back to its position.
+      const ordinal =
+        (part.type === "text" ||
+          part.type === "reasoning" ||
+          part.type === "compaction") &&
+        part.block !== undefined
+          ? part.block
+          : idx;
+      idx++;
+      const id = `${msg.kind}-${msg.seq}-${ordinal}`;
       if (part.type === "text") {
         if (!part.text) continue;
         items.push(

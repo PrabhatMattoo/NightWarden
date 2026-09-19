@@ -30,6 +30,9 @@ export interface FrontendTextMessageContent extends FrontendEnvelope {
     delta: string;
     // The seq this turn will be saved under, sent before it is.
     turn: number;
+    // The block's ordinal within the turn: the streamed row keys on `turn` and
+    // `block` together, which is exactly how the saved row is keyed.
+    block: number;
   };
 }
 

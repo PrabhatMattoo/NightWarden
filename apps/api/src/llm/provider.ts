@@ -263,6 +263,9 @@ export class SdkProvider implements LLMProvider {
     const parts: MessagePart[] = [];
     const toolUses: ToolUse[] = [];
     const open = new Map<string, StreamedPart>();
+    // Ordinal of each text/reasoning block in the order they open, stamped on
+    // the part and streamed so the client keys a row the way it is saved.
+    let block = 0;
     let stopReason: StopReason = "done";
 
     for await (const event of stream) {
@@ -275,6 +278,7 @@ export class SdkProvider implements LLMProvider {
               : event.providerMetadata?.["anthropic"]?.["type"] === "compaction"
                 ? { type: "compaction", text: "" }
                 : { type: "text", text: "" };
+          part.block = block++;
           open.set(event.id, part);
           parts.push(part);
           break;
@@ -296,6 +300,7 @@ export class SdkProvider implements LLMProvider {
             onDelta?.({
               kind: event.type === "reasoning-delta" ? "thinking" : "text",
               text: event.delta,
+              block: part.block ?? 0,
             });
           }
           break;
