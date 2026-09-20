@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
 
-// The one place the two boundaries are written down. Width, not orientation:
-// a phone in landscape is 844x390 and still cannot serve the layout.
-const TABLET_MIN = 768;
-const DESKTOP_MIN = 1024;
+import { cssNumber } from "@/shared/lib/cssNumber";
+
+// The md/lg breakpoint tokens, so the utilities and this hook read one source.
+// Width, not orientation: a phone in landscape is 844x390 and cannot serve this.
+const TABLET_MIN = cssNumber("--breakpoint-md", 768);
+const DESKTOP_MIN = cssNumber("--breakpoint-lg", 1024);
 
 type ViewportTier = "phone" | "tablet" | "desktop";
 

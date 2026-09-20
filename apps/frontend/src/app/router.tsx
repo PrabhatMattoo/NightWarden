@@ -11,7 +11,7 @@ import { AuthGate } from "./AuthGate.js";
 import { LoginPage } from "../features/auth/LoginPage.js";
 import { IntegrationsPage } from "../features/integrations/IntegrationsPage.js";
 import { InvestigationsPage } from "../features/investigations/InvestigationsPage.js";
-import { InvestigationRecordPage } from "../features/investigations/InvestigationRecordPage.js";
+import { InvestigationWorkspace } from "../features/investigations/InvestigationWorkspace.js";
 import { AgentPage } from "../features/session/AgentPage.js";
 import { GitHubConnectPage } from "../features/integrations/github/GitHubConnectPage.js";
 import { AddRunnerPage } from "../features/integrations/runners/AddRunnerPage.js";
@@ -31,7 +31,7 @@ const LAZY = {
   LoginPage,
   IntegrationsPage,
   InvestigationsPage,
-  InvestigationRecordPage,
+  InvestigationWorkspace,
   AgentPage,
   GitHubConnectPage,
   AddRunnerPage,
@@ -131,7 +131,7 @@ const investigationRoute = createRoute({
       throw redirect({ to: "/agent/$id", params });
     }
   },
-  component: LAZY.InvestigationRecordPage,
+  component: LAZY.InvestigationWorkspace,
 });
 
 const investigationsRoute = createRoute({

@@ -1215,6 +1215,13 @@ describe("SessionView", () => {
           screen.getByText(/Preparing sandbox - cloning the repository/),
         ).toBeInTheDocument();
       });
+      /* The notice rides the transcript's own live line, where the work is,
+         rather than a bar wedged between the transcript and the message box. */
+      const line = screen.getByTestId("working-indicator");
+      expect(line).toHaveTextContent(
+        /Preparing sandbox - cloning the repository/,
+      );
+      expect(screen.getByTestId("transcript-column")).toContainElement(line);
 
       act(() => {
         MockEventSource.latest?.push({
@@ -1284,6 +1291,12 @@ describe("SessionView", () => {
           ),
         ).toBeInTheDocument();
       });
+      // One line that morphs: the retry takes the placeholder's place rather
+      // than adding a second text somewhere else on screen.
+      expect(screen.getAllByTestId("working-indicator")).toHaveLength(1);
+      expect(screen.getByTestId("working-indicator")).toHaveTextContent(
+        "Provider error (502). Retrying in 15s - attempt 2 of 4.",
+      );
 
       act(() => {
         MockEventSource.latest?.push({

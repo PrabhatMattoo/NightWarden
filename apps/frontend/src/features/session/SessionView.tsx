@@ -85,7 +85,7 @@ function ScrollToEndChatInput(
 
 function TranscriptColumn({
   items,
-  showWorking,
+  activityLine,
   submittingToolUseId,
   onResolve,
   onAnswer,
@@ -94,7 +94,9 @@ function TranscriptColumn({
   // Already merged and already stripped of whatever is docked: the column draws
   // the list it is handed and decides nothing about what belongs in it.
   items: TranscriptItem[];
-  showWorking: boolean;
+  // What the run is doing right now, drawn as the column's last line; null when
+  // something is already streaming into the transcript and says it for itself.
+  activityLine: string | null;
   submittingToolUseId: string | null;
   onResolve: (
     toolCallId: string,
@@ -135,9 +137,9 @@ function TranscriptColumn({
           />
         </MessageScrollerItem>
       ))}
-      {showWorking && (
+      {activityLine !== null && (
         <MessageScrollerItem className={items.length === 0 ? "mt-0" : "mt-2"}>
-          <WorkingIndicator />
+          <WorkingIndicator label={activityLine} />
         </MessageScrollerItem>
       )}
     </MessageScrollerContent>
@@ -432,9 +434,12 @@ export function SessionView({
   const submittingToolUseId = respond.isPending
     ? (respond.variables?.toolCallId ?? null)
     : null;
-  // The run is working but silent: nothing is streaming into the transcript, so
-  // show the animation in the reply's place. Any live streaming tail hides it.
-  const showWorking = isRunning && !hasActiveStream(liveItems);
+  /* The one live line: a server notice whenever there is one, the placeholder
+     while a run works silently, and nothing once the transcript speaks. The
+     notice is not gated on the run, because a sandbox provisions before one. */
+  const activityLine =
+    activityNotice ??
+    (isRunning && !hasActiveStream(liveItems) ? "Thinking" : null);
 
   if (!activeSessionId) {
     return (
@@ -459,7 +464,7 @@ export function SessionView({
           <MessageScrollerViewport>
             <TranscriptColumn
               items={inlineItems}
-              showWorking={showWorking}
+              activityLine={activityLine}
               submittingToolUseId={submittingToolUseId}
               onResolve={handleResolve}
               onAnswer={handleAnswer}
@@ -468,14 +473,6 @@ export function SessionView({
           </MessageScrollerViewport>
           <MessageScrollerButton direction="end" />
         </MessageScroller>
-
-        {activityNotice && (
-          <div className="mx-auto w-full max-w-narrow px-6 pb-2">
-            <span className="animate-pulse text-sm text-muted-foreground">
-              {activityNotice}
-            </span>
-          </div>
-        )}
 
         {/* Highest of the three: it is the standing state of the work, while
             the two below it are things asking to be acted on. */}

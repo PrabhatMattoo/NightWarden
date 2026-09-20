@@ -529,9 +529,13 @@
   --container-control-sm: 240px;
 
   /* Structure - fixed widths of the frame itself, not measures of content. */
-  /* Where the rail rests, and its floor. The operator drags it wider and the
-     rail writes this property back inline, so this is the value it starts at. */
-  --container-rail: 420px;
+  /* Where the report panel rests, its ceiling, and the keyboard resize step. The
+     operator drags it wider and the panel writes the width back inline, so the
+     first is the value it opens at and the JS reads all three rather than copying
+     the numbers. */
+  --container-rail: 480px;
+  --container-rail-max: 720px;
+  --container-rail-step: 20px;
   /* How wide a title runs before it is cut short. */
   --container-title: 448px;
   /* The one column on a page with no frame around it yet. */
@@ -541,6 +545,11 @@
   --container-sidebar: 250px;
   --container-sidebar-icon: 52px;
   --container-sidebar-sheet: 288px;
+
+  /* Viewport tiers, stated once. These match Tailwind's md/lg defaults, so the
+     utilities and the JS that reads window width share one source. */
+  --breakpoint-md: 768px;
+  --breakpoint-lg: 1024px;
 
   /* Layers. A backdrop sits one below the surface it dims, so nothing can land
      between the two, and a menu outranks a dialog because a menu can be opened

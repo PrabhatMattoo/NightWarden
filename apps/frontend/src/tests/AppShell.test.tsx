@@ -514,7 +514,7 @@ describe("Shell", () => {
       // The flag has demonstrably reached the client, and moved nothing.
       await waitFor(() => expect(sessionFetches()).toBeGreaterThan(before));
       expect(
-        screen.queryByRole("complementary", { name: /investigation chat/i }),
+        screen.queryByRole("button", { name: /show the report/i }),
       ).not.toBeInTheDocument();
 
       await act(async () => {
@@ -525,12 +525,16 @@ describe("Shell", () => {
         });
       });
 
-      await waitFor(() => {
-        expect(
-          screen.getByRole("complementary", { name: /investigation chat/i }),
-        ).toBeInTheDocument();
-      });
-      // No report row exists, and the panel says so rather than rendering blank.
+      // The workspace mounts on the address; the report opens on request and,
+      // with nothing recorded, says so rather than rendering blank.
+      await user.click(
+        await screen.findByRole("button", { name: /show the report/i }),
+      );
+      expect(
+        await screen.findByRole("complementary", {
+          name: /investigation report/i,
+        }),
+      ).toBeInTheDocument();
       expect(
         screen.getByText(/has not recorded a finding yet/i),
       ).toBeInTheDocument();
@@ -538,35 +542,44 @@ describe("Shell", () => {
     });
   });
 
-  describe("the chat rail", () => {
+  describe("the report panel", () => {
     // The toggle is a sibling of the panel, so closing the panel cannot take
     // the control that reopens it with it.
-    it("collapses and reopens without interrupting the live stream", async () => {
+    it("closes and reopens without interrupting the live stream", async () => {
       const user = userEvent.setup();
       const { setInvestigation } = setup({ path: "/investigations/new-s1" });
 
       setInvestigation(true);
-      const railed = await screen.findByRole("complementary", {
-        name: /investigation chat/i,
-      });
-      expect(railed).toBeInTheDocument();
-      // The rail mounts before the stream opens, so capturing it any earlier
-      // compares null against null and proves nothing.
+      // With nothing recorded the panel starts closed; open it to read.
+      await user.click(
+        await screen.findByRole("button", { name: /show the report/i }),
+      );
+      expect(
+        await screen.findByRole("complementary", {
+          name: /investigation report/i,
+        }),
+      ).toBeInTheDocument();
       await waitFor(() => expect(MockEventSource.latest).not.toBeNull());
       const streamBefore = MockEventSource.latest;
 
-      await user.click(screen.getByRole("button", { name: /hide the chat/i }));
+      await user.click(
+        screen.getByRole("button", { name: /hide the report/i }),
+      );
 
       await waitFor(() => {
         expect(
-          screen.queryByRole("complementary", { name: /investigation chat/i }),
+          screen.queryByRole("complementary", {
+            name: /investigation report/i,
+          }),
         ).not.toBeInTheDocument();
       });
-      await user.click(screen.getByRole("button", { name: /show the chat/i }));
+      await user.click(
+        screen.getByRole("button", { name: /show the report/i }),
+      );
 
       await waitFor(() => {
         expect(
-          screen.getByRole("complementary", { name: /investigation chat/i }),
+          screen.getByRole("complementary", { name: /investigation report/i }),
         ).toBeInTheDocument();
       });
       expect(MockEventSource.latest).toBe(streamBefore);
@@ -578,70 +591,84 @@ describe("Shell", () => {
       const { setInvestigation } = setup({ path: "/investigations/new-s1" });
 
       setInvestigation(true);
+      await user.click(
+        await screen.findByRole("button", { name: /show the report/i }),
+      );
       const handle = await screen.findByRole("separator", {
-        name: /resize the chat/i,
+        name: /resize the report/i,
       });
-      const rail = screen.getByRole("complementary", {
-        name: /investigation chat/i,
+      const panel = screen.getByRole("complementary", {
+        name: /investigation report/i,
       });
 
-      // jsdom applies no CSS, so the width is only legible as the custom
-      // property the rail writes for the utility to read.
-      expect(rail.style.getPropertyValue("--container-rail")).toBe("420px");
+      // jsdom applies no CSS, so the width is only legible as the inline width
+      // the panel writes as the reader drags it.
+      expect(panel.style.width).toBe("480px");
 
       handle.focus();
       await user.keyboard("{ArrowLeft}{ArrowLeft}");
-      expect(rail.style.getPropertyValue("--container-rail")).toBe("460px");
-      expect(window.localStorage.getItem("nightwarden.rail.width")).toBe("460");
+      expect(panel.style.width).toBe("520px");
+      expect(window.localStorage.getItem("nightwarden.report.width")).toBe(
+        "520",
+      );
 
-      // Narrower than the floor is not a narrower rail, it is a transcript
-      // wrapped to shreds, so the floor holds however far the drag goes.
+      // Narrower than the floor is not a narrower panel, so the floor holds
+      // however far the drag goes.
       await user.keyboard("{ArrowRight}{ArrowRight}{ArrowRight}{ArrowRight}");
-      expect(rail.style.getPropertyValue("--container-rail")).toBe("420px");
+      expect(panel.style.width).toBe("480px");
     });
 
     it("opens at the width it was left at, not at the default", async () => {
-      window.localStorage.setItem("nightwarden.rail.width", "600");
-      const { setInvestigation } = setup({ path: "/investigations/new-s1" });
-
-      setInvestigation(true);
-      const rail = await screen.findByRole("complementary", {
-        name: /investigation chat/i,
-      });
-
-      // A width set once and lost every night is worse than one you cannot set.
-      expect(rail.style.getPropertyValue("--container-rail")).toBe("600px");
-    });
-
-    it("expands over the report without unmounting the chat", async () => {
+      window.localStorage.setItem("nightwarden.report.width", "600");
       const user = userEvent.setup();
       const { setInvestigation } = setup({ path: "/investigations/new-s1" });
 
       setInvestigation(true);
-      await screen.findByRole("complementary", { name: /investigation chat/i });
+      await user.click(
+        await screen.findByRole("button", { name: /show the report/i }),
+      );
+      const panel = await screen.findByRole("complementary", {
+        name: /investigation report/i,
+      });
+
+      // A width set once and lost every night is worse than one you cannot set.
+      expect(panel.style.width).toBe("600px");
+    });
+
+    it("maximizes to the full stage without unmounting the chat", async () => {
+      const user = userEvent.setup();
+      const { setInvestigation } = setup({ path: "/investigations/new-s1" });
+
+      setInvestigation(true);
+      await user.click(
+        await screen.findByRole("button", { name: /show the report/i }),
+      );
+      await screen.findByRole("complementary", {
+        name: /investigation report/i,
+      });
       await waitFor(() => expect(MockEventSource.latest).not.toBeNull());
       const streamBefore = MockEventSource.latest;
 
       await user.click(
-        screen.getByRole("button", { name: /expand the chat/i }),
+        screen.getByRole("button", { name: /maximize the report/i }),
       );
 
-      // The report is still mounted underneath: expanding covers it, and coming
-      // back out must not cost a refetch or the scroll position.
+      // The report owns the stage; the chat is hidden but still mounted, so the
+      // stream survives it and no refetch is owed.
       expect(
-        screen.getByRole("heading", { name: "Investigation" }),
+        screen.getByText(/has not recorded a finding yet/i),
       ).toBeInTheDocument();
       // Nothing to drag while it owns the stage, so the handle steps aside.
       expect(
-        screen.queryByRole("separator", { name: /resize the chat/i }),
+        screen.queryByRole("separator", { name: /resize the report/i }),
       ).not.toBeInTheDocument();
       expect(MockEventSource.latest).toBe(streamBefore);
 
       await user.click(
-        screen.getByRole("button", { name: /shrink the chat/i }),
+        screen.getByRole("button", { name: /restore the report/i }),
       );
       expect(
-        await screen.findByRole("separator", { name: /resize the chat/i }),
+        await screen.findByRole("separator", { name: /resize the report/i }),
       ).toBeInTheDocument();
       expect(MockEventSource.latest).toBe(streamBefore);
     });
