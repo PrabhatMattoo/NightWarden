@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { FrontendEvent, TranscriptItem } from "@nightwarden/shared";
+import type { ActivityLine } from "@/features/session/transcript/types";
 import { transcriptItemKey } from "@nightwarden/shared";
 import { mergeTranscript } from "@/features/session/transcript/mergeTranscript";
 
@@ -13,6 +14,7 @@ import {
   MessageScrollerButton,
   useMessageScroller,
 } from "@/shared/ui/message-scroller";
+import { cn } from "@/shared/lib/utils";
 import { toast } from "@/shared/lib/toast";
 import { useFrontendEvents } from "@/shared/events/FrontendEventsProvider";
 import { useSession } from "@/features/session/useSession";
@@ -22,8 +24,13 @@ import {
   applyLiveEvent,
   hasActiveStream,
 } from "@/features/session/transcript/liveConverter";
-import { TranscriptItemRenderer } from "@/features/session/transcript/TranscriptItemRenderer";
+import {
+  TranscriptItemRenderer,
+  PinnedGate,
+} from "@/features/session/transcript/TranscriptItemRenderer";
 import { WorkingIndicator } from "@/features/session/transcript/WorkingIndicator";
+import { RunGroup } from "@/features/session/transcript/RunGroup";
+import { segmentRuns } from "@/features/session/transcript/segmentRuns";
 import { apiFetch } from "@/shared/api/client";
 
 // A stable empty default, so an unloaded transcript does not remount the column.
@@ -34,19 +41,15 @@ const EMPTY_ITEMS: TranscriptItem[] = [];
 const FINISH_UP_MESSAGE =
   "Settle any candidate still open and write up the investigation.";
 
-// Only what stops the whole run is pinned. An approval gates one tool, so it
-// stays inline where it happened.
+// A gate stops the whole run whichever kind it is, so both pin above the input
+// and both leave their row behind in the group where the call was made.
 function dockedCard(items: TranscriptItem[]): TranscriptItem | undefined {
   for (const item of items) {
     if (item.kind === "continue_card") {
       if (item.state.phase === "awaiting_human") return item;
       continue;
     }
-    if (
-      item.kind === "tool_call" &&
-      item.state.phase === "awaiting_human" &&
-      item.state.gate === "clarification"
-    )
+    if (item.kind === "tool_call" && item.state.phase === "awaiting_human")
       return item;
   }
   return undefined;
@@ -86,26 +89,31 @@ function ScrollToEndChatInput(
 function TranscriptColumn({
   items,
   activityLine,
+  foldsWhenSettled,
+  runActive,
   submittingToolUseId,
   onResolve,
-  onAnswer,
   onRetryReport,
 }: {
   // Already merged and already stripped of whatever is docked: the column draws
   // the list it is handed and decides nothing about what belongs in it.
   items: TranscriptItem[];
-  // What the run is doing right now, drawn as the column's last line; null when
-  // something is already streaming into the transcript and says it for itself.
-  activityLine: string | null;
+  // What the run is doing right now; null once the transcript speaks for itself.
+  activityLine: ActivityLine | null;
+  // Only an investigation folds a settled run away; a chat keeps it open.
+  foldsWhenSettled: boolean;
+  // Whether a run is live, so the last segment reads as Working rather than
+  // settling its answer out early.
+  runActive: boolean;
   submittingToolUseId: string | null;
   onResolve: (
     toolCallId: string,
     action: "approve" | "reject",
     reason?: string,
   ) => void;
-  onAnswer: (toolCallId: string, answer: string | string[]) => void;
   onRetryReport: () => void;
 }): React.JSX.Element {
+  const nodes = segmentRuns(items, runActive);
   return (
     <MessageScrollerContent
       data-testid="transcript-column"
@@ -113,35 +121,52 @@ function TranscriptColumn({
       aria-label="Session transcript"
       className="mx-auto w-full max-w-narrow gap-0 px-6 pb-8 pt-4"
     >
-      {items.map((item, index) => (
-        <MessageScrollerItem
-          key={transcriptItemKey(item)}
-          className={
-            index === 0
-              ? "mt-0"
-              : item.kind === "user_turn"
-                ? "mt-8"
-                : item.kind === "thinking"
-                  ? "mt-1"
-                  : "mt-2"
-          }
-        >
-          <TranscriptItemRenderer
-            item={item}
-            submitting={
-              "toolCallId" in item && item.toolCallId === submittingToolUseId
-            }
-            onResolve={onResolve}
-            onAnswer={onAnswer}
-            onRetryReport={onRetryReport}
-          />
-        </MessageScrollerItem>
-      ))}
-      {activityLine !== null && (
-        <MessageScrollerItem className={items.length === 0 ? "mt-0" : "mt-2"}>
-          <WorkingIndicator label={activityLine} />
-        </MessageScrollerItem>
-      )}
+      {nodes.map((node, index) => {
+        const key =
+          node.kind === "group" ? node.id : transcriptItemKey(node.item);
+        // The run that is still going owns the line; anything else stands alone.
+        const owned =
+          node.kind === "group" && node.live && index === nodes.length - 1;
+        const spacing =
+          index === 0
+            ? "mt-0"
+            : node.kind === "item" && node.item.kind === "user_turn"
+              ? "mt-8"
+              : "mt-2";
+        return (
+          <MessageScrollerItem key={key} className={spacing}>
+            {node.kind === "group" ? (
+              <RunGroup
+                node={node}
+                foldsWhenSettled={foldsWhenSettled}
+                activityLine={owned ? activityLine : null}
+                submittingToolUseId={submittingToolUseId}
+                onResolve={onResolve}
+                onRetryReport={onRetryReport}
+              />
+            ) : (
+              <TranscriptItemRenderer
+                item={node.item}
+                submitting={
+                  "toolCallId" in node.item &&
+                  node.item.toolCallId === submittingToolUseId
+                }
+                onResolve={onResolve}
+                onRetryReport={onRetryReport}
+              />
+            )}
+          </MessageScrollerItem>
+        );
+      })}
+      {activityLine !== null &&
+        !nodes.some((n) => n.kind === "group" && n.live) && (
+          <MessageScrollerItem className={nodes.length === 0 ? "mt-0" : "mt-2"}>
+            <WorkingIndicator
+              label={activityLine.text}
+              waiting={activityLine.waiting}
+            />
+          </MessageScrollerItem>
+        )}
     </MessageScrollerContent>
   );
 }
@@ -149,8 +174,12 @@ function TranscriptColumn({
 /** /agent renders with no id; the two $id routes pass the param. */
 export function SessionView({
   sessionId: sessionIdFromRoute = null,
+  reportOpen = false,
 }: {
   sessionId?: string | null;
+  // The candidate board is docked only for the run; once the report is open
+  // beside the chat, the board's job is done and it steps aside.
+  reportOpen?: boolean;
 } = {}): React.JSX.Element {
   const [activeSessionId, setActiveSessionId] = useState<string | null>(
     sessionIdFromRoute,
@@ -165,7 +194,10 @@ export function SessionView({
   const lastEchoRef = useRef<string | null>(null);
   // Live status line (provider retries, sandbox provisioning); any other run
   // event clears it.
-  const [activityNotice, setActivityNotice] = useState<string | null>(null);
+  const [activityNotice, setActivityNotice] = useState<{
+    text: string;
+    waiting: boolean;
+  } | null>(null);
   const queryClient = useQueryClient();
 
   const session = useSession(activeSessionId);
@@ -244,15 +276,15 @@ export function SessionView({
       if (env.type === "SANDBOX_STATUS") {
         const { sessionId, stage } = env.payload;
         if (sessionId !== sid) return;
-        setActivityNotice(
+        const text =
           stage === "cloning"
             ? "Preparing sandbox - cloning the repository\u2026"
             : stage === "starting"
               ? "Preparing sandbox - starting the container\u2026"
               : stage === "installing"
                 ? "Preparing sandbox - installing dependencies\u2026"
-                : null,
-        );
+                : null;
+        setActivityNotice(text === null ? null : { text, waiting: false });
         return;
       }
 
@@ -260,7 +292,7 @@ export function SessionView({
         const { sessionId, summary } = env.payload;
         if (sessionId !== sid) return;
         setIsRunning(true);
-        setActivityNotice(summary);
+        setActivityNotice({ text: summary, waiting: true });
         setLiveItems((prev) => applyLiveEvent(prev, env, sid));
         return;
       }
@@ -349,6 +381,7 @@ export function SessionView({
 
   const handleResolve = useCallback(
     (toolCallId: string, action: "approve" | "reject", reason?: string) => {
+      setIsRunning(true);
       // Nothing is stamped on the item: the decision in flight belongs to this
       // browser, and `submitting` below is what draws it.
       respond.mutate({
@@ -391,6 +424,7 @@ export function SessionView({
   const handleAnswer = useCallback(
     (toolCallId: string, answer: string | string[]) => {
       const text = Array.isArray(answer) ? answer.join(", ") : answer;
+      setIsRunning(true);
       respond.mutate({ toolCallId, body: { text } });
     },
     [respond],
@@ -424,7 +458,7 @@ export function SessionView({
   const reportItem = dockedReport(allItems);
   const candidateItem = dockedCandidates(allItems);
   const docked = new Set(
-    [dockedItem, reportItem, candidateItem].flatMap((item) =>
+    [reportItem, candidateItem].flatMap((item) =>
       item ? [transcriptItemKey(item)] : [],
     ),
   );
@@ -437,25 +471,17 @@ export function SessionView({
   /* The one live line: a server notice whenever there is one, the placeholder
      while a run works silently, and nothing once the transcript speaks. The
      notice is not gated on the run, because a sandbox provisions before one. */
+  const awaitingHuman = dockedItem !== undefined;
+  // Suspended on a person is still the same run, so the group stays live and
+  // the clock keeps counting until the answer lands.
+  const runActive = isRunning || awaitingHuman;
+  /* Suspended on a person, isRunning is already false, so the line falls silent
+     and the card is left as the one thing asking. */
   const activityLine =
     activityNotice ??
-    (isRunning && !hasActiveStream(liveItems) ? "Thinking" : null);
-
-  if (!activeSessionId) {
-    return (
-      <div className="flex h-full flex-1 flex-col items-center justify-center">
-        <div className="w-full">
-          <ChatInput
-            sessionId={null}
-            isRunning={false}
-            onSessionCreated={handleSessionCreated}
-            onSend={handleSend}
-            onSendFailed={handleSendFailed}
-          />
-        </div>
-      </div>
-    );
-  }
+    (isRunning && !hasActiveStream(liveItems)
+      ? { text: "Thinking", waiting: false }
+      : null);
 
   return (
     <MessageScrollerProvider defaultScrollPosition="end">
@@ -465,9 +491,10 @@ export function SessionView({
             <TranscriptColumn
               items={inlineItems}
               activityLine={activityLine}
+              foldsWhenSettled={session?.investigation === true}
+              runActive={runActive}
               submittingToolUseId={submittingToolUseId}
               onResolve={handleResolve}
-              onAnswer={handleAnswer}
               onRetryReport={handleRetryReport}
             />
           </MessageScrollerViewport>
@@ -476,33 +503,32 @@ export function SessionView({
 
         {/* Highest of the three: it is the standing state of the work, while
             the two below it are things asking to be acted on. */}
-        {candidateItem && (
+        {candidateItem && !reportOpen && (
           <div className="mx-auto mb-2 w-full max-w-narrow px-6">
             <TranscriptItemRenderer
               item={candidateItem}
               onResolve={handleResolve}
-              onAnswer={handleAnswer}
               onRetryReport={handleRetryReport}
             />
           </div>
         )}
 
-        {/* Above the gated card, so whatever is waiting on an answer stays
-            nearest the input; both can be present at once. */}
-        {reportItem && (
-          <div className="mx-auto mb-2 w-full max-w-narrow px-6">
-            <TranscriptItemRenderer
-              item={reportItem}
-              onResolve={handleResolve}
-              onAnswer={handleAnswer}
-              onRetryReport={handleRetryReport}
-            />
-          </div>
-        )}
+        {/* Only a failed write-up docks a card now; ready opens the report on
+            its own, so what is left is the one thing asking to be acted on. */}
+        {reportItem?.kind === "report_card" &&
+          reportItem.state.phase === "failed" && (
+            <div className="mx-auto mb-2 w-full max-w-narrow px-6">
+              <TranscriptItemRenderer
+                item={reportItem}
+                onResolve={handleResolve}
+                onRetryReport={handleRetryReport}
+              />
+            </div>
+          )}
 
         {dockedItem && (
           <div className="mx-auto mb-2 w-full max-w-narrow px-6">
-            <TranscriptItemRenderer
+            <PinnedGate
               item={dockedItem}
               submitting={
                 "toolCallId" in dockedItem &&
@@ -510,7 +536,6 @@ export function SessionView({
               }
               onResolve={handleResolve}
               onAnswer={handleAnswer}
-              onRetryReport={handleRetryReport}
             />
           </div>
         )}
@@ -518,8 +543,21 @@ export function SessionView({
         <ScrollToEndChatInput
           sessionId={activeSessionId}
           isRunning={isRunning}
+          onSessionCreated={handleSessionCreated}
           onSend={handleSend}
           onSendFailed={handleSendFailed}
+        />
+
+        {/* Half the room below the composer until a message is sent, which puts
+            it in the middle; sending closes it without waiting on the server. */}
+        <div
+          aria-hidden
+          className={cn(
+            "shrink-0",
+            activeSessionId === null && pendingEcho === null
+              ? "grow"
+              : "grow-0",
+          )}
         />
       </div>
     </MessageScrollerProvider>

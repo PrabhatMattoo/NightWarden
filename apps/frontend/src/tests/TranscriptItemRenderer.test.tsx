@@ -3,7 +3,10 @@ import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { TestProviders } from "./renderWithProviders.js";
 
-import { TranscriptItemRenderer } from "@/features/session/transcript/TranscriptItemRenderer";
+import {
+  TranscriptItemRenderer,
+  PinnedGate,
+} from "@/features/session/transcript/TranscriptItemRenderer";
 import type { TranscriptItem } from "@/features/session/transcript/types";
 
 function wrap(
@@ -20,12 +23,20 @@ function wrap(
         data-testid="transcript-column"
         style={{ maxWidth: 860, margin: "0 auto", padding: "0 16px" }}
       >
-        <TranscriptItemRenderer
-          item={item}
-          onResolve={opts?.onResolve}
-          onAnswer={opts?.onAnswer}
-          onRetryReport={opts?.onRetryReport}
-        />
+        {item.kind === "tool_call" && item.state.phase === "awaiting_human" ? (
+          // A gate is drawn by the pinned slot; the transcript keeps its row.
+          <PinnedGate
+            item={item}
+            onResolve={opts?.onResolve}
+            onAnswer={opts?.onAnswer}
+          />
+        ) : (
+          <TranscriptItemRenderer
+            item={item}
+            onResolve={opts?.onResolve}
+            onRetryReport={opts?.onRetryReport}
+          />
+        )}
       </div>
     </TestProviders>,
   );
@@ -306,61 +317,18 @@ describe("TranscriptItemRenderer", () => {
     });
   });
 
-  describe("report_card", () => {
-    const card = (
-      phase: "building" | "ready" | "failed",
-      headline?: string,
-    ): TranscriptItem => ({
-      kind: "report_card",
-      id: "report",
-      state: { phase },
-      ...(headline !== undefined && { headline }),
-    });
-
-    it("says the report is being written while the turn is in flight", () => {
-      wrap(card("building"));
-
-      expect(screen.getByTestId("report-card")).toHaveAttribute(
-        "data-phase",
-        "building",
-      );
-      // The card names the artifact and its state apart, so the name is steady
-      // while the run rewrites what sits behind it.
-      expect(screen.getByText(/investigation report/i)).toBeInTheDocument();
-      expect(screen.getByText(/writing it up/i)).toBeInTheDocument();
-    });
-
-    /* Nothing opens on its own: a report that arrives over the message being
-       read is the page moving under the reader. */
-    it("waits to be opened rather than opening itself", async () => {
-      const user = userEvent.setup();
-      const opened = vi.fn();
-      window.addEventListener("nw:open-report", opened);
-      wrap(card("ready"));
-
-      expect(opened).not.toHaveBeenCalled();
-      await user.click(screen.getByRole("button", { name: /open report/i }));
-      expect(opened).toHaveBeenCalled();
-      window.removeEventListener("nw:open-report", opened);
-    });
-
-    // Once a report stands, its headline is the card's subheading, so the card
-    // names the write-up it opens.
-    it("names the write-up by its headline once the report stands", () => {
-      wrap(card("ready", "The connection pool on payments-api was exhausted"));
-
-      expect(
-        screen.getByText("The connection pool on payments-api was exhausted"),
-      ).toBeInTheDocument();
-      expect(screen.queryByText(/ready to read/i)).not.toBeInTheDocument();
-    });
-
-    it("offers another attempt when the report was never written", async () => {
+  describe("failed run retry", () => {
+    // A ready or building write-up draws nothing here: the report opens on its
+    // own, and only a run that could not finish offers to run again.
+    it("offers another attempt when the run could not write up", async () => {
       const user = userEvent.setup();
       const onRetryReport = vi.fn();
-      wrap(card("failed"), { onRetryReport });
+      wrap(
+        { kind: "report_card", id: "report", state: { phase: "failed" } },
+        { onRetryReport },
+      );
 
-      expect(screen.getByText(/not written/i)).toBeInTheDocument();
+      expect(screen.getByText(/did not finish/i)).toBeInTheDocument();
       await user.click(screen.getByRole("button", { name: /try again/i }));
       expect(onRetryReport).toHaveBeenCalled();
     });
@@ -572,21 +540,6 @@ describe("TranscriptItemRenderer", () => {
     });
   });
 
-  describe("error_text", () => {
-    it("renders a provider failure as NightWarden's notice, not as the agent talking", () => {
-      wrap({
-        kind: "error_text",
-        id: "err-1",
-        text: "The provider rate-limited the request (HTTP 429).",
-      });
-
-      const notice = screen.getByTestId("error-notice");
-      expect(notice).toHaveTextContent("The run stopped");
-      expect(notice).toHaveTextContent("rate-limited");
-      // An agent message is prose in the flow; this is not one.
-      expect(notice.querySelector(".prose")).toBeNull();
-    });
-  });
   describe("compaction", () => {
     it("says the context was summarised and that the record is untouched", () => {
       wrap({ kind: "compaction", id: "assistant-4-0" });
@@ -600,7 +553,7 @@ describe("TranscriptItemRenderer", () => {
   });
 
   describe("reveal from the report", () => {
-    it("marks the named tool row without opening it, leaving the others untouched", async () => {
+    it("opens and lights the named tool row, leaving the others untouched", async () => {
       const { revealToolCall } =
         await import("@/features/session/transcript/revealToolCall");
 
@@ -644,16 +597,20 @@ describe("TranscriptItemRenderer", () => {
 
       act(() => revealToolCall("tu-logs"));
 
-      // Marked and left shut: the reader came for the steps around it, which
-      // expanding would push off screen.
+      // Lit and opened, since the columns now sit side by side and the reader
+      // followed the citation to see this call's evidence; its neighbours stay shut.
       await waitFor(() => {
         expect(logs).toHaveAttribute("data-revealed");
       });
       expect(logs!.querySelector("button")).toHaveAttribute(
         "aria-expanded",
-        "false",
+        "true",
       );
       expect(stats).not.toHaveAttribute("data-revealed");
+      expect(stats!.querySelector("button")).toHaveAttribute(
+        "aria-expanded",
+        "false",
+      );
     });
   });
 });

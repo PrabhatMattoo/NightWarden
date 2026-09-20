@@ -296,12 +296,10 @@ export class SdkProvider implements LLMProvider {
               event.providerMetadata,
             );
           }
-          if (event.delta) {
-            onDelta?.({
-              kind: event.type === "reasoning-delta" ? "thinking" : "text",
-              text: event.delta,
-              block: part.block ?? 0,
-            });
+          // Only the visible answer streams: reasoning is replayed to the
+          // model, and a compaction is drawn as its own divider.
+          if (event.delta && part.type === "text") {
+            onDelta?.({ text: event.delta, block: part.block ?? 0 });
           }
           break;
         }

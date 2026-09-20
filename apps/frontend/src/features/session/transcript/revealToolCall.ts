@@ -1,23 +1,31 @@
-// Scroll and mark, never open. An event rather than shared state, because the
-// two are siblings with no common owner.
+// From the report into the transcript: open the group holding a cited call, open
+// the call, scroll to it. A held target, so a row mounting late still finds it.
 
-const EVENT = "nw:reveal-tool-call";
+import { cssNumber } from "@/shared/lib/cssNumber";
 
-export const REVEAL_MS = 1600;
+export const REVEAL_MS = cssNumber("--duration-reveal", 1600);
+
+let target: string | null = null;
+const listeners = new Set<() => void>();
 
 export function revealToolCall(toolCallId: string): void {
-  window.dispatchEvent(new CustomEvent(EVENT, { detail: toolCallId }));
-  document
-    .getElementById(`tool-${toolCallId}`)
-    ?.scrollIntoView({ behavior: "smooth", block: "center" });
+  target = toolCallId;
+  for (const notify of listeners) notify();
 }
 
-export function onRevealToolCall(
-  handler: (toolCallId: string) => void,
-): () => void {
-  const listener = (e: Event): void => {
-    handler((e as CustomEvent<string>).detail);
+export function revealTarget(): string | null {
+  return target;
+}
+
+export function onReveal(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
   };
-  window.addEventListener(EVENT, listener);
-  return () => window.removeEventListener(EVENT, listener);
+}
+
+// The revealed row clears itself once its highlight has run, so a later reveal
+// of the same call lights it again.
+export function endReveal(toolCallId: string): void {
+  if (target === toolCallId) target = null;
 }

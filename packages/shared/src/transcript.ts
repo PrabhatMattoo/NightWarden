@@ -31,6 +31,8 @@ export interface UserTurnItem {
   // The settled copy of a just-echoed bubble: rendered without the mount fade
   // so the echo-to-persisted swap is invisible.
   instant?: boolean;
+  // When its row was written; present on a projected item, absent while live.
+  timestamp?: string;
 }
 
 export interface AgentTextItem {
@@ -39,6 +41,7 @@ export interface AgentTextItem {
   text: string;
   // Which turn wrote it; a streamed copy carries the same number.
   turn: number;
+  timestamp?: string;
 }
 
 // NightWarden's own failure note (role "error"), rendered exactly like agent text.
@@ -46,16 +49,6 @@ export interface ErrorTextItem {
   kind: "error_text";
   id: string;
   text: string;
-}
-
-export interface ThinkingItem {
-  kind: "thinking";
-  id: string;
-  text: string;
-  // True only while live deltas are still arriving for this burst; reload-path
-  // items are never streaming, and either way it renders collapsed until opened.
-  streaming: boolean;
-  turn: number;
 }
 
 // One item for the whole life of a call, its state saying which moment it is
@@ -69,6 +62,7 @@ export interface ToolCallItem {
   // The card informs, it never refuses; only a walk can answer it.
   priorRuns?: number;
   state: ToolCallState;
+  timestamp?: string;
 }
 
 // Not a tool call: no model asked for it, and its synthetic id keys an
@@ -136,7 +130,6 @@ export type TranscriptItem =
   | UserTurnItem
   | AgentTextItem
   | ErrorTextItem
-  | ThinkingItem
   | ToolCallItem
   | ContinueCardItem
   | ReportCardItem

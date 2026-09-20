@@ -5,24 +5,13 @@ import {
   applyLiveEvent,
   hasActiveStream,
 } from "@/features/session/transcript/liveConverter";
-import type {
-  TranscriptItem,
-  ThinkingItem,
-} from "@/features/session/transcript/types";
+import type { TranscriptItem } from "@/features/session/transcript/types";
 
 function textDelta(delta: string, turn = 1, block = 0): FrontendEvent {
   return {
     messageId: "m1",
     type: "TEXT_MESSAGE_CONTENT",
-    payload: { sessionId: "s1", kind: "text", delta, turn, block },
-  };
-}
-
-function thinkingDelta(delta: string, turn = 1, block = 0): FrontendEvent {
-  return {
-    messageId: "m1",
-    type: "TEXT_MESSAGE_CONTENT",
-    payload: { sessionId: "s1", kind: "thinking", delta, turn, block },
+    payload: { sessionId: "s1", delta, turn, block },
   };
 }
 
@@ -66,16 +55,6 @@ function toolCallEnd(toolCallId: string, result: unknown): FrontendEvent {
     toolName: "check_service_status",
     input: {},
     state: { phase: "complete", result },
-  });
-}
-
-function interrupt(toolCallId: string): FrontendEvent {
-  return itemEvent({
-    kind: "tool_call",
-    toolCallId,
-    toolName: "RestartDockerService",
-    input: {},
-    state: { phase: "awaiting_human", gate: "approval" },
   });
 }
 
@@ -128,128 +107,30 @@ describe("applyLiveEvent — continue interrupt", () => {
       state: { phase: "resolved", decision: "rejected" },
     });
   });
-
-  it("finalizes a trailing thinking item before adding the continue card", () => {
-    let items: TranscriptItem[] = [];
-    items = applyLiveEvent(
-      items,
-      {
-        messageId: "m1",
-        type: "TEXT_MESSAGE_CONTENT",
-        payload: {
-          sessionId: "s1",
-          kind: "thinking",
-          delta: "Hmm…",
-          turn: 1,
-          block: 0,
-        },
-      },
-      "s1",
-    );
-    items = applyLiveEvent(items, continueInterrupt("ci-2"), "s1");
-
-    expect(items).toHaveLength(2);
-    expect(items[0]).toMatchObject({ kind: "thinking", streaming: false });
-    expect(items[1]).toMatchObject({
-      kind: "continue_card",
-      toolCallId: "ci-2",
-    });
-  });
-});
-
-describe("applyLiveEvent — thinking", () => {
-  it("opens a streaming thinking item on the first delta", () => {
-    const items = applyLiveEvent([], thinkingDelta("Let me check"), "s1");
-
-    expect(items).toHaveLength(1);
-    const item = items[0] as ThinkingItem;
-    expect(item.kind).toBe("thinking");
-    expect(item.text).toBe("Let me check");
-    expect(item.streaming).toBe(true);
-  });
-
-  it("accumulates consecutive thinking deltas into the same item", () => {
-    let items: TranscriptItem[] = [];
-    items = applyLiveEvent(items, thinkingDelta("Let me check"), "s1");
-    items = applyLiveEvent(items, thinkingDelta(" the logs"), "s1");
-
-    expect(items).toHaveLength(1);
-    expect((items[0] as ThinkingItem).text).toBe("Let me check the logs");
-  });
-
-  /* One rule with three ways of arriving: anything that is not another thinking
-     delta settles the burst. A row per event, not a case per event. */
-  it.each([
-    ["a text delta", () => textDelta("Checked.", 1, 1), "agent_text"],
-    ["a tool call", () => toolCallStart("tu-1"), "tool_call"],
-    ["an interrupt", () => interrupt("tu-gate"), "tool_call"],
-  ])("stops streaming the moment %s arrives", (_label, event, kind) => {
-    let items: TranscriptItem[] = [];
-    items = applyLiveEvent(items, thinkingDelta("Let me check"), "s1");
-    items = applyLiveEvent(items, event(), "s1");
-
-    expect(items).toHaveLength(2);
-    expect((items[0] as ThinkingItem).streaming).toBe(false);
-    expect(items[1]).toMatchObject({ kind });
-  });
-
-  it("starts a new, independent thinking item for the next burst", () => {
-    let items: TranscriptItem[] = [];
-    items = applyLiveEvent(items, thinkingDelta("First burst", 1, 0), "s1");
-    items = applyLiveEvent(items, toolCallStart("tu-1"), "s1");
-    items = applyLiveEvent(items, thinkingDelta("Second burst", 1, 1), "s1");
-
-    expect(items).toHaveLength(3);
-    expect((items[0] as ThinkingItem).text).toBe("First burst");
-    expect((items[0] as ThinkingItem).streaming).toBe(false);
-    const second = items[2] as ThinkingItem;
-    expect(second.text).toBe("Second burst");
-    expect(second.streaming).toBe(true);
-  });
-
-  it("ignores thinking deltas for a different session", () => {
-    const items = applyLiveEvent([], thinkingDelta("ignored"), "other-session");
-
-    expect(items).toHaveLength(0);
-  });
-
-  it("drops a whitespace-only thinking burst instead of leaving a bare item", () => {
-    let items: TranscriptItem[] = [];
-    items = applyLiveEvent(items, thinkingDelta("\n  ", 1, 0), "s1");
-    // Still streaming, so it lingers until finalized.
-    expect(items).toHaveLength(1);
-    // A text delta finalizes the burst; whitespace-only means it is discarded.
-    items = applyLiveEvent(items, textDelta("Answer.", 1, 1), "s1");
-    expect(items).toHaveLength(1);
-    expect(items[0]).toMatchObject({ kind: "agent_text", text: "Answer." });
-  });
 });
 
 describe("applyLiveEvent — block identity", () => {
   // The projection ids a saved part `assistant-${seq}-${block}`, and the stream
   // carries the same turn and block, so the two key alike and never remount.
   it("keys a streamed row with the id the server will save it under", () => {
-    const items = applyLiveEvent([], thinkingDelta("Reasoning", 7, 2), "s1");
-    expect((items[0] as ThinkingItem).id).toBe("assistant-7-2");
+    const items = applyLiveEvent([], textDelta("An answer", 7, 2), "s1");
+    expect(items[0]).toMatchObject({ id: "assistant-7-2" });
   });
 
-  it("splits two reasoning blocks that arrive back to back into distinct rows", () => {
+  it("splits two text blocks that arrive back to back into distinct rows", () => {
     let items: TranscriptItem[] = [];
-    items = applyLiveEvent(items, thinkingDelta("First", 1, 0), "s1");
-    items = applyLiveEvent(items, thinkingDelta("Second", 1, 1), "s1");
+    items = applyLiveEvent(items, textDelta("First", 1, 0), "s1");
+    items = applyLiveEvent(items, textDelta("Second", 1, 1), "s1");
 
     expect(items).toHaveLength(2);
-    expect((items[0] as ThinkingItem).id).toBe("assistant-1-0");
-    expect((items[1] as ThinkingItem).id).toBe("assistant-1-1");
-    expect((items[0] as ThinkingItem).streaming).toBe(false);
-    expect((items[1] as ThinkingItem).streaming).toBe(true);
+    expect(items[0]).toMatchObject({ id: "assistant-1-0", text: "First" });
+    expect(items[1]).toMatchObject({ id: "assistant-1-1", text: "Second" });
   });
 });
 
 describe("applyLiveEvent — a retry restarts the turn's stream", () => {
-  it("drops the partial reasoning and text so the re-stream replaces it", () => {
+  it("drops the partial text so the re-stream replaces it", () => {
     let items: TranscriptItem[] = [];
-    items = applyLiveEvent(items, thinkingDelta("Half a thou", 1, 0), "s1");
     items = applyLiveEvent(
       items,
       textDelta("The api container was OOM", 1, 1),
@@ -285,12 +166,10 @@ describe("applyLiveEvent — a retry restarts the turn's stream", () => {
 });
 
 describe("hasActiveStream", () => {
-  /* Whether the working animation shows. Four branches, and both sides of each
+  /* Whether the live line shows. Every branch, and both sides of the one
      boolean, which is a table rather than a case apiece. */
   it.each([
     ["nothing has arrived", [], false],
-    ["thinking carries real text", [thinkingDelta("Reasoning")], true],
-    ["thinking carries only whitespace", [thinkingDelta("   ")], false],
     ["an answer is streaming", [textDelta("Here is")], true],
     ["a tool call is in flight", [toolCallStart("tu-1")], true],
     [
@@ -304,15 +183,5 @@ describe("hasActiveStream", () => {
       [],
     );
     expect(hasActiveStream(items)).toBe(expected);
-  });
-
-  // The tail decides it, so a finalized burst behind an in-flight card is not
-  // what is read - only the last item is.
-  it("is false when the tail is a settled thinking item", () => {
-    let items = applyLiveEvent([], thinkingDelta("Reasoning"), "s1");
-    items = applyLiveEvent(items, toolCallStart("tu-1"), "s1");
-    items = items.slice(0, 1);
-    expect(items[0]).toMatchObject({ kind: "thinking", streaming: false });
-    expect(hasActiveStream(items)).toBe(false);
   });
 });

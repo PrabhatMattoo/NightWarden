@@ -27,11 +27,7 @@ import {
   SelectValue,
 } from "@/shared/ui/select";
 import { useFrontendEvents } from "@/shared/events/FrontendEventsProvider";
-import {
-  renameSession,
-  sessionsQueryKey,
-  useSessions,
-} from "@/features/session/useSessions";
+import { sessionsQueryKey, useSessions } from "@/features/session/useSessions";
 import { groupByStatus, STATUS_LABEL } from "@/features/investigations/queue";
 import { timeAgo } from "@/shared/lib/time";
 import { cn } from "@/shared/lib/utils";
@@ -176,11 +172,6 @@ export function InvestigationsPage(): React.JSX.Element {
   useFrontendEvents((env) => {
     if (env.type === "QUEUE_CHANGED") {
       setPushed(env.payload);
-      return;
-    }
-    if (env.type === "SESSION_TITLE_UPDATED") {
-      const { sessionId, title } = env.payload;
-      renameSession(queryClient, "investigation", sessionId, title);
       return;
     }
     // Status is server-derived, so anything that can change it refetches the

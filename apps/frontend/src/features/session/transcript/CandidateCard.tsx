@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { ChevronRight } from "lucide-react";
 
 import {
   Collapsible,
@@ -7,6 +6,7 @@ import {
   CollapsibleContent,
 } from "@/shared/ui/collapsible";
 import { cn } from "@/shared/lib/utils";
+import { DisclosureChevron } from "./DisclosureChevron.js";
 import { revealToolCall } from "./revealToolCall.js";
 import type { CandidateRow } from "./types.js";
 
@@ -49,12 +49,9 @@ export function CandidateCard({
           nativeButton
           className="group flex w-full items-center gap-2 px-4 py-3 text-left text-sm"
         >
-          <ChevronRight
-            aria-hidden="true"
-            className="size-3.5 shrink-0 text-muted-foreground transition-transform duration-(--duration-base) group-aria-expanded:rotate-90"
-          />
           <span className="font-medium">Candidates</span>
           <span className="text-xs text-muted-foreground">{summary(rows)}</span>
+          <DisclosureChevron />
         </CollapsibleTrigger>
         <CollapsibleContent>
           <ul className="m-0 flex list-none flex-col p-0">

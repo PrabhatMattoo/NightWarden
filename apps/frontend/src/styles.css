@@ -578,6 +578,11 @@
   --duration-base: 180ms;
   --duration-slow: 240ms;
   --duration-panel: 320ms;
+  /* How long a cited row stays lit after the report scrolls the transcript to it. */
+  --duration-reveal: 1600ms;
+  /* One pass of the live sweep, and one breath of a line that is waiting. */
+  --duration-live: 1300ms;
+  --duration-breathe: 1800ms;
   --default-transition-duration: var(--duration-base);
   --default-transition-timing-function: var(--ease-out);
 
@@ -614,6 +619,53 @@
   scrollbar-width: none;
   &::-webkit-scrollbar {
     display: none;
+  }
+}
+
+/* One flash for every live label: a band a fifth of the image wide, at the
+   brightest ink there is, over a base of the muted one. The image is twice the
+   label and never repeats, so one band crosses at a time whatever it says. */
+@utility live {
+  background: linear-gradient(
+    90deg,
+    var(--ink-subtle) 0%,
+    var(--ink-subtle) 44%,
+    var(--foreground) 50%,
+    var(--ink-subtle) 56%,
+    var(--ink-subtle) 100%
+  );
+  background-size: 300% 100%;
+  background-repeat: no-repeat;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+  animation: nw-live var(--duration-live) linear infinite;
+}
+
+/* Overshooting both edges, so the first letter and the last both get lit. */
+@keyframes nw-live {
+  from {
+    background-position-x: 100%;
+  }
+  to {
+    background-position-x: 0%;
+  }
+}
+
+/* A line that is waiting on something outside rather than producing anything:
+   it breathes to say it is still there, and claims no progress. */
+@utility breathe {
+  animation: nw-breathe var(--duration-breathe) var(--ease-out) infinite;
+}
+
+@keyframes nw-breathe {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
   }
 }
 

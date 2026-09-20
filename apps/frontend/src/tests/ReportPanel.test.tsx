@@ -8,6 +8,10 @@ import type {
 } from "@nightwarden/shared";
 
 import { ReportPanel } from "@/features/report/ReportPanel";
+import {
+  revealTarget,
+  endReveal,
+} from "@/features/session/transcript/revealToolCall";
 
 const RESOLVED = "2026-07-21T12:30:00.000Z";
 
@@ -180,11 +184,6 @@ describe("ReportPanel", () => {
   // Nothing drew the timeline citation, so the row claimed a fact and hid what
   // showed it. The chip reaches the call rather than redrawing its result.
   it("reaches the cited call from a timeline row", () => {
-    const scrollIntoView = vi.fn();
-    vi.spyOn(document, "getElementById").mockReturnValue({
-      scrollIntoView,
-    } as unknown as HTMLElement);
-
     render(
       panel({
         record: {
@@ -207,7 +206,8 @@ describe("ReportPanel", () => {
     fireEvent.click(
       screen.getAllByRole("button", { name: "GetRecentChanges" })[0]!,
     );
-    expect(scrollIntoView).toHaveBeenCalled();
+    expect(revealTarget()).toBe("tu-changes");
+    endReveal("tu-changes");
   });
 
   it("falls back to the leading claim until the run has been written up", () => {
@@ -774,17 +774,11 @@ describe("ReportPanel", () => {
     expect(screen.queryByText("Timeline")).not.toBeInTheDocument();
   });
 
-  it("tells the transcript which call to reveal, not just where to scroll", () => {
-    const revealed: string[] = [];
-    const listener = (e: Event): void => {
-      revealed.push((e as CustomEvent<string>).detail);
-    };
-    window.addEventListener("nw:reveal-tool-call", listener);
-
+  it("tells the transcript which call to reveal, by its id", () => {
     render(panel());
     fireEvent.click(screen.getByRole("button", { name: "GetDockerStats" }));
 
-    expect(revealed).toEqual(["tu-stats"]);
-    window.removeEventListener("nw:reveal-tool-call", listener);
+    expect(revealTarget()).toBe("tu-stats");
+    endReveal("tu-stats");
   });
 });

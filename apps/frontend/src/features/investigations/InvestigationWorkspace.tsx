@@ -14,7 +14,6 @@ import {
 import { Page } from "@/shared/ui/Page";
 import { SessionView } from "@/features/session/SessionView";
 import { ReportPanel } from "@/features/report/ReportPanel";
-import { onOpenReport } from "@/features/session/transcript/openReport";
 import { Button } from "@/shared/ui/button";
 import {
   DropdownMenu,
@@ -140,9 +139,6 @@ export function InvestigationWorkspace(): React.JSX.Element {
     }
     prevRunning.current = running;
   }, [session, running, reportReady]);
-
-  // The docked report card asks to open the panel until that card is removed.
-  useEffect(() => onOpenReport(() => setReportOpen(true)), []);
 
   const asideRef = useRef<HTMLElement>(null);
   const beginDrag = (event: React.PointerEvent): void => {
@@ -271,7 +267,10 @@ export function InvestigationWorkspace(): React.JSX.Element {
             maximized && "hidden",
           )}
         >
-          <SessionView sessionId={sessionId === "" ? null : sessionId} />
+          <SessionView
+            sessionId={sessionId === "" ? null : sessionId}
+            reportOpen={reportOpen}
+          />
         </div>
         <aside
           ref={asideRef}

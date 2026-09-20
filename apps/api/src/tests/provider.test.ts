@@ -278,22 +278,25 @@ describe("what the run sends a model, and what it makes of the answer", () => {
     expect((await p.chat(opening("first"), NO_TOOLS)).parts).toEqual([]);
   });
 
-  it("streams reasoning and visible text as the two kinds they are", async () => {
+  /* Reasoning and a compaction are kept in the record and replayed to the model,
+     but the reader never sees either, so only the answer streams. */
+  it("streams the visible answer alone, never reasoning", async () => {
     const model = fakeModel([
       { type: "reasoning-start", id: "r" },
-      { type: "reasoning-delta", id: "r", delta: "thinking" },
+      { type: "reasoning-delta", id: "r", delta: "weighing it up" },
       ...text("t", "answer"),
       finish("stop"),
     ]);
     const seen: StreamDelta[] = [];
     const p = provider(model);
 
-    await p.chat(opening("first"), NO_TOOLS, (d) => seen.push(d));
+    const turn = await p.chat(opening("first"), NO_TOOLS, (d) => seen.push(d));
 
-    expect(seen).toEqual([
-      { kind: "thinking", text: "thinking", block: 0 },
-      { kind: "text", text: "answer", block: 1 },
-    ]);
+    expect(seen).toEqual([{ text: "answer", block: 1 }]);
+    // Still on the turn it saves, which is what the next request replays.
+    expect(turn.parts).toContainEqual(
+      expect.objectContaining({ type: "reasoning", text: "weighing it up" }),
+    );
   });
 
   it.each([

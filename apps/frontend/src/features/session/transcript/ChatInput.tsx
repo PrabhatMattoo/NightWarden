@@ -119,7 +119,7 @@ export function ChatInput({
         <InputGroupTextarea
           ref={textareaRef}
           id="chat-textarea"
-          className="max-h-[200px] px-4 py-3 placeholder:text-ink-subtle"
+          className="max-h-[200px] px-4 py-3 placeholder:text-ink-subtle md:text-base"
           placeholder={isRunning ? "Agent is running…" : "Ask NightWarden…"}
           value={text}
           onChange={(e) => setText(e.target.value)}

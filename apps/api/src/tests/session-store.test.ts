@@ -166,6 +166,27 @@ describe("API-local session store", () => {
     expect(transcript[0].parts).toEqual([{ type: "text", text: "message 0" }]);
   });
 
+  it("stamps each turn item with the timestamp of the row it came from", async () => {
+    const m = meta();
+    await seedAlertSession(m, [alert]);
+    const asked = "2026-06-13T00:05:00.000Z";
+    const answered = "2026-06-13T00:06:30.000Z";
+    await appendTranscriptRows([
+      { ...msg(m.sessionId, 0, { kind: "user" }), timestamp: asked },
+      { ...msg(m.sessionId, 1, { kind: "assistant" }), timestamp: answered },
+    ]);
+
+    const items = await buildTranscript(m.sessionId);
+    // The run's span is read off these, so the RunGroup can say how long it took
+    // on a transcript reloaded long after the clock that timed it live is gone.
+    expect(items.find((i) => i.kind === "user_turn")).toMatchObject({
+      timestamp: asked,
+    });
+    expect(items.find((i) => i.kind === "agent_text")).toMatchObject({
+      timestamp: answered,
+    });
+  });
+
   it("replays a harness message to the model and draws it for nobody", async () => {
     // The user did not write it, so it must not read as theirs, and a resume
     // that dropped it would leave the model's answer replying to nothing.

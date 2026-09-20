@@ -49,10 +49,8 @@ export interface ChatResponse {
   parts: MessagePart[];
 }
 
-// A live token fragment emitted while a turn streams. `thinking` is the model's
-// reasoning (Anthropic adaptive thinking); `text` is the visible answer.
+// A live token fragment of the visible answer, emitted while a turn streams.
 export interface StreamDelta {
-  kind: "text" | "thinking";
   text: string;
   // The ordinal of the block this fragment belongs to within the turn, so the
   // client keys each streamed row to the row it is saved as.

@@ -6,7 +6,6 @@ export type {
   UserTurnItem,
   AgentTextItem,
   ErrorTextItem,
-  ThinkingItem,
   ToolCallItem,
   ContinueCardItem,
   ReportCardItem,
@@ -16,3 +15,10 @@ export type {
   CompactionItem,
   TranscriptItem,
 } from "@nightwarden/shared";
+
+/* What a run says it is doing, and whether that is work of its own or a wait on
+   something outside it, which the line is drawn differently for. */
+export interface ActivityLine {
+  text: string;
+  waiting: boolean;
+}

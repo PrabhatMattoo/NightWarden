@@ -1,22 +1,12 @@
-import { useState } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
-import { ChevronRight } from "lucide-react";
+import { CircleAlert } from "lucide-react";
 
-import {
-  Collapsible,
-  CollapsibleTrigger,
-  CollapsibleContent,
-} from "@/shared/ui/collapsible";
 import { Message } from "@/shared/ui/message";
 import { Bubble, BubbleContent } from "@/shared/ui/bubble";
 import { MetaText } from "@/shared/ui/status";
-import type {
-  TranscriptItem,
-  ThinkingItem,
-  AlertArrivedItem,
-} from "./types.js";
+import type { TranscriptItem, AlertArrivedItem } from "./types.js";
 import { ToolCall } from "./toolPresentation.js";
 import { CandidateCard } from "./CandidateCard.js";
 import { ApprovalCardPanel } from "./ApprovalCardPanel.js";
@@ -35,7 +25,7 @@ function UserTurn({
     <Message
       align="end"
       className={
-        instant ? undefined : "animate-in fade-in duration-(--duration-slow)"
+        instant ? undefined : "animate-in fade-in duration-(--duration-fast)"
       }
       data-testid="user-turn"
     >
@@ -56,17 +46,17 @@ function AgentMarkdown({ text }: { text: string }): React.JSX.Element {
   );
 }
 
-// NightWarden speaking about the run, not the agent speaking. The heading says
-// whose problem it is before the sentence explains which one.
+// A provider outage or a stopped run reads as a quiet aside, not an alarm: fully
+// muted and inline, so it never colours like the agent reasoning badly.
 function ErrorNotice({ text }: { text: string }): React.JSX.Element {
   return (
     <div
       role="status"
       data-testid="error-notice"
-      className="animate-in fade-in flex flex-col gap-1 rounded-md border border-fail bg-destructive-tint px-3 py-2 duration-(--duration-slow)"
+      className="animate-in fade-in flex items-start gap-2 text-base text-muted-foreground duration-(--duration-slow)"
     >
-      <span className="text-sm font-medium text-fail">The run stopped</span>
-      <p className="m-0 text-sm whitespace-pre-wrap">{text}</p>
+      <CircleAlert aria-hidden className="size-4 shrink-0" />
+      <p className="m-0 whitespace-pre-wrap">{text}</p>
     </div>
   );
 }
@@ -118,57 +108,13 @@ function Compaction(): React.JSX.Element {
   );
 }
 
-// Shorter than this is punctuation or a stray token, not reasoning worth a row.
-const MIN_THINKING_CHARS = 12;
-
-function ThinkingBlock({
-  item,
-}: {
-  item: ThinkingItem;
-}): React.JSX.Element | null {
-  // Shut until asked for: reasoning is there to be opened, not to be read at
-  // everyone. The status line above already says the model is thinking.
-  const [open, setOpen] = useState(false);
-
-  const trimmed = item.text.trim();
-
-  // The working animation stands in for empty reasoning. A settled burst has a
-  // floor after a model emitted a single "." six times; mid-stream has none.
-  if (!trimmed) return null;
-  if (!item.streaming && trimmed.length < MIN_THINKING_CHARS) return null;
-
-  return (
-    <div
-      className="animate-in fade-in duration-(--duration-slow)"
-      data-testid="thinking-block"
-      data-streaming={item.streaming}
-    >
-      <Collapsible open={open} onOpenChange={setOpen}>
-        <CollapsibleTrigger className="group flex w-fit items-center gap-2 text-sm text-muted-foreground">
-          <span className={item.streaming ? "shimmer" : undefined}>
-            Thinking
-          </span>
-          <ChevronRight
-            aria-hidden="true"
-            className="size-3.5 shrink-0 transition-transform duration-(--duration-base) group-aria-expanded:rotate-90"
-          />
-        </CollapsibleTrigger>
-        <CollapsibleContent>
-          <p className="animate-in fade-in duration-(--duration-slow) whitespace-pre-wrap text-sm text-muted-foreground">
-            {trimmed}
-          </p>
-        </CollapsibleContent>
-      </Collapsible>
-    </div>
-  );
-}
-
-export function TranscriptItemRenderer({
+/* What the run is suspended on, drawn as the card that takes the decision: a
+   gated call, a question the agent asked, or an offer to carry on. */
+export function PinnedGate({
   item,
   submitting = false,
   onResolve,
   onAnswer,
-  onRetryReport,
 }: {
   item: TranscriptItem;
   submitting?: boolean;
@@ -178,6 +124,53 @@ export function TranscriptItemRenderer({
     reason?: string,
   ) => void;
   onAnswer?: (toolCallId: string, answer: string | string[]) => void;
+}): React.JSX.Element | null {
+  if (item.kind === "continue_card")
+    return (
+      <ContinueCardPanel
+        item={item}
+        submitting={submitting}
+        onResolve={
+          onResolve ? (action) => onResolve(item.toolCallId, action) : undefined
+        }
+      />
+    );
+  if (item.kind !== "tool_call" || item.state.phase !== "awaiting_human")
+    return null;
+  return item.state.gate === "approval" ? (
+    <ApprovalCardPanel
+      item={item}
+      submitting={submitting}
+      onResolve={
+        onResolve
+          ? (action, reason) => onResolve(item.toolCallId, action, reason)
+          : undefined
+      }
+    />
+  ) : (
+    <ClarificationCardPanel
+      item={item}
+      submitting={submitting}
+      onAnswer={
+        onAnswer ? (answer) => onAnswer(item.toolCallId, answer) : undefined
+      }
+    />
+  );
+}
+
+export function TranscriptItemRenderer({
+  item,
+  submitting = false,
+  onResolve,
+  onRetryReport,
+}: {
+  item: TranscriptItem;
+  submitting?: boolean;
+  onResolve?: (
+    toolCallId: string,
+    action: "approve" | "reject",
+    reason?: string,
+  ) => void;
   onRetryReport?: () => void;
 }): React.JSX.Element {
   switch (item.kind) {
@@ -193,32 +186,12 @@ export function TranscriptItemRenderer({
       return <AlertArrived item={item} />;
     case "compaction":
       return <Compaction />;
-    case "thinking":
-      return <ThinkingBlock item={item} />;
     // One kind for a tool call's whole life, so what it is drawn as is read off
     // its state. Waiting on a person is raised; every other moment is a row.
+    // In the transcript a call is a row whatever it is waiting on. The decision
+    // is taken on the card pinned above the message box.
     case "tool_call":
-      if (item.state.phase !== "awaiting_human")
-        return <ToolCall item={item} />;
-      return item.state.gate === "approval" ? (
-        <ApprovalCardPanel
-          item={item}
-          submitting={submitting}
-          onResolve={
-            onResolve
-              ? (action, reason) => onResolve(item.toolCallId, action, reason)
-              : undefined
-          }
-        />
-      ) : (
-        <ClarificationCardPanel
-          item={item}
-          submitting={submitting}
-          onAnswer={
-            onAnswer ? (answer) => onAnswer(item.toolCallId, answer) : undefined
-          }
-        />
-      );
+      return <ToolCall item={item} />;
     case "candidate_card":
       return <CandidateCard rows={item.rows} />;
     case "report_card":

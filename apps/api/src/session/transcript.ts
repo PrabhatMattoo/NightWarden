@@ -38,8 +38,10 @@ export function toolCallCard(call: {
   // How many times this same write already ran in this investigation. The
   // caller counts it, because only a walk of the transcript can.
   priorRuns?: number;
+  // Present on a projected call, absent while it streams live.
+  timestamp?: string;
 }): TranscriptItem {
-  const { toolCallId, toolName, input, state } = call;
+  const { toolCallId, toolName, input, state, timestamp } = call;
   const priorRuns = call.priorRuns ?? 0;
   return {
     kind: "tool_call",
@@ -48,6 +50,7 @@ export function toolCallCard(call: {
     input,
     ...(priorRuns > 0 && { priorRuns }),
     state,
+    ...(timestamp !== undefined && { timestamp }),
   };
 }
 
@@ -212,7 +215,7 @@ export async function buildTranscript(
 
   const items: TranscriptItem[] = [];
   // First, because it is what the session began from: an investigation that
-  // opens on the agent thinking reads as one it started of its own accord.
+  // opens on the agent working reads as one it started of its own accord.
   for (const entry of alerts.filter((a) => !a.injected)) {
     items.push({
       kind: "alert_arrived",
@@ -259,12 +262,18 @@ export async function buildTranscript(
       if (msg.content) {
         items.push(
           msg.kind === "user"
-            ? { kind: "user_turn", id: `user-${msg.seq}`, text: msg.content }
+            ? {
+                kind: "user_turn",
+                id: `user-${msg.seq}`,
+                text: msg.content,
+                timestamp: msg.timestamp,
+              }
             : {
                 kind: "agent_text",
                 id: `${msg.kind}-${msg.seq}`,
                 text: msg.content,
                 turn: msg.seq,
+                timestamp: msg.timestamp,
               },
         );
       }
@@ -288,21 +297,22 @@ export async function buildTranscript(
         if (!part.text) continue;
         items.push(
           msg.kind === "user"
-            ? { kind: "user_turn", id, text: part.text }
-            : { kind: "agent_text", id, text: part.text, turn: msg.seq },
+            ? {
+                kind: "user_turn",
+                id,
+                text: part.text,
+                timestamp: msg.timestamp,
+              }
+            : {
+                kind: "agent_text",
+                id,
+                text: part.text,
+                turn: msg.seq,
+                timestamp: msg.timestamp,
+              },
         );
       } else if (part.type === "compaction") {
         items.push({ kind: "compaction", id });
-      } else if (part.type === "reasoning") {
-        if (part.text.trim()) {
-          items.push({
-            kind: "thinking",
-            id,
-            text: part.text,
-            streaming: false,
-            turn: msg.seq,
-          });
-        }
       } else if (part.type === "tool_call") {
         /* The board is docked and drawn once here; the call keeps its own row,
            because committing to what to test is itself the work worth showing. */
@@ -344,6 +354,7 @@ export async function buildTranscript(
               decider,
             ),
             priorRuns: priorRunsOf(part.name, part.input, approved),
+            timestamp: msg.timestamp,
           }),
         );
         // Counted in transcript order, so a card reports what ran before it and

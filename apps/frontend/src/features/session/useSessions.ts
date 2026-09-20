@@ -1,15 +1,19 @@
+import { useCallback } from "react";
 import {
   useInfiniteQuery,
+  useQueryClient,
   type InfiniteData,
   type QueryClient,
 } from "@tanstack/react-query";
 import type {
+  FrontendEvent,
   QueueState,
   SessionKind,
   SessionListPage,
   SessionListRow,
 } from "@nightwarden/shared";
 import { apiFetch } from "@/shared/api/client";
+import { useFrontendEvents } from "@/shared/events/FrontendEventsProvider.js";
 
 // One cache per kind. Investigations and chats are two pages over one table, so
 // a shared cache would make either page's "load more" fetch the other's rows.
@@ -45,6 +49,23 @@ function dedupe(rows: SessionListRow[]): SessionListRow[] {
 }
 
 export function useSessions(kind: SessionKind): UseSessionsResult {
+  const queryClient = useQueryClient();
+  /* A title is refined in the background moments after a session opens, so the
+     list it belongs to takes the new one as it lands. */
+  const onEvent = useCallback(
+    (env: FrontendEvent) => {
+      if (env.type !== "SESSION_TITLE_UPDATED") return;
+      renameSession(
+        queryClient,
+        kind,
+        env.payload.sessionId,
+        env.payload.title,
+      );
+    },
+    [queryClient, kind],
+  );
+  useFrontendEvents(onEvent);
+
   const query = useInfiniteQuery<
     SessionListPage,
     Error,

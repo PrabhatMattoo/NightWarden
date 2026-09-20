@@ -154,7 +154,6 @@ export type {
   UserTurnItem,
   AgentTextItem,
   ErrorTextItem,
-  ThinkingItem,
   ToolCallItem,
   ContinueCardItem,
   ReportCardItem,

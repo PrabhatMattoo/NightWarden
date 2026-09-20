@@ -1,21 +1,25 @@
 // The row names the call and the body is one click inside it. Expansion is a
 // thread line: at rail width a box per tool buries the conversation.
 
-import { useEffect, useState } from "react";
-import { ChevronRight } from "lucide-react";
-import { ICON_INLINE } from "@/shared/lib/iconProps";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@/shared/ui/button";
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/shared/ui/collapsible";
-import { onRevealToolCall, REVEAL_MS } from "./revealToolCall.js";
+import {
+  onReveal,
+  revealTarget,
+  endReveal,
+  REVEAL_MS,
+} from "./revealToolCall.js";
 import { cn } from "@/shared/lib/utils";
 import { isTool, parseTargetKey } from "@nightwarden/shared";
 import type { ApprovalStatus, ToolName } from "@nightwarden/shared";
 import { stringAt as inputString } from "@/shared/lib/toolResult";
 import type { ToolCallItem } from "./types.js";
+import { DisclosureChevron } from "./DisclosureChevron.js";
 import { DiffCard, parseFileChange } from "./DiffCard.js";
 import { PRCard, parsePullRequestResult } from "./PRCard.js";
 import { parseCommandRun } from "./TerminalCard.js";
@@ -63,7 +67,7 @@ function CappedText({ text }: { text: string }): React.JSX.Element {
 
   if (hidden <= 0)
     return (
-      <pre className={cn(MONO, "m-0 whitespace-pre-wrap break-words")}>
+      <pre className={cn(MONO, "m-0 whitespace-pre-wrap wrap-break-word")}>
         {text}
       </pre>
     );
@@ -73,7 +77,7 @@ function CappedText({ text }: { text: string }): React.JSX.Element {
       <pre
         className={cn(
           MONO,
-          "m-0 whitespace-pre-wrap break-words",
+          "m-0 whitespace-pre-wrap wrap-break-word",
           open && "max-h-72 overflow-auto",
         )}
       >
@@ -109,7 +113,7 @@ function ToolBody({
         ].map(([label, value]) => (
           <div key={label} className="flex gap-3">
             <dt className="w-16 shrink-0 text-sm text-ink-subtle">{label}</dt>
-            <dd className="m-0 min-w-0 text-sm break-words whitespace-pre-wrap">
+            <dd className="m-0 min-w-0 text-sm wrap-break-word whitespace-pre-wrap">
               {value}
             </dd>
           </div>
@@ -124,7 +128,7 @@ function ToolBody({
   if (run !== null) {
     return (
       <div className="flex flex-col gap-2">
-        <pre className={cn(MONO, "m-0 whitespace-pre-wrap break-words")}>
+        <pre className={cn(MONO, "m-0 whitespace-pre-wrap wrap-break-word")}>
           <span className="text-ink-subtle select-none">$ </span>
           {commandLineOf(input) ?? ""}
         </pre>
@@ -155,19 +159,28 @@ const DECISION_WORD: Record<ApprovalStatus, string> = {
 function ToolRow({ item }: { item: ToolCallItem }): React.JSX.Element {
   const [open, setOpen] = useState(false);
   const [revealed, setRevealed] = useState(false);
+  const rowRef = useRef<HTMLDivElement>(null);
   const { toolName, input } = item;
 
-  // Marking is the whole signal: a collapsed row scrolled into view looks like
-  // every other, and opening it would push the neighbouring steps off screen.
-  useEffect(
-    () =>
-      onRevealToolCall((id) => {
-        if (id !== item.toolCallId) return;
-        setRevealed(true);
-        window.setTimeout(() => setRevealed(false), REVEAL_MS);
-      }),
-    [item.toolCallId],
-  );
+  // A citation opens the call it names and scrolls it into view, so the reader
+  // lands on the evidence rather than on a collapsed row that looks like any other.
+  useEffect(() => {
+    const check = (): void => {
+      if (revealTarget() !== item.toolCallId) return;
+      setOpen(true);
+      setRevealed(true);
+      requestAnimationFrame(() =>
+        rowRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }),
+      );
+      window.setTimeout(() => {
+        setRevealed(false);
+        endReveal(item.toolCallId);
+      }, REVEAL_MS);
+    };
+    // On mount too: the group may have just opened this row for the reveal.
+    check();
+    return onReveal(check);
+  }, [item.toolCallId]);
   const result =
     item.state.phase === "complete"
       ? item.state.result
@@ -175,7 +188,10 @@ function ToolRow({ item }: { item: ToolCallItem }): React.JSX.Element {
         ? (item.state.result ?? null)
         : null;
 
-  const running = result === null;
+  // Two different things, and conflating them put the sweep on a call that was
+  // waiting: one has no result yet, the other is actually executing.
+  const unanswered = result === null;
+  const working = item.state.phase === "running";
   const target = targetOf(input) ?? inputString(input, "path");
   // Who settled this call, drawn on the resolved row so the audit reads inline.
   const actor =
@@ -187,6 +203,7 @@ function ToolRow({ item }: { item: ToolCallItem }): React.JSX.Element {
     // Anchor for the report's evidence links: a citation there names the tool
     // call that produced it, and this is where that call lives.
     <div
+      ref={rowRef}
       data-testid="tool-call"
       id={`tool-${item.toolCallId}`}
       data-revealed={revealed || undefined}
@@ -195,53 +212,38 @@ function ToolRow({ item }: { item: ToolCallItem }): React.JSX.Element {
         revealed && "bg-surface-hover",
       )}
     >
-      <Collapsible open={open} onOpenChange={setOpen} disabled={running}>
+      <Collapsible open={open} onOpenChange={setOpen} disabled={unanswered}>
         <CollapsibleTrigger
-          disabled={running}
+          disabled={unanswered}
           nativeButton
-          className="group flex w-full items-baseline gap-2 py-1 text-left"
+          className="group flex w-full items-baseline gap-2 py-1 text-left text-ink-subtle transition-colors group-hover:text-foreground"
         >
-          {/* The sweep is what says the call is still going, so the name
-              carries it and the row needs no second word beside it. */}
+          {/* The sweep is what says "still going", so the name carries it and
+              the row needs no second word beside it. */}
           <span
             data-testid="tool-call-name"
             className={cn(
-              "shrink-0 font-mono text-sm font-medium",
-              running && "shimmer",
+              "shrink-0 font-mono text-base font-medium",
+              working && "live",
             )}
           >
             {toolName}
           </span>
           {target !== null && (
-            <span className="shrink-0 font-mono text-sm text-ink-subtle">
-              {target}
-            </span>
+            <span className="shrink-0 font-mono text-base">{target}</span>
           )}
           {actor !== null && decisionWord !== null && (
-            <span className="min-w-0 truncate text-sm text-ink-subtle">
+            <span className="min-w-0 truncate text-base">
               {decisionWord} by {actor.name} ({actor.email})
             </span>
           )}
-          {/* Not stretched: the chevron belongs against the text it opens, so the
-            row reads as one phrase rather than as a name and a control held
-            apart by however much width the window happens to have. */}
-          {/* Always drawn, dimmed while the call is in flight. Appearing on
-            completion moved the row's own text, and now that it sits in the
-            reading line rather than at the margin, that jump is unmissable. */}
-          <ChevronRight
-            {...ICON_INLINE}
-            aria-hidden="true"
-            className={cn(
-              "shrink-0 self-center text-ink-subtle transition-transform duration-(--duration-base) group-aria-expanded:rotate-90",
-              running && "opacity-40",
-            )}
-          />
+          <DisclosureChevron openable={!unanswered} />
         </CollapsibleTrigger>
 
         {/* No rule and no indent: the body is the evidence the row was opened
           for, so nothing here sets it back. Tight above because it belongs to
           the row, looser below because it is finished. */}
-        {!running && (
+        {!unanswered && (
           <CollapsibleContent className="mt-1 mb-4">
             <ToolBody toolName={toolName} input={input} result={result} />
           </CollapsibleContent>

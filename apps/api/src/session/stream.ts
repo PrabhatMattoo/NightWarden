@@ -31,7 +31,6 @@ export function publishTextMessageContent(
     type: "TEXT_MESSAGE_CONTENT",
     payload: {
       sessionId,
-      kind: delta.kind,
       delta: delta.text,
       turn,
       block: delta.block,

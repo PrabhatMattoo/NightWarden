@@ -958,6 +958,49 @@ describe("motion", () => {
   });
 });
 
+describe("the live sweep", () => {
+  /* The gradient is twice the label and never repeats, so a position outside
+     0-100% slides part of the label off the image. Clipped to text with a
+     transparent colour, unpainted means invisible: the word disappears. */
+  it("never travels off the label it paints", () => {
+    const at = css.indexOf("@keyframes nw-live");
+    expect(at).toBeGreaterThan(-1);
+    const frames = css.slice(at, at + 300);
+    const stops = [
+      ...frames.matchAll(/background-position-x:\s*(-?\d+)%/g),
+    ].map((m) => Number(m[1]));
+    expect(stops.length).toBeGreaterThan(1);
+    for (const stop of stops) {
+      expect(
+        stop,
+        `nw-live reaches ${stop}%, which leaves part of the label unpainted`,
+      ).toBeGreaterThanOrEqual(0);
+      expect(stop).toBeLessThanOrEqual(100);
+    }
+  });
+});
+
+describe("disclosure", () => {
+  /* One mark for every row that opens, so the four that once hand-rolled it
+     cannot drift apart again. Opacity is what Safari promotes to its own layer
+     and snaps to a whole pixel, which shifted the mark sideways on hover. */
+  it("draws the disclosure mark in one place, and never hides it with opacity", () => {
+    const owners = SOURCES.filter(([path]) =>
+      path.endsWith("DisclosureChevron.tsx"),
+    );
+    expect(owners).toHaveLength(1);
+    expect(owners[0]?.[1]).not.toMatch(/opacity-\d/);
+
+    for (const [path, text] of SOURCES) {
+      if (path.endsWith("DisclosureChevron.tsx")) continue;
+      expect(
+        text,
+        `${path} turns its own mark; compose DisclosureChevron instead`,
+      ).not.toMatch(/aria-expanded[^"'`]*rotate-/);
+    }
+  });
+});
+
 describe("spacing", () => {
   it("holds every gap, padding and margin to the 4px set", () => {
     expectUtilityValues(

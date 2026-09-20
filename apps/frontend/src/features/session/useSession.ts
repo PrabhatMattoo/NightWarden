@@ -20,6 +20,15 @@ export function useSession(sessionId: string | null): SessionDetail | null {
 
   const handleEnvelope = useCallback(
     (env: FrontendEvent) => {
+      // The heading reads this, and a title costs one field rather than a refetch.
+      if (env.type === "SESSION_TITLE_UPDATED") {
+        if (env.payload.sessionId !== sessionId) return;
+        queryClient.setQueryData<SessionDetail>(
+          ["session", sessionId],
+          (prev) => (prev ? { ...prev, title: env.payload.title } : prev),
+        );
+        return;
+      }
       if (!REFRESHES.has(env.type)) return;
       if (!("sessionId" in env.payload)) return;
       if (env.payload.sessionId !== sessionId) return;

@@ -26,7 +26,6 @@ export interface FrontendTextMessageContent extends FrontendEnvelope {
   type: "TEXT_MESSAGE_CONTENT";
   payload: {
     sessionId: string;
-    kind: "text" | "thinking";
     delta: string;
     // The seq this turn will be saved under, sent before it is.
     turn: number;

@@ -186,12 +186,6 @@ function setupPage({
                 text: "Why is redis restarting?",
               },
               {
-                kind: "thinking",
-                id: "t-1",
-                text: "checking the logs",
-                streaming: false,
-              },
-              {
                 kind: "agent_text",
                 id: "a-1",
                 text: "It was OOM-killed at 02:14.",
@@ -265,7 +259,7 @@ describe("SessionView", () => {
         MockEventSource.latest?.push({
           messageId: "m1",
           type: "TEXT_MESSAGE_CONTENT",
-          payload: { sessionId: "s1", kind: "text", delta: "Analyzing..." },
+          payload: { sessionId: "s1", delta: "Analyzing..." },
         });
       });
 
@@ -287,12 +281,12 @@ describe("SessionView", () => {
         MockEventSource.latest?.push({
           messageId: "m1",
           type: "TEXT_MESSAGE_CONTENT",
-          payload: { sessionId: "s1", kind: "text", delta: "Analyzing" },
+          payload: { sessionId: "s1", delta: "Analyzing" },
         });
         MockEventSource.latest?.push({
           messageId: "m2",
           type: "TEXT_MESSAGE_CONTENT",
-          payload: { sessionId: "s1", kind: "text", delta: " the logs..." },
+          payload: { sessionId: "s1", delta: " the logs..." },
         });
       });
 
@@ -316,7 +310,6 @@ describe("SessionView", () => {
           type: "TEXT_MESSAGE_CONTENT",
           payload: {
             sessionId: "other-session",
-            kind: "text",
             delta: "Other delta",
           },
         });
@@ -340,7 +333,7 @@ describe("SessionView", () => {
         MockEventSource.latest?.push({
           messageId: "m1",
           type: "TEXT_MESSAGE_CONTENT",
-          payload: { sessionId: "s1", kind: "text", delta: "Analyzing..." },
+          payload: { sessionId: "s1", delta: "Analyzing..." },
         });
       });
 
@@ -397,7 +390,6 @@ describe("SessionView", () => {
           type: "TEXT_MESSAGE_CONTENT",
           payload: {
             sessionId: "s1",
-            kind: "text",
             delta: "Investigation complete.",
             turn: 2,
           },
@@ -441,7 +433,8 @@ describe("SessionView", () => {
 
   describe("tool call (TRANSCRIPT_ITEM events)", () => {
     it("renders a running call as a row naming the tool and its target", async () => {
-      setup();
+      // A running tool means the run is live, so its group is open, not collapsed.
+      setup(undefined, true);
 
       await waitFor(() => {
         expect(
@@ -473,7 +466,7 @@ describe("SessionView", () => {
     });
 
     it("reads the result on the row once the call completes", async () => {
-      setup();
+      setup(undefined, true);
 
       await waitFor(() => {
         expect(
@@ -534,7 +527,7 @@ describe("SessionView", () => {
     });
 
     it("replaces the right card by toolCallId, leaving the other alone", async () => {
-      setup();
+      setup(undefined, true);
 
       await waitFor(() => {
         expect(
@@ -644,56 +637,6 @@ describe("SessionView", () => {
     });
   });
 
-  describe("thinking choreography (TEXT_MESSAGE_CONTENT kind=thinking)", () => {
-    it("clears thinking blocks once the assistant MESSAGE flushes the turn", async () => {
-      const { setItems } = setup();
-
-      await waitFor(() => {
-        expect(
-          screen.getByText("Service is down on web-01"),
-        ).toBeInTheDocument();
-      });
-
-      act(() => {
-        MockEventSource.latest?.push({
-          messageId: "m3",
-          type: "TEXT_MESSAGE_CONTENT",
-          payload: { sessionId: "s1", kind: "thinking", delta: "Reasoning" },
-        });
-      });
-      await waitFor(() => {
-        expect(screen.getByTestId("thinking-block")).toBeInTheDocument();
-      });
-
-      setItems([
-        USER_TURN,
-        { kind: "agent_text", id: "agent-3-0", text: "Done." },
-      ]);
-      act(() => {
-        MockEventSource.latest?.push({
-          messageId: "m4",
-          type: "MESSAGE",
-          payload: {
-            sessionId: "s1",
-            message: {
-              sessionId: "s1",
-              seq: 3,
-              kind: "assistant",
-              content: "Done.",
-              parts: [{ type: "text", text: "Done." }],
-              createdAt: "2024-01-01T00:03:00Z",
-            },
-          },
-        });
-      });
-
-      await waitFor(() => {
-        expect(screen.queryByTestId("thinking-block")).not.toBeInTheDocument();
-        expect(screen.getByText("Done.")).toBeInTheDocument();
-      });
-    });
-  });
-
   describe("working indicator (immediate affordance)", () => {
     it("shows the indicator on send and keeps it through the user-turn persist", async () => {
       const { setItems } = setup();
@@ -708,12 +651,11 @@ describe("SessionView", () => {
       await user.type(screen.getByRole("textbox"), "check the db");
       await user.click(screen.getByRole("button", { name: /send/i }));
 
-      // The indicator and the echoed bubble show the instant the message is sent,
-      // with no bare "Thinking" line.
+      // The live line and the echoed bubble show the instant the message is
+      // sent, so pressing send is never answered by a still page.
       await waitFor(() => {
         expect(screen.getByTestId("working-indicator")).toBeInTheDocument();
       });
-      expect(screen.queryByTestId("thinking-block")).not.toBeInTheDocument();
       expect(screen.getAllByText("check the db")).toHaveLength(1);
 
       // Persisting the user's own turn is a MESSAGE, not a terminal: the run is
@@ -752,7 +694,6 @@ describe("SessionView", () => {
           type: "TEXT_MESSAGE_CONTENT",
           payload: {
             sessionId: "s1",
-            kind: "text",
             delta: "Checking the database...",
           },
         });
@@ -766,53 +707,7 @@ describe("SessionView", () => {
       expect(screen.queryByTestId("working-indicator")).not.toBeInTheDocument();
     });
 
-    it("replaces the indicator with a thinking block once real reasoning streams", async () => {
-      setup();
-
-      await waitFor(() => {
-        expect(
-          screen.getByText("Service is down on web-01"),
-        ).toBeInTheDocument();
-      });
-
-      const user = userEvent.setup();
-      await user.type(screen.getByRole("textbox"), "check the db");
-      await user.click(screen.getByRole("button", { name: /send/i }));
-
-      await waitFor(() => {
-        expect(screen.getByTestId("working-indicator")).toBeInTheDocument();
-      });
-
-      act(() => {
-        MockEventSource.latest?.push({
-          messageId: "t1",
-          type: "TEXT_MESSAGE_CONTENT",
-          payload: {
-            sessionId: "s1",
-            kind: "thinking",
-            delta: "Looking at the",
-          },
-        });
-        MockEventSource.latest?.push({
-          messageId: "t2",
-          type: "TEXT_MESSAGE_CONTENT",
-          payload: { sessionId: "s1", kind: "thinking", delta: " db metrics" },
-        });
-      });
-
-      /* One thinking block, shut: reasoning is there to be opened rather than
-         read at everyone, so the text appears when the reader asks for it. */
-      await waitFor(() => {
-        expect(screen.getAllByTestId("thinking-block")).toHaveLength(1);
-      });
-      expect(screen.queryByTestId("working-indicator")).not.toBeInTheDocument();
-      expect(screen.queryByText("Looking at the db metrics")).toBeNull();
-
-      await user.click(screen.getByText("Thinking"));
-      expect(screen.getByText("Looking at the db metrics")).toBeVisible();
-    });
-
-    it("shows no thinking line when the run goes straight to a tool call", async () => {
+    it("drops the live line when the run goes straight to a tool call", async () => {
       setup();
 
       await waitFor(() => {
@@ -846,11 +741,10 @@ describe("SessionView", () => {
         });
       });
 
-      // The in-flight tool card is the thing to show, so the indicator steps
-      // aside and no bare "Thinking" line ever appears.
+      // The in-flight tool card is the thing to show, so the live line steps
+      // aside rather than sitting beneath it saying the same thing.
       await waitFor(() => {
         expect(screen.getByText("check_service_status")).toBeInTheDocument();
-        expect(screen.queryByTestId("thinking-block")).not.toBeInTheDocument();
       });
       expect(screen.queryByTestId("working-indicator")).not.toBeInTheDocument();
     });
@@ -1038,11 +932,16 @@ describe("SessionView", () => {
       await waitFor(() => {
         expect(screen.queryByTestId("approval-card")).not.toBeInTheDocument();
       });
+
+      // The settled call folds into a collapsed run group; open it to read the
+      // one row and confirm no duplicate grew beneath it. A chat keeps its
+      // settled group open, so the row is already there to read.
+      const user = userEvent.setup();
       expect(screen.getAllByText("RestartDockerService")).toHaveLength(1);
 
       // The row names the call; what it returned is one click inside it.
       const row = screen.getByTestId("tool-call");
-      await userEvent.setup().click(within(row).getByRole("button"));
+      await user.click(within(row).getByRole("button"));
       expect(within(row).getByText(/web-01 restarted/)).toBeInTheDocument();
     });
   });
@@ -1145,7 +1044,7 @@ describe("SessionView", () => {
         MockEventSource.latest?.push({
           messageId: "m1",
           type: "TEXT_MESSAGE_CONTENT",
-          payload: { sessionId: "s1", kind: "text", delta: "Analyzing..." },
+          payload: { sessionId: "s1", delta: "Analyzing..." },
         });
       });
 
@@ -1170,7 +1069,7 @@ describe("SessionView", () => {
         MockEventSource.latest?.push({
           messageId: "m1",
           type: "TEXT_MESSAGE_CONTENT",
-          payload: { sessionId: "s1", kind: "text", delta: "Analyzing..." },
+          payload: { sessionId: "s1", delta: "Analyzing..." },
         });
       });
 
@@ -1302,7 +1201,7 @@ describe("SessionView", () => {
         MockEventSource.latest?.push({
           messageId: "m-resume",
           type: "TEXT_MESSAGE_CONTENT",
-          payload: { sessionId: "s1", kind: "text", delta: "Back online." },
+          payload: { sessionId: "s1", delta: "Back online." },
         });
       });
 
@@ -1328,7 +1227,7 @@ describe("SessionView", () => {
         MockEventSource.latest?.push({
           messageId: "m1",
           type: "TEXT_MESSAGE_CONTENT",
-          payload: { sessionId: "s1", kind: "text", delta: "Analyzing..." },
+          payload: { sessionId: "s1", delta: "Analyzing..." },
         });
       });
       await waitFor(() => {
@@ -1505,11 +1404,14 @@ describe("SessionView", () => {
           screen.queryByTestId("clarification-card"),
         ).not.toBeInTheDocument();
       });
+
+      // Nothing the agent said is hidden in a chat, so the settled group is
+      // still open and the answered call reads in place.
+      const user = userEvent.setup();
       const row = screen.getByTestId("tool-call");
       expect(within(row).getByText("AskUserQuestion")).toBeInTheDocument();
 
       // The exchange reads whole one click inside the row.
-      const user = userEvent.setup();
       await user.click(within(row).getByRole("button"));
       expect(
         within(row).getByText(/which service should I investigate first/i),
@@ -1555,7 +1457,26 @@ describe("SessionView", () => {
       });
     });
 
-    it("keeps an answered card visible when a new message is sent before the run flushes it", async () => {
+    /* The card is the thing asking. A live line beside it claiming the model is
+       thinking is both untrue and a second shimmer on screen. */
+    it("falls silent while a question is waiting on an answer", async () => {
+      setup();
+      await waitFor(() => {
+        expect(
+          screen.getByText("Service is down on web-01"),
+        ).toBeInTheDocument();
+      });
+
+      pushClarification();
+      await waitFor(() => {
+        expect(screen.getByTestId("clarification-card")).toBeInTheDocument();
+      });
+      expect(screen.queryByTestId("working-indicator")).not.toBeInTheDocument();
+    });
+
+    /* Answering resumes the run, and the card is drawn from a live-only item,
+       so the resume must not wipe the answer out from under the reader. */
+    it("keeps an answered card visible as the run resumes", async () => {
       setup();
 
       await waitFor(() => {
@@ -1574,12 +1495,18 @@ describe("SessionView", () => {
       await user.click(within(card).getByRole("radio", { name: /^nginx$/i }));
       await user.click(within(card).getByRole("button", { name: /submit/i }));
 
-      // The answered card is still live-only; sending must not wipe it.
-      await user.type(screen.getByRole("textbox"), "also check the db");
-      await user.click(screen.getByRole("button", { name: /send/i }));
-
       expect(screen.getByTestId("clarification-card")).toBeInTheDocument();
+      // Back to working the moment the answer is sent, rather than after the
+      // first token: the run never looks finished in between, so its group
+      // never settles and folds itself shut under the reader.
       expect(screen.getByTestId("working-indicator")).toBeInTheDocument();
+      expect(screen.getByRole("textbox")).toBeDisabled();
+      const group = screen.getByTestId("run-group");
+      expect(group).toHaveAttribute("data-live");
+      expect(group.querySelector("button")).toHaveAttribute(
+        "aria-expanded",
+        "true",
+      );
     });
 
     it("ignores clarification INTERRUPT for a different session", async () => {
@@ -1692,6 +1619,25 @@ describe("the Agent page", () => {
     ).toBeInTheDocument();
   });
 
+  /* The title is refined in the background as the run opens, long before the
+     first answer, so the heading takes it the moment it is filed. */
+  it("heads the conversation with the title the moment it is refined", async () => {
+    setupPage({ path: "/agent/c1" });
+    await screen.findByRole("button", { name: "Why is redis restarting?" });
+
+    act(() => {
+      MockEventSource.latest?.push({
+        messageId: "t-1",
+        type: "SESSION_TITLE_UPDATED",
+        payload: { sessionId: "c1", title: "Redis OOM Restarts" },
+      });
+    });
+
+    expect(
+      await screen.findByRole("button", { name: "Redis OOM Restarts" }),
+    ).toBeInTheDocument();
+  });
+
   it("lists only conversations a person started, grouped by day", async () => {
     const { fetchMock } = setupPage();
     await openHistory("New chat");
@@ -1744,7 +1690,6 @@ describe("the Agent page", () => {
     );
 
     await waitFor(() => expect(writeText).toHaveBeenCalled());
-    // Thinking is collapsed on screen for the same reason it is absent here.
     expect(writeText.mock.calls[0]?.[0]).toBe(
       "# Why is redis restarting?\n\n" +
         "## User\n\nWhy is redis restarting?\n\n" +
@@ -1777,22 +1722,18 @@ describe("the Agent page", () => {
     await waitFor(() => expect(router.state.location.pathname).toBe("/agent"));
   });
 
-  // Every run rewrites it, so written where it happened it goes stale and
-  // pushed last it sits under a later question.
-  it("docks the report beside the input rather than drawing it in the flow", async () => {
+  // A ready write-up opens in its own panel beside the chat, so it draws nothing
+  // in the conversation column.
+  it("draws nothing in the chat for a ready write-up", async () => {
     setup([
       { kind: "user_turn", id: "u1", text: "what happened?" },
       { kind: "report_card", id: "report", state: { phase: "ready" } },
     ]);
 
-    const card = await screen.findByTestId("report-card");
-    expect(card).toHaveAttribute("data-phase", "ready");
-    // Drawn exactly once, and not among the messages.
-    expect(screen.getAllByTestId("report-card")).toHaveLength(1);
-    const column = screen.getByTestId("transcript-column");
-    expect(column).not.toContainElement(card);
-    // The turn it shares the transcript with is still drawn inline.
-    expect(column).toHaveTextContent("what happened?");
+    await waitFor(() => {
+      expect(screen.getByText("what happened?")).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId("report-card")).not.toBeInTheDocument();
   });
 
   it("does not offer to delete a chat a run is still holding", async () => {
