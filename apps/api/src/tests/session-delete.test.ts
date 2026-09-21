@@ -1,3 +1,4 @@
+import { messageBody } from "./session-helper.js";
 import { harness, type Harness } from "./harness.js";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
@@ -44,7 +45,7 @@ describe("DELETE /sessions/:id", () => {
         "Content-Type": "application/json",
         Cookie: `${SESSION}`,
       },
-      body: JSON.stringify({ message: "Quick question." }),
+      body: messageBody("Quick question."),
     });
     const { sessionId } = (await chatRes.json()) as { sessionId: string };
     await waitFor(async () => !(await dispatcher.isSessionRunning(sessionId)));
@@ -67,7 +68,7 @@ describe("DELETE /sessions/:id", () => {
         "Content-Type": "application/json",
         Cookie: `${SESSION}`,
       },
-      body: JSON.stringify({ message: "What happened here?" }),
+      body: messageBody("What happened here?"),
     });
     const { sessionId } = (await chatRes.json()) as { sessionId: string };
     await waitFor(async () => !(await dispatcher.isSessionRunning(sessionId)));
@@ -105,7 +106,7 @@ describe("DELETE /sessions/:id", () => {
         "Content-Type": "application/json",
         Cookie: `${SESSION}`,
       },
-      body: JSON.stringify({ message: "Long running." }),
+      body: messageBody("Long running."),
     });
     const { sessionId } = (await chatRes.json()) as { sessionId: string };
     await waitFor(async () => await dispatcher.isSessionRunning(sessionId));

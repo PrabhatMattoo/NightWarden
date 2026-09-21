@@ -7,51 +7,29 @@ import type { TranscriptItem } from "./types.js";
 export interface MergeInput {
   persisted: TranscriptItem[];
   live: TranscriptItem[];
-  // What the user just typed, drawn before the server has echoed it back.
-  pendingEcho: string | null;
-  // The text of the last echo, so its persisted copy can mount without a fade.
-  lastEchoText: string | null;
-}
-
-// The fetch can return the persisted user turn before any event is heard, so
-// drawing the echo as well would double it.
-function echoAlreadyPersisted(
-  persisted: TranscriptItem[],
-  pendingEcho: string,
-): boolean {
-  for (let i = persisted.length - 1; i >= 0; i--) {
-    const item = persisted[i];
-    if (item?.kind === "user_turn") return item.text === pendingEcho;
-  }
-  return false;
+  // What the user just sent, under the id they minted for it.
+  pendingEcho: { id: string; text: string } | null;
 }
 
 export function mergeTranscript({
   persisted,
   live,
   pendingEcho,
-  lastEchoText,
 }: MergeInput): TranscriptItem[] {
-  // The persisted copy of a just-echoed bubble mounts without the fade, so the
-  // echo-to-persisted swap has no visible frame.
-  const settled =
-    lastEchoText === null
-      ? persisted
-      : persisted.map((item) =>
-          item.kind === "user_turn" && item.text === lastEchoText
-            ? { ...item, instant: true }
-            : item,
-        );
-
+  // Drawn until the transcript holds a turn under its id, and the saved copy
+  // then takes its key, so the swap mounts nothing.
   const echo: TranscriptItem[] =
-    pendingEcho !== null && !echoAlreadyPersisted(settled, pendingEcho)
-      ? [{ kind: "user_turn", id: "pending-echo", text: pendingEcho }]
+    pendingEcho !== null &&
+    !persisted.some(
+      (item) => item.kind === "user_turn" && item.id === pendingEcho.id,
+    )
+      ? [{ kind: "user_turn", id: pendingEcho.id, text: pendingEcho.text }]
       : [];
 
   // A streamed turn lives only until the transcript holds it. Derived, so the
   // two can never both be drawn and there is no window where neither is.
   const savedTurns = new Set(
-    settled.flatMap((item) => ("turn" in item ? [item.turn] : [])),
+    persisted.flatMap((item) => ("turn" in item ? [item.turn] : [])),
   );
   const streaming = live.filter(
     (item) => !("turn" in item) || !savedTurns.has(item.turn),
@@ -59,7 +37,7 @@ export function mergeTranscript({
 
   // Live events update the fetched list in place rather than competing with it:
   // a card can be replaced by a newer version of itself, never discarded.
-  const merged = [...settled, ...echo];
+  const merged = [...persisted, ...echo];
   for (const item of streaming) {
     const key = transcriptItemKey(item);
     const at = merged.findIndex((seen) => transcriptItemKey(seen) === key);

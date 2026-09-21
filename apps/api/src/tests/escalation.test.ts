@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { dispatchAlertSession } from "./session-helper.js";
+import { dispatchAlertSession, messageBody } from "./session-helper.js";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { NormalizedAlert } from "@nightwarden/shared";
 
@@ -58,7 +58,7 @@ describe("termination paths: every run ends in model text, no escalation", () =>
         "Content-Type": "application/json",
         Cookie: `${SESSION}`,
       },
-      body: JSON.stringify({ message: "Do something dangerous." }),
+      body: messageBody("Do something dangerous."),
     });
     expect(res.status).toBe(202);
     const { sessionId } = (await res.json()) as { sessionId: string };
@@ -99,7 +99,7 @@ describe("termination paths: every run ends in model text, no escalation", () =>
         "Content-Type": "application/json",
         Cookie: `${SESSION}`,
       },
-      body: JSON.stringify({ message: "Wrap up." }),
+      body: messageBody("Wrap up."),
     });
     expect(res.status).toBe(202);
     const { sessionId } = (await res.json()) as { sessionId: string };

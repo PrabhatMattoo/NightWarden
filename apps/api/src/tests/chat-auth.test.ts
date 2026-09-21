@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+import { messageBody } from "./session-helper.js";
 import { harness, type Harness } from "./harness.js";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
@@ -53,9 +55,17 @@ describe("chat routes — session-uuid-addressed, owner-cookie-gated", () => {
     expect(body.error).toMatch(/message is required/i);
   });
 
+  it("POST /chat returns 400 when the client message id is missing", async () => {
+    const res = await post({ message: "hello" });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toMatch(/clientMessageId/);
+  });
+
   it("POST /chat refuses an investigation and says an alert opens one", async () => {
     const res = await post({
       message: "why is checkout slow",
+      clientMessageId: randomUUID(),
       kind: "investigation",
     });
     expect(res.status).toBe(400);
@@ -72,7 +82,7 @@ describe("chat routes — session-uuid-addressed, owner-cookie-gated", () => {
         "Content-Type": "application/json",
         Cookie: `${SESSION}`,
       },
-      body: JSON.stringify({ message: "Is the system healthy?" }),
+      body: messageBody("Is the system healthy?"),
     });
     expect(res.status).toBe(202);
     const { sessionId } = (await res.json()) as { sessionId: string };
@@ -90,7 +100,7 @@ describe("chat routes — session-uuid-addressed, owner-cookie-gated", () => {
         "Content-Type": "application/json",
         Cookie: `${SESSION}`,
       },
-      body: JSON.stringify({ message: "hello" }),
+      body: messageBody("hello"),
     });
     expect(res.status).toBe(404);
   });
@@ -103,7 +113,7 @@ describe("chat routes — session-uuid-addressed, owner-cookie-gated", () => {
         "Content-Type": "application/json",
         Cookie: `${SESSION}`,
       },
-      body: JSON.stringify({ message: "How are things?" }),
+      body: messageBody("How are things?"),
     });
     expect(startRes.status).toBe(202);
     const { sessionId } = (await startRes.json()) as { sessionId: string };
@@ -120,7 +130,7 @@ describe("chat routes — session-uuid-addressed, owner-cookie-gated", () => {
           "Content-Type": "application/json",
           Cookie: `${SESSION}`,
         },
-        body: JSON.stringify({ message: "Any alerts?" }),
+        body: messageBody("Any alerts?"),
       },
     );
     expect(contRes.status).toBe(202);
@@ -139,7 +149,7 @@ describe("chat routes — session-uuid-addressed, owner-cookie-gated", () => {
           "Content-Type": "application/json",
           Cookie: `${SESSION}`,
         },
-        body: JSON.stringify({ message: "why is checkout slow" }),
+        body: messageBody("why is checkout slow"),
       });
 
       expect(res.status).toBe(503);
@@ -159,7 +169,7 @@ describe("chat routes — session-uuid-addressed, owner-cookie-gated", () => {
           "Content-Type": "application/json",
           Cookie: `${SESSION}`,
         },
-        body: JSON.stringify({ message: "hello" }),
+        body: messageBody("hello"),
       },
     );
     expect(res.status).toBe(404);

@@ -1,3 +1,4 @@
+import { messageBody } from "./session-helper.js";
 import { harness, type Harness } from "./harness.js";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { APICallError } from "@ai-sdk/provider";
@@ -268,7 +269,7 @@ describe("session title generation", () => {
         "Content-Type": "application/json",
         Cookie: `${SESSION}`,
       },
-      body: JSON.stringify({ message: "Why is checkout slow?" }),
+      body: messageBody("Why is checkout slow?"),
     });
     expect(res.status).toBe(202);
     const { sessionId } = (await res.json()) as { sessionId: string };

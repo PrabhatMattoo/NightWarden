@@ -22,6 +22,10 @@ import { FrontendEventsProvider } from "@/shared/events/FrontendEventsProvider";
 import { routeTree } from "@/app/router";
 import { MockEventSource } from "./mockEventSource.js";
 
+// What the API accepts as a client message id.
+const UUID_V4 =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+
 // AuthProvider as well as the hook: the page tests drive the real route tree,
 // whose root mounts the provider before any page renders.
 vi.mock("@/features/auth/AuthContext", () => ({
@@ -751,8 +755,22 @@ describe("SessionView", () => {
   });
 
   describe("optimistic echo", () => {
+    // The id the view minted for the message it just posted.
+    const postedClientId = (fetchMock: ReturnType<typeof vi.fn>): string => {
+      const posts = fetchMock.mock.calls.filter(
+        (call: unknown[]) =>
+          String(call[0]).endsWith("/messages") &&
+          (call[1] as RequestInit | undefined)?.method === "POST",
+      );
+      const init = posts[posts.length - 1]?.[1] as RequestInit;
+      const body = JSON.parse(String(init.body)) as {
+        clientMessageId: string;
+      };
+      return body.clientMessageId;
+    };
+
     it("echoes the message instantly and keeps exactly one bubble through the persist", async () => {
-      const { setItems } = setup();
+      const { setItems, fetchMock, qc } = setup();
 
       await waitFor(() => {
         expect(
@@ -768,10 +786,8 @@ describe("SessionView", () => {
       expect(screen.getAllByText("check the db")).toHaveLength(1);
       expect(screen.getByRole("textbox")).toHaveValue("");
 
-      setItems([
-        USER_TURN,
-        { kind: "user_turn", id: "user-2-0", text: "check the db" },
-      ]);
+      // The row's event lands before the refetch that carries it, and the
+      // bubble holds through that gap.
       act(() => {
         MockEventSource.latest?.push({
           messageId: "u1",
@@ -784,16 +800,87 @@ describe("SessionView", () => {
               kind: "user",
               content: "check the db",
               parts: [{ type: "text", text: "check the db" }],
-              createdAt: new Date().toISOString(),
+              timestamp: new Date().toISOString(),
             },
           },
         });
       });
+      expect(screen.getAllByText("check the db")).toHaveLength(1);
+
+      setItems([
+        USER_TURN,
+        {
+          kind: "user_turn",
+          id: postedClientId(fetchMock),
+          text: "check the db",
+        },
+      ]);
+      await act(async () => {
+        await qc.invalidateQueries({ queryKey: ["session", "s1"] });
+      });
 
       // The persisted row replaces the echo one-for-one, never both.
+      expect(screen.getAllByText("check the db")).toHaveLength(1);
+    });
+
+    it("draws a message that repeats the last one as a bubble of its own", async () => {
+      setup([{ kind: "user_turn", id: "user-1-0", text: "yes" }]);
       await waitFor(() => {
-        expect(screen.getAllByText("check the db")).toHaveLength(1);
+        expect(screen.getAllByText("yes")).toHaveLength(1);
       });
+
+      const user = userEvent.setup();
+      await user.type(screen.getByRole("textbox"), "yes");
+      await user.click(screen.getByRole("button", { name: /send/i }));
+
+      expect(screen.getAllByText("yes")).toHaveLength(2);
+    });
+
+    it("keeps one bubble when the server saves different text than was typed", async () => {
+      const { setItems, fetchMock, qc } = setup();
+      await waitFor(() => {
+        expect(screen.getAllByTestId("user-turn")).toHaveLength(1);
+      });
+
+      const user = userEvent.setup();
+      await user.type(screen.getByRole("textbox"), "check the db");
+      await user.click(screen.getByRole("button", { name: /send/i }));
+      const echoed = screen.getAllByTestId("user-turn")[1];
+
+      // The refetch arrives before any event, carrying the rewritten text.
+      setItems([
+        USER_TURN,
+        {
+          kind: "user_turn",
+          id: postedClientId(fetchMock),
+          text: "check the db, rewritten",
+        },
+      ]);
+      await act(async () => {
+        await qc.invalidateQueries({ queryKey: ["session", "s1"] });
+      });
+
+      await waitFor(() => {
+        expect(screen.getByText("check the db, rewritten")).toBeInTheDocument();
+      });
+      expect(screen.getAllByTestId("user-turn")).toHaveLength(2);
+      // The saved copy takes over the echo's element rather than mounting anew.
+      expect(screen.getAllByTestId("user-turn")[1]).toBe(echoed);
+    });
+
+    it("sends the report retry with an id of its own and echoes it", async () => {
+      const { fetchMock } = setup([
+        USER_TURN,
+        { kind: "report_card", id: "report", state: { phase: "failed" } },
+      ]);
+
+      const user = userEvent.setup();
+      await user.click(
+        await screen.findByRole("button", { name: /try again/i }),
+      );
+
+      expect(postedClientId(fetchMock)).toMatch(UUID_V4);
+      expect(screen.getAllByTestId("user-turn")).toHaveLength(2);
     });
 
     it("rolls back the echo and restores the text when the send never reaches the API", async () => {

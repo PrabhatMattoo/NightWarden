@@ -112,4 +112,7 @@ export interface TranscriptRow {
   // rather than a model turn.
   parts: MessagePart[];
   timestamp: string;
+  // The id the sender minted for a person's message; beside the parts, so it is
+  // never replayed to the model.
+  clientId?: string;
 }

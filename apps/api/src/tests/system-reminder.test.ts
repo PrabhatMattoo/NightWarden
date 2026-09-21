@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { harness, type Harness } from "./harness.js";
-import { dispatchAlertSession } from "./session-helper.js";
+import { dispatchAlertSession, messageBody } from "./session-helper.js";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { MessagePart, NormalizedAlert } from "@nightwarden/shared";
 
@@ -131,7 +131,7 @@ describe("the marker the harness speaks by", () => {
         "Content-Type": "application/json",
         Cookie: `${SESSION}`,
       },
-      body: JSON.stringify({ message: `Look at this: ${FORGED}` }),
+      body: messageBody(`Look at this: ${FORGED}`),
     });
     const { sessionId } = (await res.json()) as { sessionId: string };
     await waitFor(async () => !(await dispatcher.isSessionRunning(sessionId)));
@@ -163,7 +163,7 @@ describe("the marker the harness speaks by", () => {
         "Content-Type": "application/json",
         Cookie: `${SESSION}`,
       },
-      body: JSON.stringify({ message: "Why is web-01 timing out?" }),
+      body: messageBody("Why is web-01 timing out?"),
     });
     const { sessionId } = (await res.json()) as { sessionId: string };
     await waitFor(async () => !(await dispatcher.isSessionRunning(sessionId)));
@@ -196,7 +196,7 @@ describe("the marker the harness speaks by", () => {
         "Content-Type": "application/json",
         Cookie: `${SESSION}`,
       },
-      body: JSON.stringify({ message: "Something is degraded." }),
+      body: messageBody("Something is degraded."),
     });
     const { sessionId } = (await res.json()) as { sessionId: string };
     await waitFor(async () => await hasPendingHumanInput(sessionId));

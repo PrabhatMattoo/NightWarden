@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { messageBody } from "./session-helper.js";
 import { harness, type Harness } from "./harness.js";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
@@ -94,7 +95,7 @@ describe("clarification interrupts", () => {
         "Content-Type": "application/json",
         Cookie: `${SESSION}`,
       },
-      body: JSON.stringify({ message: "Service degraded." }),
+      body: messageBody("Service degraded."),
     });
     expect(res.status).toBe(202);
     const { sessionId } = (await res.json()) as { sessionId: string };
@@ -160,7 +161,7 @@ describe("clarification interrupts", () => {
         "Content-Type": "application/json",
         Cookie: `${SESSION}`,
       },
-      body: JSON.stringify({ message: "Which container?" }),
+      body: messageBody("Which container?"),
     });
     const { sessionId } = (await res.json()) as { sessionId: string };
 
@@ -242,7 +243,7 @@ describe("clarification interrupts", () => {
         "Content-Type": "application/json",
         Cookie: `${SESSION}`,
       },
-      body: JSON.stringify({ message: "Factors?" }),
+      body: messageBody("Factors?"),
     });
     const { sessionId } = (await res.json()) as { sessionId: string };
 
@@ -310,7 +311,7 @@ describe("clarification interrupts", () => {
         "Content-Type": "application/json",
         Cookie: `${SESSION}`,
       },
-      body: JSON.stringify({ message: "Which one?" }),
+      body: messageBody("Which one?"),
     });
     const { sessionId } = (await res.json()) as { sessionId: string };
 
@@ -354,7 +355,7 @@ describe("clarification interrupts", () => {
         "Content-Type": "application/json",
         Cookie: `${SESSION}`,
       },
-      body: JSON.stringify({ message: "Test." }),
+      body: messageBody("Test."),
     });
     const { sessionId } = (await res.json()) as { sessionId: string };
 
@@ -416,7 +417,7 @@ describe("clarification interrupts", () => {
         "Content-Type": "application/json",
         Cookie: `${SESSION}`,
       },
-      body: JSON.stringify({ message: "Is this recurring?" }),
+      body: messageBody("Is this recurring?"),
     });
     const { sessionId } = (await res.json()) as { sessionId: string };
 
@@ -507,7 +508,7 @@ describe("clarification interrupts", () => {
         "Content-Type": "application/json",
         Cookie: `${SESSION}`,
       },
-      body: JSON.stringify({ message: "Mixed gate test." }),
+      body: messageBody("Mixed gate test."),
     });
     const { sessionId } = (await res.json()) as { sessionId: string };
 

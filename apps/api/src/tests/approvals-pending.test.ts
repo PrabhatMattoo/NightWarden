@@ -6,6 +6,7 @@ import type { RunnerCommandMessage } from "@nightwarden/shared";
 // written to the DB, which is what these tests assert against.
 vi.mock("../llm/factory.js", () => import("./llm-factory-mock.js"));
 
+import { messageBody } from "./session-helper.js";
 import { mockCreateProvider } from "./llm-factory-mock.js";
 
 import {
@@ -98,7 +99,7 @@ describe("a suspended session serves its pending row with its transcript", async
         "Content-Type": "application/json",
         Cookie: `${SESSION}`,
       },
-      body: JSON.stringify({ message }),
+      body: messageBody(message),
     });
     expect(chatRes.status).toBe(202);
   }

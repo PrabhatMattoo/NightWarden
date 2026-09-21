@@ -89,6 +89,8 @@ export interface RunSessionInput {
   alerts?: NormalizedAlert[];
   seed?: ProviderMessage[];
   userMessage?: string;
+  // The sender's id for userMessage, which the transcript draws its bubble under.
+  clientMessageId?: string;
   // The user picked Investigate before they typed. An alert says the same
   // thing by existing; absent on a resume, which reads the session's own row.
   investigation?: boolean;
@@ -283,9 +285,11 @@ export async function runSession(input: RunSessionInput): Promise<RunOutcome> {
     // Written immediately so the frontend shows the turn the moment it is sent,
     // rather than waiting for the assistant's reply to flush both at once.
     if (input.userMessage) {
-      state.stage("user", [
-        { type: "text", text: stripSystemReminder(input.userMessage) },
-      ]);
+      state.stage(
+        "user",
+        [{ type: "text", text: stripSystemReminder(input.userMessage) }],
+        input.clientMessageId,
+      );
       await state.flush();
     } else if (input.systemReminder) {
       state.sendSystemReminder(input.systemReminder);
@@ -298,9 +302,11 @@ export async function runSession(input: RunSessionInput): Promise<RunOutcome> {
     const first = own
       ? asSystemReminder(openingTurn)
       : stripSystemReminder(input.userMessage ?? "");
-    state.stage(own ? "system_reminder" : "user", [
-      { type: "text", text: first },
-    ]);
+    state.stage(
+      own ? "system_reminder" : "user",
+      [{ type: "text", text: first }],
+      own ? undefined : input.clientMessageId,
+    );
     await state.flush();
     // Brand-new session only: refine the title in the background. Chat uses the
     // message; an alert, a compact summary.

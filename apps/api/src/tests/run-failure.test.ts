@@ -1,3 +1,4 @@
+import { messageBody } from "./session-helper.js";
 import { harness, type Harness } from "./harness.js";
 import {
   afterAll,
@@ -76,7 +77,7 @@ describe("run failure surfacing (dispatch -> retry -> transcript -> SSE)", () =>
         "Content-Type": "application/json",
         Cookie: `${SESSION}`,
       },
-      body: JSON.stringify({ message }),
+      body: messageBody(message),
     });
     expect(res.status).toBe(202);
     const { sessionId } = (await res.json()) as { sessionId: string };
@@ -224,7 +225,7 @@ describe("run failure surfacing (dispatch -> retry -> transcript -> SSE)", () =>
           "Content-Type": "application/json",
           Cookie: `${SESSION}`,
         },
-        body: JSON.stringify({ message: "try again" }),
+        body: messageBody("try again"),
       },
     );
     expect(res.status).toBe(202);

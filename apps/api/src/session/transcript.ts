@@ -140,7 +140,6 @@ function candidateRows(record: InvestigationRecord): CandidateRow[] {
       id: c.id,
       statement: c.statement,
       state: settling.verdict,
-      findingId: settling.id,
       ...(settling.explanation.trim() !== "" && {
         note: firstSentence(settling.explanation),
       }),
@@ -299,7 +298,8 @@ export async function buildTranscript(
           msg.kind === "user"
             ? {
                 kind: "user_turn",
-                id,
+                // The sender's own id, so the bubble it drew is this one.
+                id: msg.clientId ?? id,
                 text: part.text,
                 timestamp: msg.timestamp,
               }

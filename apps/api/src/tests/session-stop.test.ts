@@ -19,7 +19,7 @@ import { randomUUID } from "node:crypto";
 import { connectTestMetrics } from "./temp-db.js";
 import { waitFor } from "./wait.js";
 import { connectFrontendEvents } from "./frontend-events-helper.js";
-import { dispatchAlertSession } from "./session-helper.js";
+import { dispatchAlertSession, messageBody } from "./session-helper.js";
 
 import { registerSessionRoutes } from "../session/routes.js";
 import { registerFrontendEventRoutes } from "../session/events.js";
@@ -71,7 +71,7 @@ describe("POST /sessions/:id/stop", () => {
         "Content-Type": "application/json",
         Cookie: `${SESSION}`,
       },
-      body: JSON.stringify({ message: "Long running." }),
+      body: messageBody("Long running."),
     });
     const { sessionId } = (await chatRes.json()) as { sessionId: string };
     await waitFor(async () => await dispatcher.isSessionRunning(sessionId));

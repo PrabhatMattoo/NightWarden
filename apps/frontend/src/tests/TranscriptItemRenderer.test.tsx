@@ -367,14 +367,12 @@ describe("TranscriptItemRenderer", () => {
         id: "c1",
         statement: "The pool was exhausted",
         state: "root_cause" as const,
-        findingId: "f1",
         note: "pool_in_use pinned at 100/100",
       },
       {
         id: "c2",
         statement: "Postgres was slow",
         state: "disproven" as const,
-        findingId: "f2",
       },
       {
         id: "c3",
@@ -406,6 +404,10 @@ describe("TranscriptItemRenderer", () => {
         expect(screen.getByText("The pool was exhausted")).toBeInTheDocument();
       });
       expect(screen.getByText("root cause")).toBeInTheDocument();
+      // A verdict is read in place; the report's citations are what reach a call.
+      expect(
+        screen.queryByRole("button", { name: "root cause" }),
+      ).not.toBeInTheDocument();
       expect(screen.getByText("ruled out")).toBeInTheDocument();
       expect(screen.getByText("open")).toBeInTheDocument();
       expect(

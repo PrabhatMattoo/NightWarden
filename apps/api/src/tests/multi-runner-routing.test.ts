@@ -32,7 +32,7 @@ const setScript = (turns: ScriptedTurn[]): void =>
 
 import { generateRunnerToken } from "../fleet/runners-store.js";
 import { useTempDb } from "./temp-db.js";
-import { issueTestSession } from "./session-helper.js";
+import { issueTestSession, messageBody } from "./session-helper.js";
 import { waitFor } from "./wait.js";
 import {
   registerRunner,
@@ -427,7 +427,7 @@ describe("multi-runner routing", () => {
         "Content-Type": "application/json",
         Cookie: `${SESSION}`,
       },
-      body: JSON.stringify({ message: "postgres is crashing" }),
+      body: messageBody("postgres is crashing"),
     });
     expect(res.status).toBe(202);
     const { sessionId } = (await res.json()) as { sessionId: string };

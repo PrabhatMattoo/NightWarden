@@ -44,6 +44,7 @@ function rowValues(m: TranscriptRow) {
     content: m.content,
     canonical: serializeCanonical(m),
     timestamp: m.timestamp,
+    client_id: m.clientId ?? null,
   };
 }
 
@@ -196,6 +197,7 @@ export async function getTranscriptRows(
       "content",
       "canonical",
       "timestamp",
+      "client_id",
     ])
     .where("session_id", "=", sessionId)
     .orderBy("seq", "asc")
@@ -208,6 +210,7 @@ export async function getTranscriptRows(
     content: r.content,
     ...parseCanonical(r.canonical),
     timestamp: r.timestamp,
+    ...(r.client_id !== null && { clientId: r.client_id }),
   }));
 }
 

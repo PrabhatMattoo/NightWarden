@@ -11,12 +11,13 @@ import {
 import { Label } from "@/shared/ui/label";
 import { toast } from "@/shared/lib/toast";
 import { apiFetch } from "@/shared/api/client";
+import { newClientId } from "@/shared/lib/clientId";
 
 interface ChatInputProps {
   sessionId: string | null;
   isRunning: boolean;
   onSessionCreated?: (sessionId: string, firstMessage: string) => void;
-  onSend?: (text: string) => void;
+  onSend?: (text: string, clientMessageId: string) => void;
   // The POST never reached the API: the view rolls back its optimistic state.
   onSendFailed?: () => void;
 }
@@ -34,20 +35,23 @@ export function ChatInput({
   const navigate = useNavigate();
 
   const submit = useMutation({
-    mutationFn: async (trimmed: string): Promise<string | null> => {
+    mutationFn: async (send: {
+      message: string;
+      clientMessageId: string;
+    }): Promise<string | null> => {
       if (sessionId === null) {
         const data = await apiFetch<{ sessionId: string }>("/api/chat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ message: trimmed }),
+          body: JSON.stringify(send),
         });
-        onSessionCreated?.(data.sessionId, trimmed);
+        onSessionCreated?.(data.sessionId, send.message);
         return data.sessionId;
       }
       await apiFetch<void>(`/api/sessions/${sessionId}/messages`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: trimmed }),
+        body: JSON.stringify(send),
       });
       return null;
     },
@@ -61,9 +65,9 @@ export function ChatInput({
       }
       textareaRef.current?.focus();
     },
-    onError: (err, failedText) => {
+    onError: (err, failed) => {
       // Restore the message unless the user already typed something new.
-      setText((current) => (current === "" ? failedText : current));
+      setText((current) => (current === "" ? failed.message : current));
       onSendFailed?.();
       toast.show({
         title: "Message not sent",
@@ -90,8 +94,9 @@ export function ChatInput({
     if (!trimmed || isRunning || submit.isPending) return;
     // Cleared at submit, not on success: the echoed bubble is the message now.
     setText("");
-    onSend?.(trimmed);
-    submit.mutate(trimmed);
+    const clientMessageId = newClientId();
+    onSend?.(trimmed, clientMessageId);
+    submit.mutate({ message: trimmed, clientMessageId });
   }, [text, isRunning, submit, onSend]);
 
   const canSend = text.trim().length > 0 && !isRunning && !submit.isPending;

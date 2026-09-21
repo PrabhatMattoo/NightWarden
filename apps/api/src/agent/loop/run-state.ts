@@ -79,7 +79,11 @@ export class RunState {
     this.nextEvidence = nextEvidence;
   }
 
-  stage(kind: TranscriptRow["kind"], parts: MessagePart[]): void {
+  stage(
+    kind: TranscriptRow["kind"],
+    parts: MessagePart[],
+    clientId?: string,
+  ): void {
     this.rows.push({
       sessionId: this.sessionId,
       seq: this.nextSeq++,
@@ -87,6 +91,7 @@ export class RunState {
       content: messagePartsToText(parts),
       parts,
       timestamp: new Date().toISOString(),
+      ...(clientId !== undefined && { clientId }),
     });
   }
 

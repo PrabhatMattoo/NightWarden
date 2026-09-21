@@ -123,6 +123,7 @@ CREATE TABLE IF NOT EXISTS session_transcript (
   content        TEXT     NOT NULL,
   canonical      TEXT,
   timestamp      TEXT     NOT NULL,
+  client_id      TEXT,
   PRIMARY KEY (session_id, seq)
 );
 

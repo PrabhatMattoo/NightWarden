@@ -14,19 +14,11 @@ import { ClarificationCardPanel } from "./ClarificationCardPanel.js";
 import { ContinueCardPanel } from "./ContinueCardPanel.js";
 import { ReportCardPanel } from "./ReportCardPanel.js";
 
-function UserTurn({
-  text,
-  instant,
-}: {
-  text: string;
-  instant?: boolean;
-}): React.JSX.Element {
+function UserTurn({ text }: { text: string }): React.JSX.Element {
   return (
     <Message
       align="end"
-      className={
-        instant ? undefined : "animate-in fade-in duration-(--duration-fast)"
-      }
+      className="animate-in fade-in duration-(--duration-fast)"
       data-testid="user-turn"
     >
       <Bubble variant="card">
@@ -175,7 +167,7 @@ export function TranscriptItemRenderer({
 }): React.JSX.Element {
   switch (item.kind) {
     case "user_turn":
-      return <UserTurn text={item.text} instant={item.instant} />;
+      return <UserTurn text={item.text} />;
     case "agent_text":
       return <AgentMarkdown text={item.text} />;
     case "error_text":

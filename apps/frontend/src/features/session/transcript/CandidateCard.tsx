@@ -7,7 +7,6 @@ import {
 } from "@/shared/ui/collapsible";
 import { cn } from "@/shared/lib/utils";
 import { DisclosureChevron } from "./DisclosureChevron.js";
-import { revealToolCall } from "./revealToolCall.js";
 import type { CandidateRow } from "./types.js";
 
 // The same ranking as the report, with a word so colour is never the only
@@ -57,7 +56,6 @@ export function CandidateCard({
           <ul className="m-0 flex list-none flex-col p-0">
             {rows.map((row) => {
               const view = STATE[row.state];
-              const findingId = row.findingId;
               return (
                 <li
                   key={row.id}
@@ -75,29 +73,11 @@ export function CandidateCard({
                   >
                     {row.statement}
                   </span>
-                  {/* The finding carrying the verdict, so the row the reader
-                      wants is one click away rather than a scroll hunt. */}
-                  {findingId === undefined ? (
-                    <span
-                      className={cn(
-                        "text-xs whitespace-nowrap",
-                        view.className,
-                      )}
-                    >
-                      {view.label}
-                    </span>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => revealToolCall(findingId)}
-                      className={cn(
-                        "text-xs whitespace-nowrap underline-offset-4 hover:underline",
-                        view.className,
-                      )}
-                    >
-                      {view.label}
-                    </button>
-                  )}
+                  <span
+                    className={cn("text-xs whitespace-nowrap", view.className)}
+                  >
+                    {view.label}
+                  </span>
                   {row.note !== undefined && (
                     <span className="col-start-2 col-end-4 text-xs leading-relaxed text-muted-foreground">
                       {row.note}

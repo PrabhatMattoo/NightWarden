@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { messageBody } from "./session-helper.js";
 import { harness, type Harness } from "./harness.js";
 import { vi } from "vitest";
 
@@ -164,7 +165,7 @@ describe("policy-gate: gating is driven by tool policy", () => {
         "Content-Type": "application/json",
         Cookie: `${SESSION}`,
       },
-      body: JSON.stringify({ message: "List containers." }),
+      body: messageBody("List containers."),
     });
     expect(res.status).toBe(202);
     const { sessionId } = (await res.json()) as { sessionId: string };
@@ -215,7 +216,7 @@ describe("policy-gate: gating is driven by tool policy", () => {
         "Content-Type": "application/json",
         Cookie: `${SESSION}`,
       },
-      body: JSON.stringify({ message: "Restart the service." }),
+      body: messageBody("Restart the service."),
     });
     const { sessionId } = (await res.json()) as { sessionId: string };
 
@@ -273,7 +274,7 @@ describe("policy-gate: gating is driven by tool policy", () => {
         "Content-Type": "application/json",
         Cookie: `${SESSION}`,
       },
-      body: JSON.stringify({ message: "Service degraded." }),
+      body: messageBody("Service degraded."),
     });
     const { sessionId } = (await res.json()) as { sessionId: string };
 
@@ -357,7 +358,7 @@ describe("policy-gate: gating is driven by tool policy", () => {
         "Content-Type": "application/json",
         Cookie: `${SESSION}`,
       },
-      body: JSON.stringify({ message: "Investigate and fix." }),
+      body: messageBody("Investigate and fix."),
     });
     const { sessionId } = (await res.json()) as { sessionId: string };
 

@@ -78,3 +78,8 @@ export async function issueTestSession(): Promise<string> {
     .map((cookie) => cookie.split(";")[0])
     .join("; ");
 }
+
+// A typed message as the browser sends it, carrying the id the browser mints.
+export function messageBody(message: string): string {
+  return JSON.stringify({ message, clientMessageId: randomUUID() });
+}

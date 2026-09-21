@@ -176,7 +176,7 @@ export async function registerSessionRoutes(
       // falsifiable condition attached, and only an alert carries one.
       const body = parseRequest(chatRequestSchema, request.body ?? {});
       if (!body.ok) return reply.code(400).send({ error: body.error });
-      const { message } = body.data;
+      const { message, clientMessageId } = body.data;
       const readiness = await checkLLMReadiness();
       if (!readiness.ready) {
         return reply
@@ -197,6 +197,7 @@ export async function registerSessionRoutes(
       await dispatcher.dispatch({
         sessionId,
         userMessage: message,
+        clientMessageId,
         investigation: false,
       });
       logger.info({ sessionId }, "session started");
@@ -214,7 +215,7 @@ export async function registerSessionRoutes(
         request.body ?? {},
       );
       if (!body.ok) return reply.code(400).send({ error: body.error });
-      const { message } = body.data;
+      const { message, clientMessageId } = body.data;
       if (!(await sessionExists(sessionId))) {
         return reply.code(404).send({ error: "unknown session" });
       }
@@ -229,7 +230,12 @@ export async function registerSessionRoutes(
       // The claim inside dispatch decides it, not a check up here: the loser is
       // told rather than colliding on the transcript's primary key.
       if (
-        !(await dispatcher.dispatch({ sessionId, seed, userMessage: message }))
+        !(await dispatcher.dispatch({
+          sessionId,
+          seed,
+          userMessage: message,
+          clientMessageId,
+        }))
       ) {
         return reply
           .code(409)

@@ -16,6 +16,7 @@ import {
 } from "@/shared/ui/message-scroller";
 import { cn } from "@/shared/lib/utils";
 import { toast } from "@/shared/lib/toast";
+import { newClientId } from "@/shared/lib/clientId";
 import { useFrontendEvents } from "@/shared/events/FrontendEventsProvider";
 import { useSession } from "@/features/session/useSession";
 import { prependSession } from "@/features/session/useSessions";
@@ -74,8 +75,8 @@ function ScrollToEndChatInput(
   const originalOnSend = props.onSend;
 
   const handleSend = useCallback(
-    (text: string) => {
-      originalOnSend?.(text);
+    (text: string, clientMessageId: string) => {
+      originalOnSend?.(text, clientMessageId);
       requestAnimationFrame(() => {
         scrollToEnd({ behavior: "smooth" });
       });
@@ -189,9 +190,10 @@ export function SessionView({
   const [liveItems, setLiveItems] = useState<TranscriptItem[]>([]);
   const [isRunning, setIsRunning] = useState(false);
   // Optimistic echo of the sent message, shown until its persisted row lands.
-  const [pendingEcho, setPendingEcho] = useState<string | null>(null);
-  // Outlives the echo so the persisted copy can skip its mount fade.
-  const lastEchoRef = useRef<string | null>(null);
+  const [pendingEcho, setPendingEcho] = useState<{
+    id: string;
+    text: string;
+  } | null>(null);
   // Live status line (provider retries, sandbox provisioning); any other run
   // event clears it.
   const [activityNotice, setActivityNotice] = useState<{
@@ -225,7 +227,6 @@ export function SessionView({
       setLiveItems([]);
       setIsRunning(false);
       setPendingEcho(null);
-      lastEchoRef.current = null;
       setActivityNotice(null);
       seededFor.current = null;
       return;
@@ -235,7 +236,6 @@ export function SessionView({
       setLiveItems([]);
       setIsRunning(false);
       setPendingEcho(null);
-      lastEchoRef.current = null;
       setActivityNotice(null);
       seededFor.current = null;
     }
@@ -301,8 +301,6 @@ export function SessionView({
         const { sessionId } = env.payload;
         if (sessionId !== sid) return;
         // A persisted row, not a lifecycle signal - never touch isRunning here.
-        // The optimistic echo clears once its own turn lands.
-        setPendingEcho(null);
         // Housekeeping, not correctness: the render already hides a streamed
         // turn the transcript holds. This only bounds the buffer.
         void queryClient
@@ -318,7 +316,6 @@ export function SessionView({
         if (sessionId !== sid) return;
         setIsRunning(false);
         setActivityNotice(null);
-        setPendingEcho(null);
         return;
       }
 
@@ -400,10 +397,10 @@ export function SessionView({
   /* A person pressing the card is a person asking, so it resumes the session the
    way typing does and the ask stays visible in the transcript in their voice. */
   const finishUp = useMutation({
-    mutationFn: () =>
+    mutationFn: (clientMessageId: string) =>
       apiFetch<void>(`/api/sessions/${activeSessionId}/messages`, {
         method: "POST",
-        body: JSON.stringify({ message: FINISH_UP_MESSAGE }),
+        body: JSON.stringify({ message: FINISH_UP_MESSAGE, clientMessageId }),
       }),
     onError: (err) => {
       toast.show({
@@ -415,10 +412,10 @@ export function SessionView({
   });
 
   const handleRetryReport = useCallback(() => {
-    setPendingEcho(FINISH_UP_MESSAGE);
-    lastEchoRef.current = FINISH_UP_MESSAGE;
+    const clientMessageId = newClientId();
+    setPendingEcho({ id: clientMessageId, text: FINISH_UP_MESSAGE });
     setIsRunning(true);
-    finishUp.mutate();
+    finishUp.mutate(clientMessageId);
   }, [finishUp]);
 
   const handleAnswer = useCallback(
@@ -432,9 +429,8 @@ export function SessionView({
 
   useFrontendEvents(handleEnvelope);
 
-  const handleSend = useCallback((text: string) => {
-    setPendingEcho(text);
-    lastEchoRef.current = text;
+  const handleSend = useCallback((text: string, clientMessageId: string) => {
+    setPendingEcho({ id: clientMessageId, text });
     // An active run with nothing streaming is what surfaces the working
     // animation, and a just-answered card is left untouched so it survives.
     setIsRunning(true);
@@ -452,7 +448,6 @@ export function SessionView({
     persisted: persistedItems,
     live: liveItems,
     pendingEcho,
-    lastEchoText: lastEchoRef.current,
   });
   const dockedItem = dockedCard(allItems);
   const reportItem = dockedReport(allItems);

@@ -8,10 +8,15 @@ const message = z
   .trim()
   .min(1, "message is required");
 
+// Minted by the sender before the request leaves, so the bubble it draws at once
+// and the row saved later share one id.
+const clientMessageId = z.uuid({ error: "clientMessageId must be a UUID" });
+
 // Only a chat opens from a typed message: an investigation is a session with a
 // falsifiable condition, and only an alert carries one.
 export const chatRequestSchema = z.object({
   message,
+  clientMessageId,
   kind: z
     .literal("chat", {
       error: "an investigation is opened by an alert, not by hand",
@@ -20,7 +25,10 @@ export const chatRequestSchema = z.object({
 });
 export type ChatRequest = z.infer<typeof chatRequestSchema>;
 
-export const sessionMessageRequestSchema = z.object({ message });
+export const sessionMessageRequestSchema = z.object({
+  message,
+  clientMessageId,
+});
 export type SessionMessageRequest = z.infer<typeof sessionMessageRequestSchema>;
 
 /* Either half may stand alone: a decision with no comment settles a gate, and a

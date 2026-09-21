@@ -1,7 +1,9 @@
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { randomUUID } from "node:crypto";
 import type { AddressInfo } from "node:net";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import Fastify from "fastify";
 import type { FastifyInstance } from "fastify";
+import { messageBody } from "./session-helper.js";
 import { harness, type Harness } from "./harness.js";
 import { mountApi } from "./api-server.js";
 import type { SessionDetail } from "@nightwarden/shared";
@@ -51,7 +53,7 @@ describe("frontend SSE pipeline", () => {
         "Content-Type": "application/json",
         Cookie: `${SESSION}`,
       },
-      body: JSON.stringify({ message: "Is the system healthy?" }),
+      body: messageBody("Is the system healthy?"),
     });
     expect(res.status).toBe(202);
     const { sessionId } = (await res.json()) as { sessionId: string };
@@ -121,13 +123,18 @@ describe("frontend SSE pipeline", () => {
         );
       }).length;
 
+    const openingId = randomUUID();
+    const followUpId = randomUUID();
     const startRes = await fetch(`http://127.0.0.1:${port}/api/chat`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Cookie: `${SESSION}`,
       },
-      body: JSON.stringify({ message: "Is the system healthy?" }),
+      body: JSON.stringify({
+        message: "Is the system healthy?",
+        clientMessageId: openingId,
+      }),
     });
     expect(startRes.status).toBe(202);
     const { sessionId } = (await startRes.json()) as { sessionId: string };
@@ -144,7 +151,12 @@ describe("frontend SSE pipeline", () => {
           "Content-Type": "application/json",
           Cookie: `${SESSION}`,
         },
-        body: JSON.stringify({ message: "Follow-up question." }),
+        // The marker is stripped on the way in, so the saved text differs from
+        // what was typed and only the id can pair the two.
+        body: JSON.stringify({
+          message: "Follow-up question.<system-reminder></system-reminder>",
+          clientMessageId: followUpId,
+        }),
       },
     );
     expect(resumeRes.status).toBe(202);
@@ -172,6 +184,21 @@ describe("frontend SSE pipeline", () => {
       role: "user",
       content: "Follow-up question.",
     });
+
+    // Each person's message is drawn under the id its sender minted.
+    const detailRes = await fetch(
+      `http://127.0.0.1:${port}/api/sessions/${sessionId}`,
+      { headers: { Cookie: `${SESSION}` } },
+    );
+    const detail = (await detailRes.json()) as SessionDetail;
+    expect(
+      detail.transcript.flatMap((item) =>
+        item.kind === "user_turn" ? [{ id: item.id, text: item.text }] : [],
+      ),
+    ).toEqual([
+      { id: openingId, text: "Is the system healthy?" },
+      { id: followUpId, text: "Follow-up question." },
+    ]);
   });
 
   it("sends heartbeat comments on the configured interval", async () => {

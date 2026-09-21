@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { harness, type Harness } from "./harness.js";
-import { dispatchAlertSession } from "./session-helper.js";
+import { dispatchAlertSession, messageBody } from "./session-helper.js";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type {
   NormalizedAlert,
@@ -98,7 +98,7 @@ describe("durable approval interrupts", () => {
         "Content-Type": "application/json",
         Cookie: `${SESSION}`,
       },
-      body: JSON.stringify({ message: "Service is wedged." }),
+      body: messageBody("Service is wedged."),
     });
     expect(res.status).toBe(202);
     const { sessionId } = (await res.json()) as { sessionId: string };
@@ -164,7 +164,7 @@ describe("durable approval interrupts", () => {
         "Content-Type": "application/json",
         Cookie: `${SESSION}`,
       },
-      body: JSON.stringify({ message: "Service is wedged." }),
+      body: messageBody("Service is wedged."),
     });
     const { sessionId } = (await res.json()) as { sessionId: string };
 
@@ -272,7 +272,7 @@ describe("durable approval interrupts", () => {
         "Content-Type": "application/json",
         Cookie: `${SESSION}`,
       },
-      body: JSON.stringify({ message: "Service is wedged." }),
+      body: messageBody("Service is wedged."),
     });
     const { sessionId } = (await res.json()) as { sessionId: string };
 
@@ -340,7 +340,7 @@ describe("durable approval interrupts", () => {
         "Content-Type": "application/json",
         Cookie: `${SESSION}`,
       },
-      body: JSON.stringify({ message: "Service is wedged." }),
+      body: messageBody("Service is wedged."),
     });
     const { sessionId } = (await res.json()) as { sessionId: string };
 
@@ -407,7 +407,7 @@ describe("durable approval interrupts", () => {
         "Content-Type": "application/json",
         Cookie: `${SESSION}`,
       },
-      body: JSON.stringify({ message: "Service is wedged." }),
+      body: messageBody("Service is wedged."),
     });
     const { sessionId } = (await res.json()) as { sessionId: string };
 
@@ -476,7 +476,7 @@ describe("durable approval interrupts", () => {
         "Content-Type": "application/json",
         Cookie: `${SESSION}`,
       },
-      body: JSON.stringify({ message: "Service is wedged." }),
+      body: messageBody("Service is wedged."),
     });
     const { sessionId } = (await chatRes.json()) as { sessionId: string };
 
@@ -551,7 +551,7 @@ describe("durable approval interrupts", () => {
         "Content-Type": "application/json",
         Cookie: `${SESSION}`,
       },
-      body: JSON.stringify({ message: "Service is wedged." }),
+      body: messageBody("Service is wedged."),
     });
     const { sessionId } = (await res.json()) as { sessionId: string };
 
@@ -572,7 +572,7 @@ describe("durable approval interrupts", () => {
           "Content-Type": "application/json",
           Cookie: `${SESSION}`,
         },
-        body: JSON.stringify({ message: "what do you think?" }),
+        body: messageBody("what do you think?"),
       },
     );
     expect(msgRes.status).toBe(409);
@@ -616,7 +616,7 @@ describe("durable approval interrupts", () => {
         "Content-Type": "application/json",
         Cookie: `${SESSION}`,
       },
-      body: JSON.stringify({ message: "Service is wedged." }),
+      body: messageBody("Service is wedged."),
     });
     const { sessionId } = (await res.json()) as { sessionId: string };
 
@@ -681,7 +681,7 @@ describe("durable approval interrupts", () => {
         "Content-Type": "application/json",
         Cookie: `${SESSION}`,
       },
-      body: JSON.stringify({ message: "Service is wedged." }),
+      body: messageBody("Service is wedged."),
     });
     const { sessionId } = (await res.json()) as { sessionId: string };
 
@@ -754,7 +754,7 @@ describe("durable approval interrupts", () => {
         "Content-Type": "application/json",
         Cookie: `${SESSION}`,
       },
-      body: JSON.stringify({ message: "Mixed turn test." }),
+      body: messageBody("Mixed turn test."),
     });
     const { sessionId } = (await res.json()) as { sessionId: string };
 
@@ -893,7 +893,7 @@ describe("durable approval interrupts", () => {
         "Content-Type": "application/json",
         Cookie: `${SESSION}`,
       },
-      body: JSON.stringify({ message: "No timeout test." }),
+      body: messageBody("No timeout test."),
     });
     const { sessionId } = (await res.json()) as { sessionId: string };
 

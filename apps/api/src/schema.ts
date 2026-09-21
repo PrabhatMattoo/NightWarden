@@ -188,6 +188,8 @@ interface SessionTranscriptTable {
   content: string;
   canonical: string | null;
   timestamp: string;
+  // The sender's id for a person's message; null on every row no person sent.
+  client_id: string | null;
 }
 
 interface SchemaMigrationsTable {

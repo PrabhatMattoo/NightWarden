@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { harness, type Harness } from "./harness.js";
-import { dispatchAlertSession } from "./session-helper.js";
+import { dispatchAlertSession, messageBody } from "./session-helper.js";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type {
   NormalizedAlert,
@@ -79,7 +79,7 @@ describe("state inversion: persistence and reads are API-local", () => {
         "Content-Type": "application/json",
         Cookie: `${SESSION}`,
       },
-      body: JSON.stringify({ message: "Anything running?" }),
+      body: messageBody("Anything running?"),
     });
     expect(res.status).toBe(202);
     const { sessionId } = (await res.json()) as { sessionId: string };
@@ -104,7 +104,7 @@ describe("state inversion: persistence and reads are API-local", () => {
         "Content-Type": "application/json",
         Cookie: `${SESSION}`,
       },
-      body: JSON.stringify({ message: "Is the system healthy?" }),
+      body: messageBody("Is the system healthy?"),
     });
     expect(res.status).toBe(202);
     const { sessionId } = (await res.json()) as { sessionId: string };
@@ -154,7 +154,7 @@ describe("state inversion: persistence and reads are API-local", () => {
         "Content-Type": "application/json",
         Cookie: `${SESSION}`,
       },
-      body: JSON.stringify({ message: "Why did web-01 restart?" }),
+      body: messageBody("Why did web-01 restart?"),
     });
     const { sessionId } = (await res.json()) as { sessionId: string };
     await waitFor(() => hasAssistantMessage(events, sessionId));

@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { messageBody } from "./session-helper.js";
 import { harness, type Harness } from "./harness.js";
 
 vi.mock("../llm/factory.js", () => import("./llm-factory-mock.js"));
@@ -67,7 +68,7 @@ describe("continue-request interrupts", () => {
           "Content-Type": "application/json",
           Cookie: `${SESSION}`,
         },
-        body: JSON.stringify({ message: "Take your time." }),
+        body: messageBody("Take your time."),
       });
       ({ sessionId } = (await res.json()) as { sessionId: string });
 
@@ -106,7 +107,7 @@ describe("continue-request interrupts", () => {
         "Content-Type": "application/json",
         Cookie: `${SESSION}`,
       },
-      body: JSON.stringify({ message: "Investigate the service." }),
+      body: messageBody("Investigate the service."),
     });
     expect(res.status).toBe(202);
     const { sessionId } = (await res.json()) as { sessionId: string };
@@ -165,7 +166,7 @@ describe("continue-request interrupts", () => {
         "Content-Type": "application/json",
         Cookie: `${SESSION}`,
       },
-      body: JSON.stringify({ message: "Continue test." }),
+      body: messageBody("Continue test."),
     });
     const { sessionId } = (await res.json()) as { sessionId: string };
 
@@ -230,7 +231,7 @@ describe("continue-request interrupts", () => {
         "Content-Type": "application/json",
         Cookie: `${SESSION}`,
       },
-      body: JSON.stringify({ message: "End test." }),
+      body: messageBody("End test."),
     });
     const { sessionId } = (await res.json()) as { sessionId: string };
 
@@ -289,7 +290,7 @@ describe("continue-request interrupts", () => {
         "Content-Type": "application/json",
         Cookie: `${SESSION}`,
       },
-      body: JSON.stringify({ message: "Durability test." }),
+      body: messageBody("Durability test."),
     });
     const { sessionId } = (await res.json()) as { sessionId: string };
 

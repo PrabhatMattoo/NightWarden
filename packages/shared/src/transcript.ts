@@ -28,9 +28,6 @@ export interface UserTurnItem {
   kind: "user_turn";
   id: string;
   text: string;
-  // The settled copy of a just-echoed bubble: rendered without the mount fade
-  // so the echo-to-persisted swap is invisible.
-  instant?: boolean;
   // When its row was written; present on a projected item, absent while live.
   timestamp?: string;
 }
@@ -93,8 +90,6 @@ export interface CandidateRow {
   statement: string;
   // "open" until a finding settles it, otherwise that finding's verdict.
   state: "open" | Verdict;
-  // The finding carrying the verdict, so the board can link to its row.
-  findingId?: string;
   note?: string;
 }
 

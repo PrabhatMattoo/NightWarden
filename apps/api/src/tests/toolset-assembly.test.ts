@@ -27,7 +27,7 @@ const setScript = (turns: ScriptedTurn[]): void =>
 
 import { generateRunnerToken } from "../fleet/runners-store.js";
 import { useTempDb } from "./temp-db.js";
-import { issueTestSession } from "./session-helper.js";
+import { issueTestSession, messageBody } from "./session-helper.js";
 import { waitFor } from "./wait.js";
 import { registerFrontendEventRoutes } from "../session/events.js";
 import { connectFrontendEvents } from "./frontend-events-helper.js";
@@ -403,7 +403,7 @@ describe("toolset assembly by fleet capabilities", () => {
           "Content-Type": "application/json",
           Cookie: `${SESSION}`,
         },
-        body: JSON.stringify({ message: "Restart the K8s workload." }),
+        body: messageBody("Restart the K8s workload."),
       });
       const { sessionId } = (await res.json()) as { sessionId: string };
 
@@ -458,7 +458,7 @@ describe("toolset assembly by fleet capabilities", () => {
           "Content-Type": "application/json",
           Cookie: `${SESSION}`,
         },
-        body: JSON.stringify({ message: "Why does redis keep restarting?" }),
+        body: messageBody("Why does redis keep restarting?"),
       });
       const { sessionId } = (await res.json()) as { sessionId: string };
 
@@ -497,7 +497,7 @@ describe("toolset assembly by fleet capabilities", () => {
             "Content-Type": "application/json",
             Cookie: `${SESSION}`,
           },
-          body: JSON.stringify({ message: "Anything else?" }),
+          body: messageBody("Anything else?"),
         },
       );
       expect(followUp.status).toBe(202);

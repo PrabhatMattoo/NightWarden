@@ -14,6 +14,10 @@ import userEvent from "@testing-library/user-event";
 
 import { ChatInput } from "@/features/session/transcript/ChatInput";
 
+// What the API accepts as a client message id.
+const UUID_V4 =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+
 function setup(
   props: {
     sessionId: string | null;
@@ -101,9 +105,9 @@ describe("ChatInput", () => {
   });
 
   describe("submit from new session (sessionId=null)", () => {
-    // The body carries the message alone: typing opens a chat, and an alert
-    // opens an investigation.
-    it("calls POST /api/chat with the message alone, and lands in the chat family", async () => {
+    // The body carries no kind: typing opens a chat, and an alert opens an
+    // investigation.
+    it("calls POST /api/chat with the message and its client id, and lands in the chat family", async () => {
       const user = userEvent.setup();
       const { fetchMock } = setup({ sessionId: null, isRunning: false });
 
@@ -111,13 +115,14 @@ describe("ChatInput", () => {
       await user.type(textarea, "Is nginx down?");
       await user.click(screen.getByRole("button", { name: /send/i }));
 
-      expect(fetchMock).toHaveBeenCalledWith(
-        "/api/chat",
-        expect.objectContaining({
-          method: "POST",
-          body: JSON.stringify({ message: "Is nginx down?" }),
-        }),
-      );
+      const [, init] = fetchMock.mock.calls.find(
+        ([called]) => called === "/api/chat",
+      ) as [string, RequestInit];
+      expect(init.method).toBe("POST");
+      expect(JSON.parse(String(init.body))).toEqual({
+        message: "Is nginx down?",
+        clientMessageId: expect.stringMatching(UUID_V4),
+      });
 
       await screen.findByText("session page");
     });
@@ -131,7 +136,7 @@ describe("ChatInput", () => {
   });
 
   describe("submit from existing session (sessionId set)", () => {
-    it("calls POST /api/sessions/:id/messages with the message alone", async () => {
+    it("calls POST /api/sessions/:id/messages with the message and its client id", async () => {
       const user = userEvent.setup();
       const { fetchMock } = setup(
         { sessionId: "s1", isRunning: false },
@@ -142,13 +147,14 @@ describe("ChatInput", () => {
       await user.type(textarea, "Why did that tool call fail?");
       await user.click(screen.getByRole("button", { name: /send/i }));
 
-      expect(fetchMock).toHaveBeenCalledWith(
-        "/api/sessions/s1/messages",
-        expect.objectContaining({
-          method: "POST",
-          body: JSON.stringify({ message: "Why did that tool call fail?" }),
-        }),
-      );
+      const [, init] = fetchMock.mock.calls.find(
+        ([called]) => called === "/api/sessions/s1/messages",
+      ) as [string, RequestInit];
+      expect(init.method).toBe("POST");
+      expect(JSON.parse(String(init.body))).toEqual({
+        message: "Why did that tool call fail?",
+        clientMessageId: expect.stringMatching(UUID_V4),
+      });
     });
   });
 });
