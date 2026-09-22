@@ -94,6 +94,7 @@ export const DOCKER_TOOLS: Tool[] = [
     renderAs: "logs",
     on: "runner",
     routeBy: "service",
+    trimmable: { field: "lines", end: "head", omittedField: "linesOmitted" },
   },
   {
     ...declareTool(
@@ -133,6 +134,7 @@ export const DOCKER_TOOLS: Tool[] = [
     renderAs: "state",
     on: "runner",
     routeBy: "service",
+    trimmable: { field: "events", end: "head", omittedField: "eventsOmitted" },
   },
   {
     ...declareTool(

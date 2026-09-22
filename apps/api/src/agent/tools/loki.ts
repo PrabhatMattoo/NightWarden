@@ -11,7 +11,7 @@ import {
   type LokiMetricSeries,
 } from "../../integrations/loki.js";
 import { alertAnchorFor } from "./alert-anchor.js";
-import { ITEM_BUDGET_CHARS, fitWithinBudget } from "./result-budget.js";
+import { ITEM_BUDGET_CHARS } from "./result-budget.js";
 import { apiTool, optionalText } from "./schema.js";
 import type { Tool, ToolExecuteResult } from "./types.js";
 
@@ -248,11 +248,11 @@ function capMetricSeries(data: LokiMetricData): {
   series: LokiMetricSeries[];
   seriesOmitted?: number;
 } {
-  const { kept, dropped } = fitWithinBudget(data.series.slice(0, MAX_SERIES));
-  const omitted = data.series.length - MAX_SERIES + dropped;
+  const initialOmitted = Math.max(0, data.series.length - MAX_SERIES);
+  const kept = data.series.slice(0, MAX_SERIES);
   return {
     series: kept,
-    ...(omitted > 0 && { seriesOmitted: omitted }),
+    ...(initialOmitted > 0 && { seriesOmitted: initialOmitted }),
   };
 }
 
@@ -372,6 +372,7 @@ export const LOKI_TOOLS: Tool[] = [
     citable: true,
     renderAs: "metric",
     timeoutMs: 30_000,
+    trimmable: { field: "series", end: "tail", omittedField: "seriesOmitted" },
     execute: async (input, ctx): Promise<ToolExecuteResult> => {
       const integration = await getLokiIntegration();
       if (integration === null) return notConfigured();

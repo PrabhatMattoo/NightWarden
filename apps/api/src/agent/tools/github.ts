@@ -1,7 +1,6 @@
 import { z } from "zod";
 import { getGitHubIntegration } from "../../integrations/store.js";
 import { alertAnchorFor } from "./alert-anchor.js";
-import { ITEM_BUDGET_CHARS, fitWithinBudget } from "./result-budget.js";
 import {
   defaultBranch,
   listCommits,
@@ -166,6 +165,10 @@ export const GITHUB_TOOLS: Tool[] = [
     citable: true,
     renderAs: "change",
     timeoutMs: 60_000,
+    trimmable: [
+      { field: "commits", end: "tail", omittedField: "changesOmitted" },
+      { field: "pullRequests", end: "tail", omittedField: "changesOmitted" },
+    ],
     execute: async (input, ctx): Promise<ToolExecuteResult> => {
       const integration = await getGitHubIntegration();
       if (integration === null) {
@@ -228,21 +231,12 @@ export const GITHUB_TOOLS: Tool[] = [
             committedAt,
           }));
 
-        // Pull requests are named first because they carry the file lists a
-        // change search is looking for; loose commits fill what budget is left.
-        const fitPrs = fitWithinBudget(pullRequests);
-        const fitCommits = fitWithinBudget(
-          commits,
-          ITEM_BUDGET_CHARS - fitPrs.spent,
-        );
-        const changesOmitted = fitPrs.dropped + fitCommits.dropped;
         const result: ListRecentGitChangesResult = {
           branch,
           windowStart: since,
           windowEnd: until,
-          pullRequests: fitPrs.kept,
-          commits: fitCommits.kept,
-          ...(changesOmitted > 0 && { changesOmitted }),
+          pullRequests,
+          commits,
           ...(note !== undefined && { note }),
         };
         return { content: result };

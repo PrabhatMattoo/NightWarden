@@ -66,6 +66,11 @@ export function resolveByRunner(
   if (capable.length === 0) throw new NoPlatformRunnerError(platform);
 
   const requested = requestedServers(commandInput);
+  if (requested.length === 0) {
+    throw new Error(
+      `No ${platform} server requested. Name at least one server.`,
+    );
+  }
   const conns = requested.flatMap(
     (name) => capable.find((c) => c.serverName === name) ?? [],
   );
@@ -84,7 +89,13 @@ export function resolveByRunner(
 // strips before dispatch. Never stored, and never part of a target key.
 function requestedServers(commandInput: Record<string, unknown>): string[] {
   const server = commandInput["server"];
+  if (typeof server === "string" && server.trim() !== "") {
+    return [server.trim()];
+  }
   return Array.isArray(server)
-    ? server.filter((name): name is string => typeof name === "string")
+    ? server.filter(
+        (name): name is string =>
+          typeof name === "string" && name.trim() !== "",
+      )
     : [];
 }

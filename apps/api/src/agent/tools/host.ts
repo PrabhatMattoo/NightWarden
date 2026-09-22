@@ -29,7 +29,7 @@ const READ_HOST_FILE_INPUT = z.object({
     description:
       "How many lines to return at most, as a whole number of 1 or more. Defaults to 500.",
   }),
-  server: z.string().meta({
+  server: z.union([z.string(), z.array(z.string()).min(1).max(1)]).meta({
     description:
       "The name of one Docker host, written exactly as the <fleet-summary> block lists it. This is required, because reading a file only makes sense on one named machine.",
   }),
@@ -115,6 +115,7 @@ export const HOST_TOOLS: Tool[] = [
     on: "runner",
     routeBy: "server",
     platform: "docker",
+    trimmable: { field: "lines", end: "head", omittedField: "linesOmitted" },
   },
   {
     ...declareTool(

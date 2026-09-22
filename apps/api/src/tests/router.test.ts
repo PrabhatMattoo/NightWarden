@@ -242,6 +242,29 @@ describe("router", () => {
       ]);
     });
 
+    it("accepts a single server passed as a string", async () => {
+      const a = connect("web-01", ["nginx"]);
+
+      const { envelope } = await sendFleetCommand(
+        "GetHostDisk",
+        { server: "web-01" },
+        "docker",
+      );
+
+      expect(a.commands).toHaveLength(1);
+      expect(envelope.byServer).toEqual([
+        { server: "web-01", result: { ok: true } },
+      ]);
+    });
+
+    it("fails when no server is requested", async () => {
+      connect("web-01", ["nginx"]);
+
+      await expect(
+        sendFleetCommand("GetHostDisk", { server: [] }, "docker"),
+      ).rejects.toThrow(/No docker server requested/);
+    });
+
     it("reaches only servers of that platform", async () => {
       const dockerHost = connect("web-01", ["nginx"]);
       const cluster = connect("k8s-01", ["api"], { platform: "kubernetes" });

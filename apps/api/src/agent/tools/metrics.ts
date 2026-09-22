@@ -15,7 +15,6 @@ import {
   type MetricsSource,
 } from "../../integrations/metrics/sources.js";
 import { alertAnchorFor } from "./alert-anchor.js";
-import { fitWithinBudget } from "./result-budget.js";
 import { apiTool, optionalText } from "./schema.js";
 import type { Tool, ToolExecuteResult } from "./types.js";
 
@@ -77,8 +76,8 @@ function nonFiniteIn(series: MetricsSeries[]): string[] {
 // Capped by count, then by size: a range query returns twenty series of two
 // hundred points each, which is several times what one result may occupy.
 function capSeries(data: MetricsQueryData): MetricsQueryResult {
-  const { kept, dropped } = fitWithinBudget(data.series.slice(0, MAX_SERIES));
-  const omitted = data.series.length - MAX_SERIES + dropped;
+  const initialOmitted = Math.max(0, data.series.length - MAX_SERIES);
+  const kept = data.series.slice(0, MAX_SERIES);
   const notes = [
     ...data.warnings.map(
       (warning) =>
@@ -98,7 +97,7 @@ function capSeries(data: MetricsQueryData): MetricsQueryResult {
   return {
     resultType: data.resultType,
     series: kept,
-    ...(omitted > 0 && { seriesOmitted: omitted }),
+    ...(initialOmitted > 0 && { seriesOmitted: initialOmitted }),
     ...(notes.length > 0 && { note: notes.join(" ") }),
   };
 }
@@ -231,6 +230,7 @@ export const METRICS_TOOLS: Tool[] = [
     citable: true,
     renderAs: "metric",
     timeoutMs: 30_000,
+    trimmable: { field: "series", end: "tail", omittedField: "seriesOmitted" },
     execute: async (input, ctx): Promise<ToolExecuteResult> => {
       const source = await resolveMetricsSource();
       if (!isSource(source)) return source;
@@ -269,6 +269,7 @@ export const METRICS_TOOLS: Tool[] = [
     citable: true,
     renderAs: "metric",
     timeoutMs: 30_000,
+    trimmable: { field: "series", end: "tail", omittedField: "seriesOmitted" },
     execute: async (input, ctx): Promise<ToolExecuteResult> => {
       const source = await resolveMetricsSource();
       if (!isSource(source)) return source;
@@ -420,6 +421,7 @@ export const METRICS_TOOLS: Tool[] = [
     citable: true,
     renderAs: "text",
     timeoutMs: 30_000,
+    trimmable: { field: "rules", end: "tail", omittedField: "rulesOmitted" },
     execute: async (input, ctx): Promise<ToolExecuteResult> => {
       const source = await resolveMetricsSource();
       if (!isSource(source)) return source;
@@ -447,11 +449,11 @@ export const METRICS_TOOLS: Tool[] = [
                 : `No alerting rule name contains "${contains}".`,
           };
         }
-        const { kept } = fitWithinBudget(matched.slice(0, MAX_ALERT_RULES));
-        const rulesOmitted = matched.length - kept.length;
+        const initialOmitted = Math.max(0, matched.length - MAX_ALERT_RULES);
+        const kept = matched.slice(0, MAX_ALERT_RULES);
         const result: AlertRulesResult = {
           rules: kept,
-          ...(rulesOmitted > 0 && { rulesOmitted }),
+          ...(initialOmitted > 0 && { rulesOmitted: initialOmitted }),
         };
         return { content: result };
       } catch (err) {

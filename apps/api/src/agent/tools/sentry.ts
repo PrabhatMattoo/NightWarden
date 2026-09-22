@@ -10,7 +10,6 @@ import {
   type SentryConnection,
 } from "../../integrations/sentry.js";
 import { alertAnchorFor } from "./alert-anchor.js";
-import { ITEM_BUDGET_CHARS, fitWithinBudget } from "./result-budget.js";
 import { apiTool, optionalText } from "./schema.js";
 import type { Tool, ToolExecuteResult } from "./types.js";
 
@@ -423,6 +422,7 @@ export const SENTRY_TOOLS: Tool[] = [
     citable: true,
     renderAs: "exception",
     timeoutMs: 30_000,
+    trimmable: { field: "issues", end: "tail", omittedField: "issuesOmitted" },
     execute: async (input, ctx): Promise<ToolExecuteResult> => {
       const conn = await connection();
       if (conn === null) return notConfigured();
@@ -446,11 +446,11 @@ export const SENTRY_TOOLS: Tool[] = [
           end,
           cursor: cursor ?? null,
         });
-        const { kept, dropped } = fitWithinBudget(page.rows.map(toIssue));
+        const issues = page.rows.map(toIssue);
         const notes: string[] = [
           "count and userCount are Sentry's totals for the issue; inWindow holds the counts restricted to the window searched, and is null when Sentry did not narrow them.",
         ];
-        if (kept.length === 0) {
+        if (issues.length === 0) {
           notes.push(
             "No issues matched. That means none matched this query in this window and these projects, not that the service threw nothing - widen lookbackMinutes, clear the query, or check the project slugs.",
           );
@@ -460,14 +460,9 @@ export const SENTRY_TOOLS: Tool[] = [
             "More issues exist beyond this page; call again with the cursor argument set to nextCursor to read them.",
           );
         }
-        if (dropped > 0) {
-          notes.push(
-            `${dropped} matching issue(s) are NOT in this result: it reached its ${ITEM_BUDGET_CHARS}-character budget. Narrow the query or lower limit.`,
-          );
-        }
         const result: SentryIssuesResult = {
-          issues: kept,
-          returned: kept.length,
+          issues,
+          returned: issues.length,
           limit,
           windowStart: start.toISOString(),
           windowEnd: end.toISOString(),
@@ -482,7 +477,6 @@ export const SENTRY_TOOLS: Tool[] = [
           query,
           sort,
           nextCursor: page.nextCursor,
-          ...(dropped > 0 && { issuesOmitted: dropped }),
           note: notes.join(" "),
         };
         return { content: result };
@@ -501,6 +495,11 @@ export const SENTRY_TOOLS: Tool[] = [
     citable: true,
     renderAs: "exception",
     timeoutMs: 30_000,
+    trimmable: {
+      field: "entries",
+      end: "tail",
+      omittedField: "entriesOmitted",
+    },
     execute: async (input, ctx): Promise<ToolExecuteResult> => {
       const conn = await connection();
       if (conn === null) return notConfigured();
@@ -522,14 +521,8 @@ export const SENTRY_TOOLS: Tool[] = [
 
         if (formatted === null) {
           const trimmed = trimFrames(list(event, "entries"));
-          const budgeted = fitWithinBudget(trimmed.entries);
-          entries = budgeted.kept;
+          entries = trimmed.entries;
           vendorFramesDropped = trimmed.dropped;
-          if (budgeted.dropped > 0) {
-            notes.push(
-              `${budgeted.dropped} section(s) of this event are NOT in this result: it reached its ${ITEM_BUDGET_CHARS}-character budget.`,
-            );
-          }
         }
         if (release === null) {
           notes.push(
@@ -580,6 +573,7 @@ export const SENTRY_TOOLS: Tool[] = [
     citable: true,
     renderAs: "text",
     timeoutMs: 30_000,
+    trimmable: { field: "values", end: "tail", omittedField: "valuesOmitted" },
     execute: async (input, ctx): Promise<ToolExecuteResult> => {
       const conn = await connection();
       if (conn === null) return notConfigured();
@@ -594,19 +588,17 @@ export const SENTRY_TOOLS: Tool[] = [
           key,
           environments,
         );
-        const { kept, dropped } = fitWithinBudget(
-          raw.slice(0, MAX_TAG_VALUES).map((row) => ({
-            value: str(row, "value"),
-            count: num(row, "count"),
-            firstSeen: str(row, "firstSeen"),
-            lastSeen: str(row, "lastSeen"),
-          })),
-        );
-        const omitted = Math.max(0, raw.length - MAX_TAG_VALUES) + dropped;
+        const values = raw.slice(0, MAX_TAG_VALUES).map((row) => ({
+          value: str(row, "value"),
+          count: num(row, "count"),
+          firstSeen: str(row, "firstSeen"),
+          lastSeen: str(row, "lastSeen"),
+        }));
+        const omitted = Math.max(0, raw.length - MAX_TAG_VALUES);
         const notes = [
           `These counts cover the whole life of the issue, not the window around the alert: Sentry accepts no time range on this call. Read firstSeen and lastSeen on each value before treating any of it as concurrent with the alert.`,
         ];
-        if (kept.length === 0) {
+        if (values.length === 0) {
           notes.push(
             `No values recorded for the tag "${key}" on this issue, which means the tag was never set on its events rather than that the issue is narrow.`,
           );
@@ -619,8 +611,8 @@ export const SENTRY_TOOLS: Tool[] = [
         const result = {
           issueId,
           key,
-          values: kept,
-          returned: kept.length,
+          values,
+          returned: values.length,
           environmentsSearched: describeScope(
             environments,
             "every environment",
@@ -644,6 +636,11 @@ export const SENTRY_TOOLS: Tool[] = [
     citable: true,
     renderAs: "change",
     timeoutMs: 30_000,
+    trimmable: {
+      field: "releases",
+      end: "tail",
+      omittedField: "releasesOmitted",
+    },
     execute: async (input, ctx): Promise<ToolExecuteResult> => {
       const conn = await connection();
       if (conn === null) return notConfigured();
@@ -660,16 +657,14 @@ export const SENTRY_TOOLS: Tool[] = [
           limit,
           cursor ?? null,
         );
-        const { kept, dropped } = fitWithinBudget(
-          page.rows.map((row) => toRelease(row, anchor)),
-        );
+        const releases = page.rows.map((row) => toRelease(row, anchor));
         const notes: string[] = [];
-        if (kept.length === 0) {
+        if (releases.length === 0) {
           notes.push(
             "Sentry lists no releases for these projects. That means no release has ever been registered with Sentry, not that nothing was deployed.",
           );
         }
-        if (kept.some((r) => r.relativeToAlert === null)) {
+        if (releases.some((r) => r.relativeToAlert === null)) {
           notes.push(
             "A release with a null relativeToAlert carries no deploy or release date in Sentry, so when its code started running is unknown.",
           );
@@ -679,21 +674,15 @@ export const SENTRY_TOOLS: Tool[] = [
             "Older releases exist beyond this page; call again with the cursor argument set to nextCursor to reach them.",
           );
         }
-        if (dropped > 0) {
-          notes.push(
-            `${dropped} older release(s) are NOT in this result: it reached its ${ITEM_BUDGET_CHARS}-character budget.`,
-          );
-        }
         const result: SentryReleasesResult = {
-          releases: kept,
-          returned: kept.length,
+          releases,
+          returned: releases.length,
           alertFiredAt: anchor.toISOString(),
           projectsSearched: describeScope(
             projects,
             "every project the token can reach",
           ),
           nextCursor: page.nextCursor,
-          ...(dropped > 0 && { releasesOmitted: dropped }),
           note: notes.join(" "),
         };
         return { content: result };
@@ -712,6 +701,11 @@ export const SENTRY_TOOLS: Tool[] = [
     citable: true,
     renderAs: "change",
     timeoutMs: 30_000,
+    trimmable: {
+      field: "commits",
+      end: "tail",
+      omittedField: "commitsOmitted",
+    },
     execute: async (input, ctx): Promise<ToolExecuteResult> => {
       const conn = await connection();
       if (conn === null) return notConfigured();
@@ -724,19 +718,17 @@ export const SENTRY_TOOLS: Tool[] = [
           version,
           cursor ?? null,
         );
-        const { kept, dropped } = fitWithinBudget(
-          page.rows.map((row) => ({
-            id: str(row, "id"),
-            message: str(row, "message"),
-            dateCreated: str(row, "dateCreated"),
-            author: obj(row, "author"),
-            repository: str(obj(row, "repository") ?? {}, "name"),
-            pullRequest: obj(row, "pullRequest"),
-            suspectCommitType: str(row, "suspectCommitType"),
-          })),
-        );
+        const commits = page.rows.map((row) => ({
+          id: str(row, "id"),
+          message: str(row, "message"),
+          dateCreated: str(row, "dateCreated"),
+          author: obj(row, "author"),
+          repository: str(obj(row, "repository") ?? {}, "name"),
+          pullRequest: obj(row, "pullRequest"),
+          suspectCommitType: str(row, "suspectCommitType"),
+        }));
         const notes: string[] = [];
-        if (kept.length === 0) {
+        if (commits.length === 0) {
           notes.push(
             "Sentry associates no commits with this release. That is what you see both when the release genuinely shipped no commits and when the Sentry project has no repository integration set up, and this call cannot tell those apart - check the integration before reading it as no code change.",
           );
@@ -746,17 +738,11 @@ export const SENTRY_TOOLS: Tool[] = [
             "More commits exist beyond this page; call again with the cursor argument set to nextCursor.",
           );
         }
-        if (dropped > 0) {
-          notes.push(
-            `${dropped} commit(s) are NOT in this result: it reached its ${ITEM_BUDGET_CHARS}-character budget.`,
-          );
-        }
         const result = {
           version,
-          commits: kept,
-          returned: kept.length,
+          commits,
+          returned: commits.length,
           nextCursor: page.nextCursor,
-          ...(dropped > 0 && { commitsOmitted: dropped }),
           note: notes.join(" "),
         };
         return { content: result };

@@ -15,6 +15,7 @@ import { METRICS_TOOLS } from "./metrics.js";
 import { REPO_TOOLS } from "./repo.js";
 import { REPORT_TOOLS } from "./report.js";
 import { SENTRY_TOOLS } from "./sentry.js";
+import { trimToBudget } from "./result-budget.js";
 import type {
   DispatchedToolResult,
   Tool,
@@ -70,12 +71,29 @@ export async function executeTool(
     tool.on === "api"
       ? await tool.execute(parsed.data, effectiveCtx)
       : await executeRunnerTool(tool, parsed.data, effectiveCtx);
+
+  const rawContent = result.content;
+  let effectiveContent: unknown = rawContent;
+
+  if (
+    !result.isError &&
+    tool.trimmable !== undefined &&
+    typeof rawContent === "object" &&
+    rawContent !== null
+  ) {
+    effectiveContent = trimToBudget(
+      rawContent as Record<string, unknown>,
+      tool.trimmable,
+      MAX_TOOL_RESULT_CHARS,
+    );
+  }
+
   // Stripped here rather than per tool: a log line or a file is the outside
   // world speaking, and this is the one door all of it comes through.
   const content = stripSystemReminder(
-    typeof result.content === "string"
-      ? result.content
-      : JSON.stringify(result.content),
+    typeof effectiveContent === "string"
+      ? effectiveContent
+      : JSON.stringify(effectiveContent),
   );
   if (content.length > MAX_TOOL_RESULT_CHARS) {
     return {

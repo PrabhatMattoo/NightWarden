@@ -191,4 +191,8 @@ describe("sanitizeLines", () => {
     expect(out).toContain("starting up");
     expect(out).toContain("ready");
   });
+
+  it("returns an empty array when given an empty list of lines", () => {
+    expect(sanitizeLines([])).toEqual([]);
+  });
 });

@@ -147,5 +147,6 @@ export function sanitize(text: string): string {
 // Log lines, sanitized as one document rather than line by line: a PEM private
 // key spans many lines and per-line matching would miss every one of them.
 export function sanitizeLines(lines: string[]): string[] {
+  if (lines.length === 0) return [];
   return sanitize(lines.join("\n")).split("\n");
 }

@@ -62,7 +62,7 @@ export async function executeRunnerTool(
     if (tool.routeBy === "service") {
       return { content: await sendCommand(name, input, ctx.toolTimeoutMs) };
     }
-    const { envelope, succeeded, failed } = await sendFleetCommand(
+    const { envelope, succeeded } = await sendFleetCommand(
       name,
       input,
       tool.platform,
@@ -70,7 +70,7 @@ export async function executeRunnerTool(
     );
     // A fan-out has three answers, not two, and only none-answered is a
     // failure: the envelope names which server fell short either way.
-    if (failed === 0 || succeeded > 0) return { content: envelope };
+    if (succeeded > 0) return { content: envelope };
     return { content: envelope, isError: true };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
