@@ -56,12 +56,14 @@ const RECORD: InvestigationRecord = {
       statement: "PR #482's cache bump leaks",
       ifTrue: "rss climbs from the merge",
       ifFalse: "rss is flat across the merge",
+      openedAtEvidence: 0,
     },
     {
       id: "c2",
       statement: "the host ran out of memory",
       ifTrue: "host free memory falls",
       ifFalse: "host free memory stays flat",
+      openedAtEvidence: 0,
     },
   ],
   lastStatedCandidates: [],
@@ -473,6 +475,7 @@ describe("ReportPanel", () => {
               statement: "The queue backed up first",
               ifTrue: "depth climbs",
               ifFalse: "depth is flat",
+              openedAtEvidence: 0,
             },
           ],
           findings: [

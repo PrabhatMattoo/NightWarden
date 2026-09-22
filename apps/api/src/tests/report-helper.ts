@@ -15,6 +15,7 @@ export async function seedCandidates(
         statements[i] ?? `seeded candidate ${record.candidates.length + i + 1}`,
       ifTrue: "seeded",
       ifFalse: "seeded",
+      openedAtEvidence: 0,
     }));
     return {
       next: { ...record, candidates: [...record.candidates, ...added] },
@@ -35,6 +36,7 @@ export async function seedCompleteReport(sessionId: string): Promise<void> {
           statement: "seeded by test",
           ifTrue: "seeded",
           ifFalse: "seeded",
+          openedAtEvidence: 0,
         },
       ],
       findings: [

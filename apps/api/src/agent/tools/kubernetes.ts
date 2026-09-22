@@ -199,7 +199,7 @@ export const K8S_TOOLS: Tool[] = [
   {
     ...declareTool(
       "K8sExec",
-      "Run one program inside a Kubernetes workload's pod, as kubectl exec does. The program runs inside the pod and never on the node hosting it, and the result carries its exit code, its standard output and its standard error. NightWarden starts no shell, so every argument reaches the program exactly as you write it and characters such as |, > and ; are ordinary text; to use shell syntax, name a shell as the executable and pass the whole script as one argument. The effect of an arbitrary command cannot be known in advance, so every call is treated as a write until a person decides otherwise. Use it to answer a question the typed Kubernetes tools above do not cover, and to apply a fix once you know what the fix is.",
+      'Run one program inside a Kubernetes workload\'s pod, as kubectl exec does. The program runs inside the pod and never on the node hosting it, and the result carries its exit code, its standard output and its standard error. K8sExec runs the program directly, without a shell, so shell syntax such as |, > and ; reaches the program as plain text; to use shell syntax, set the executable to sh and pass the whole script as one argument after -c, for example ["-c", "cat /proc/1/status | grep VmRSS"]. The effect of an arbitrary command cannot be known in advance, so every call is treated as a write until a person decides otherwise. Use K8sExec to answer a question the typed Kubernetes tools above do not cover, and to apply a fix once you know what the fix is.',
       EXEC_INPUT,
     ),
     effect: "write",

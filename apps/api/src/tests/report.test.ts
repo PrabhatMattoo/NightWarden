@@ -380,21 +380,31 @@ describe("the investigation record", () => {
       expect((await getRecord(sessionId))!.findings).toHaveLength(0);
     });
 
-    it("refuses a claim with nothing behind it, on any verdict", async () => {
+    it("refuses a claim with nothing behind it, unless it is untestable", async () => {
       const sessionId = randomUUID();
       await seedTranscript(sessionId);
+      await seedCandidates(sessionId, 3);
+      let cand = 0;
       for (const verdict of ["root_cause", "disproven"]) {
         const result = await call("RecordFinding", sessionId, {
           verdict,
+          candidate: `c${++cand}`,
           explanation: "no reason given",
           evidenceIds: [],
         });
         expect(result.isError).toBe(true);
-        // The one rule broken most often, so the refusal says what to do about
-        // it rather than only which field failed.
         expect(String(result.content)).toContain("at least one citation");
       }
-      expect((await getRecord(sessionId))!.findings).toHaveLength(0);
+      // Untestable is the one verdict that may cite nothing: it means no tool
+      // could reach the candidate, so there is no result to point at.
+      const untestable = await call("RecordFinding", sessionId, {
+        verdict: "untestable",
+        candidate: "c3",
+        explanation: "no tool reaches it",
+        evidenceIds: [],
+      });
+      expect(untestable.isError).toBeFalsy();
+      expect((await getRecord(sessionId))!.findings).toHaveLength(1);
     });
 
     /* Append-only: there is no call that rewrites a row, so a changed mind is a
@@ -474,9 +484,9 @@ describe("the investigation record", () => {
           "web-01 was OOM-killed because the cache bump raised its floor",
         timeline: [
           {
-            at: "2026-07-03T02:00:00.000Z",
-            what: "memory crossed the limit",
-            evidenceId: "e1",
+            at: "2026-07-03T01:00:00.000Z",
+            what: "PR #482 merged",
+            evidenceId: "e2",
           },
         ],
         impact: "nine minutes of failed reads",
@@ -495,64 +505,28 @@ describe("the investigation record", () => {
       expect(written.findings[0]!.verdict).toBe("root_cause");
     });
 
-    it("drops a timeline citation naming no call, and keeps the entry", async () => {
+    it("refuses a timeline whose time is not in the result it cites", async () => {
       const sessionId = randomUUID();
       await seedTranscript(sessionId);
       await record(sessionId, "root_cause", ["e1"]);
 
-      await submit(sessionId, {
-        summary: "the limit was lowered",
+      const refused = await submit(sessionId, {
+        summary: "the cache bump raised the floor",
         timeline: [
           {
-            at: "2026-07-03T01:40:00.000Z",
-            what: "PR #482 merged",
-            evidenceId: "tu-invented",
-          },
-          {
-            at: "2026-07-03T02:00:00.000Z",
+            at: "2026-07-03T05:00:00.000Z",
             what: "first kill",
-            evidenceId: "",
+            evidenceId: "e1",
           },
         ],
-        recommendation: "revert it",
+        recommendation: "revert PR #482",
       });
 
-      const timeline = (await getRecord(sessionId))!.report!.timeline;
-      expect(timeline).toHaveLength(2);
-      expect(timeline[0]!.what).toBe("PR #482 merged");
-      expect(timeline[0]!.evidenceId).toBeUndefined();
-      expect(timeline[1]!.evidenceId).toBeUndefined();
-    });
-
-    /* The lane describes the moment, not the call behind it, so an id that names
-       nothing costs the row its citation and never its strand. */
-    it("keeps a row's lane when its citation is dropped", async () => {
-      const sessionId = randomUUID();
-      await seedTranscript(sessionId);
-      await record(sessionId, "root_cause", ["e1"]);
-
-      await submit(sessionId, {
-        headline: "PR #482 raised the memory floor and web-01 was OOM-killed",
-        affected: "web-01",
-        summary: "the limit was lowered",
-        timeline: [
-          {
-            at: "2026-07-03T01:40:00.000Z",
-            what: "PR #482 merged",
-            lane: "change",
-            evidenceId: "tu-invented",
-          },
-        ],
-        recommendation: "revert it",
-      });
-
-      const submitted = (await getRecord(sessionId))!.report!;
-      expect(submitted.headline).toBe(
-        "PR #482 raised the memory floor and web-01 was OOM-killed",
-      );
-      expect(submitted.affected).toBe("web-01");
-      expect(submitted.timeline[0]!.lane).toBe("change");
-      expect(submitted.timeline[0]!.evidenceId).toBeUndefined();
+      expect(refused.isError).toBe(true);
+      // Names the entry, the id, and the times the cited result actually holds.
+      expect(String(refused.content)).toContain("does not appear in e1");
+      expect(String(refused.content)).toContain("2026-07-03T00:00:00.000Z");
+      expect((await getRecord(sessionId))!.report).toBeNull();
     });
 
     /* Refused rather than stored as "none": a report claiming a headline and a
@@ -616,7 +590,7 @@ describe("the investigation record", () => {
         summary: "the cache bump raised the floor",
         timeline: [
           {
-            at: "2026-07-03T02:01:00.000Z",
+            at: "2026-07-03T01:00:00.000Z",
             what: "PR #482 merged",
             evidenceId: "e2",
           },
@@ -1136,22 +1110,27 @@ describe("the investigation record", () => {
       };
     }
 
-    /* Read, the forced candidates turn, then the finding: a call is only read on
-       the turn after the one that made it. */
-    function recordTurn(verdict: string, open = true) {
+    // A fresh run reads (e1), opens, reads again (e2) and settles on e2; a reopen
+    // run has its candidates already, so its one read (e3) is the post-open test.
+    function recordTurn(
+      verdict: string,
+      open = true,
+      citeId = open ? "e2" : "e3",
+    ) {
       const n = randomUUID();
+      const read = () => ({
+        toolUses: [
+          {
+            toolCallId: `tu-read-${randomUUID()}`,
+            name: "ListDockerServices",
+            input: { server: ["rc-host"] },
+          },
+        ],
+        text: "",
+      });
       return [
-        {
-          toolUses: [
-            {
-              toolCallId: `tu-read-${n}`,
-              name: "ListDockerServices",
-              input: { server: ["rc-host"] },
-            },
-          ],
-          text: "",
-        },
-        ...(open ? [openTurn()] : []),
+        read(),
+        ...(open ? [openTurn(), read()] : []),
         {
           // Both candidates settled: the report turn is reached once every one
           // the run opened carries a finding.
@@ -1163,9 +1142,7 @@ describe("the investigation record", () => {
                 verdict,
                 candidate: "c1",
                 explanation: "what the read showed",
-                // e1 either way: the read above is the first citable call when
-                // nothing precedes it, and one of them when something does.
-                evidenceIds: ["e1"],
+                evidenceIds: [citeId],
               },
             },
             {
@@ -1175,7 +1152,7 @@ describe("the investigation record", () => {
                 verdict: "disproven",
                 candidate: "c2",
                 explanation: "open handles stayed flat",
-                evidenceIds: ["e1"],
+                evidenceIds: [citeId],
               },
             },
           ],
@@ -1418,7 +1395,7 @@ describe("the investigation record", () => {
       const provider = mockCreateProvider.mock.results[0]!.value as {
         chat: ReturnType<typeof vi.fn>;
       };
-      expect(provider.chat).toHaveBeenCalledTimes(5);
+      expect(provider.chat).toHaveBeenCalledTimes(6);
       expect(reportRequests()).toHaveLength(1);
     });
 
@@ -1727,7 +1704,7 @@ describe("the investigation record", () => {
       // The record rides the request, so the timeline can copy ids from nearby.
       expect(reportRequests()[0]).toContain("RECORDED FINDINGS");
       // The verdict and the handles, so a timeline can copy an id from nearby.
-      expect(reportRequests()[0]).toContain("[disproven] cites: e1");
+      expect(reportRequests()[0]).toContain("[disproven] cites: e2");
 
       const written = (await getRecord(sessionId))!;
       expect(written.findings[0]!.verdict).toBe("disproven");

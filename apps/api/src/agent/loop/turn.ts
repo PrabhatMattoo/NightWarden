@@ -90,8 +90,8 @@ function unavailableMessage(
 ): string {
   const exists = isToolName(wanted);
   const what = exists
-    ? `"${wanted}" is a real tool, but it is not available in this investigation: whatever it needs - a Docker host, a Kubernetes cluster, or a connected integration - is not there.`
-    : `There is no tool called "${wanted}", in this investigation or anywhere in NightWarden.`;
+    ? `"${wanted}" is a real tool, but it is not available here: whatever it needs - a Docker host, a Kubernetes cluster, or a connected integration - is not there.`
+    : `There is no tool called "${wanted}" among the tools this build offers.`;
   // Only a name that is not itself real has a spelling to correct.
   const near = exists ? null : nearestToolName(wanted);
   const suggestion = near === null ? "" : ` Did you mean ${near}?`;
@@ -105,7 +105,7 @@ function unavailableMessage(
 // Answered for every call asked for after the turn's gated one: the run suspends
 // there, so each is reissued next turn once the gate resolves.
 function notRunAfterGate(callName: string, gatedName: string): string {
-  return `${callName} did not run. Earlier in this turn ${gatedName} paused the run to wait for you, so the run stopped before ${callName}. Call ${callName} again in your next turn, once ${gatedName} is resolved.`;
+  return `The ${callName} call in this reply did not run. The ${gatedName} call earlier in the same reply needed approval, and a turn stops at the first call that needs approval. Call ${callName} again in your next turn if you still need its result.`;
 }
 
 /* One step per tool_use, decided before anything runs. A gate contributes no

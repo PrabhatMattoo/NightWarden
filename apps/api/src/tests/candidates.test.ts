@@ -111,26 +111,31 @@ describe("candidates, the frontier and falsification", () => {
     text: "",
   });
 
+  // Cites e2 by default: a finding rests on a result gathered after the
+  // candidate opened, and e1 is the gathering read that opened it.
   const findingTurn = (
     verdict: string,
     statement: string,
-    extra: { candidate?: string } = {},
-  ) => ({
-    toolUses: [
-      {
-        toolCallId: `tu-find-${randomUUID()}`,
-        name: "RecordFinding",
-        input: {
-          statement,
-          verdict,
-          explanation: "what the read showed",
-          evidenceIds: ["e1"],
-          ...extra,
+    extra: { candidate?: string; evidenceId?: string } = {},
+  ) => {
+    const { evidenceId = "e2", ...rest } = extra;
+    return {
+      toolUses: [
+        {
+          toolCallId: `tu-find-${randomUUID()}`,
+          name: "RecordFinding",
+          input: {
+            statement,
+            verdict,
+            explanation: "what the read showed",
+            evidenceIds: [evidenceId],
+            ...rest,
+          },
         },
-      },
-    ],
-    text: "",
-  });
+      ],
+      text: "",
+    };
+  };
 
   // How a run says it has finished, which used to be silence. A fresh id per
   // call, because a result is read back by the id its call carried.
@@ -199,6 +204,7 @@ describe("candidates, the frontier and falsification", () => {
       createContractFakeProvider([
         readTurn(),
         openTurn([POOL, PG]),
+        readTurn(),
         findingTurn("root_cause", POOL.statement, { candidate: "c1" }),
         findingTurn("disproven", PG.statement, { candidate: "c2" }),
         closeTurn(),
@@ -257,14 +263,18 @@ describe("candidates, the frontier and falsification", () => {
       createContractFakeProvider([
         readTurn(),
         openTurn([POOL, PG]),
+        readTurn(),
         findingTurn("root_cause", POOL.statement, { candidate: "c1" }),
         findingTurn("disproven", PG.statement, { candidate: "c2" }),
         mixed(),
+        readTurn(),
         findingTurn("disproven", "the pool ceiling was set too low", {
           candidate: "c3",
+          evidenceId: "e3",
         }),
         findingTurn("disproven", "a client leaked connections", {
           candidate: "c4",
+          evidenceId: "e3",
         }),
         closeTurn(),
         submitTurn,
@@ -299,6 +309,7 @@ describe("candidates, the frontier and falsification", () => {
       createContractFakeProvider([
         readTurn(),
         openTurn([POOL, PG]),
+        readTurn(),
         findingTurn("root_cause", POOL.statement, { candidate: "c1" }),
         findingTurn("disproven", PG.statement, { candidate: "c2" }),
         closeTurn(),
@@ -332,6 +343,7 @@ describe("candidates, the frontier and falsification", () => {
       createContractFakeProvider([
         readTurn(),
         openTurn([POOL, PG]),
+        readTurn(),
         findingTurn("root_cause", POOL.statement, { candidate: "c1" }),
         findingTurn("disproven", PG.statement, { candidate: "c2" }),
         closeTurn(),
@@ -367,6 +379,7 @@ describe("candidates, the frontier and falsification", () => {
       createContractFakeProvider([
         readTurn(),
         openTurn([POOL, PG]),
+        readTurn(),
         findingTurn("root_cause", POOL.statement, { candidate: "c1" }),
         findingTurn("disproven", PG.statement, { candidate: "c2" }),
         closeTurn(),
@@ -391,6 +404,7 @@ describe("candidates, the frontier and falsification", () => {
       createContractFakeProvider([
         readTurn(),
         openTurn([POOL, PG]),
+        readTurn(),
         findingTurn("trigger", POOL.statement, { candidate: "c1" }),
         findingTurn("disproven", PG.statement, { candidate: "c2" }),
         findingTurn("root_cause", POOL.statement, { candidate: "c1" }),
@@ -420,6 +434,7 @@ describe("candidates, the frontier and falsification", () => {
       createContractFakeProvider([
         readTurn(),
         openTurn([POOL, PG]),
+        readTurn(),
         findingTurn("root_cause", POOL.statement, { candidate: "c1" }),
         // Asked three times for c2, answering each with prose instead.
         closeTurn(),

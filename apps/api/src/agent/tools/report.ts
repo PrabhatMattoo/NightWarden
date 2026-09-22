@@ -53,8 +53,7 @@ const OPEN_CANDIDATES_INPUT = z.object({
 });
 
 // Reasoning before conclusion: the explanation sits ahead of the verdict, so the
-// model commits to what the evidence showed before it grades it. The claim itself
-// is the candidate's, read from there rather than copied to here.
+// model commits to what the evidence showed before it grades the finding.
 const RECORD_FINDING_INPUT = z.object({
   explanation: z
     .string()
@@ -65,16 +64,10 @@ const RECORD_FINDING_INPUT = z.object({
     .meta({
       description: `What the cited results showed, and why they settle this candidate the way your verdict says, at most ${MAX_EXPLANATION_CHARS} characters. Someone who was not here reads this under the candidate's own statement, so explain rather than remind: quote the value, the log line or the timestamp that decided it, and say what it means. Write between one and three complete sentences, and leave the candidate's statement out of it, since the reader already has it.`,
     }),
-  evidenceIds: z
-    .array(z.string())
-    .min(
-      1,
-      "a verdict needs at least one citation: pass the ids of the tool calls whose results settled it",
-    )
-    .meta({
-      description:
-        'The evidence ids of the tool calls whose results show this claim is true. A result that can back a claim opens with a line reading "Evidence ID: e1", and the handle is written e1, e2, e3 and so on. A tool that reads nothing about your system carries no evidence id and cannot be cited. Cite only calls whose results you have already read: tools you ask for in this reply have not run yet, their results reach you in your next message, and a claim citing one of them is refused. The user sees each cited result rendered underneath the claim, so cite the call whose output shows what you are asserting. At least one is required, on every verdict: a claim nothing backs is a guess, and so is a dismissal. If any id you give names no answered call, none of them is recorded.',
-    }),
+  evidenceIds: z.array(z.string()).meta({
+    description:
+      'The evidence ids of the tool calls whose results settle this candidate. A result that can back a claim opens with a line reading "Evidence ID: e1", and the handle is written e1, e2, e3 and so on. A tool that reads nothing about your system carries no evidence id and cannot be cited. Cite only calls whose results you have already read: a tool you ask for in this reply has not run yet, its result reaches you in your next message, and a finding citing it is refused. At least one id must come from a result you received after you opened this candidate, because that result is what tests the candidate; you may also cite results you received before opening it. If any id names no answered call, none of them is recorded. A finding with the verdict "untestable" may leave this empty, and any id an untestable finding does cite must come from an attempt you made after opening the candidate.',
+  }),
   verdict: z
     .enum([
       "root_cause",
@@ -112,7 +105,7 @@ const COMPOSE_REPORT_INPUT = z.object({
       z.object({
         at: z.iso.datetime({ offset: true }).meta({
           description:
-            "When it happened, as an ISO 8601 timestamp carrying a timezone, taken from a tool result, an alert, or a commit: 2026-01-14T03:12:45Z, or 2026-01-14T08:42:45+05:30. Never a guess.",
+            "When it happened, as an ISO 8601 timestamp carrying a timezone: 2026-01-14T03:12:45Z, or 2026-01-14T08:42:45+05:30. Copy it, to the second, from the result you cite in evidenceId; a time that does not appear in that result is refused. Never a guess.",
         }),
         what: prose.meta({
           description: "One sentence, in the past tense.",
@@ -121,15 +114,15 @@ const COMPOSE_REPORT_INPUT = z.object({
           description:
             "Which strand this moment belongs to. 'change' is something a human or a deploy did to the system: a merge, a rollout, a config edit. 'signal' is the system reacting: an alert firing, a metric crossing a threshold, a pod restarting. 'agent' is something you did while investigating. Writes you released are added for you and are not any of these.",
         }),
-        evidenceId: optionalText.meta({
+        evidenceId: prose.meta({
           description:
-            "The evidence id of the tool call that shows this happened, written e1, e2, e3 as it appears on that result. Omit it when no single call does.",
+            "The evidence id of the tool call whose result carries this moment, written e1, e2, e3 as it appears on that result. The time in 'at' must appear in that same result.",
         }),
       }),
     )
     .meta({
       description:
-        "What happened, earliest first. Include only moments that matter: the change that set it up, the failure, and anything you did about it. Every write you released is added for you, so do not list those.",
+        "What happened, earliest first. Include only moments that matter, each drawn from a result you read: the change that set it up, the failure, and anything you did about it. Every write you released is added for you, so do not list those.",
     }),
   impact: prose.meta({
     description:
@@ -164,7 +157,7 @@ export const REPORT_TOOLS: Tool[] = [
   apiTool({
     name: "CloseInvestigation",
     description:
-      "Call CloseInvestigation when every candidate you opened carries a finding and no further tool call would change what you have settled. The investigation record is checked first: if a candidate is still unsettled, the call is refused and you continue working.",
+      "CloseInvestigation finishes the investigation and reaches the report stage, where you write the report with ComposeReport. It is offered only after the harness has asked you to test your own conclusions, so call it during falsification, when no further evidence would change any finding. The call is refused while any candidate carries no finding, and the refusal names each such candidate.",
     input: z.object({}),
     effect: "read",
     policy: "auto",

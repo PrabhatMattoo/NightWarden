@@ -95,8 +95,20 @@ describe("which candidates are still open", () => {
   it("counts a candidate open until some finding names it", () => {
     const record = {
       candidates: [
-        { id: "c1", statement: "one", ifTrue: "", ifFalse: "" },
-        { id: "c2", statement: "two", ifTrue: "", ifFalse: "" },
+        {
+          id: "c1",
+          statement: "one",
+          ifTrue: "",
+          ifFalse: "",
+          openedAtEvidence: 0,
+        },
+        {
+          id: "c2",
+          statement: "two",
+          ifTrue: "",
+          ifFalse: "",
+          openedAtEvidence: 0,
+        },
       ],
       findings: [claim("f1", "root_cause", "c1")],
       lastStatedCandidates: [],

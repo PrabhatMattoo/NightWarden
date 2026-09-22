@@ -288,8 +288,8 @@ describe("toolset assembly by fleet capabilities", () => {
         "a measured value, a file path, a container, a commit, or a log line",
         "Check database connectivity",
         "Never invent an answer you cannot support",
-        "You have exactly the tools you were given",
-        "It arrives wrapped in a <system-reminder> tag",
+        "The tools listed for you are the only tools you have",
+        "wrapped in a <system-reminder> tag",
       ];
       for (const investigation of [true, false]) {
         const prompt = buildChatContext([], opts, investigation).systemPrompt;

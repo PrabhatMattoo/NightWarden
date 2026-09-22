@@ -11,21 +11,27 @@ import {
 } from "@nightwarden/shared";
 import type { OpenCandidate, RecordGap } from "../report.js";
 
-// Short on purpose: the tool description sits next to the decision, while this
-// competes with a long context by turn fifteen.
+// Defines what the record is; the investigation block owns the flow, and the
+// field descriptions own the citation bounds, so none of it is said twice.
 export const REPORT = `
 
 ## Keeping the record
 
-You keep a record as you work: the candidates you are weighing, and the findings that settle them.
+The report is built from a record you keep as you work: the candidates you are weighing, and the findings that settle them.
 
-Open the candidate explanations worth testing with OpenCandidates, at least two, together, so you weigh alternatives rather than settling on the first plausible cause. Each carries what you expect to see if it is true and what would prove it false.
+A candidate is one explanation of the alert, carrying what you expect to see if the candidate holds and what would prove the candidate false. A finding settles one candidate with a verdict, an explanation of what the evidence showed, and the ids of the results it rests on. A finding you ruled out is worth as much to the reader as one that held, and a candidate you had no way to test is settled as untestable, which is a complete answer.
 
-Settle a candidate with a tool result you gather after opening it: the calls from your opening evidence gathering are what raised the candidate, and a result you get after opening it is what tests it. Record each one you settle with RecordFinding, naming the candidate in 'candidate', the verdict it earned, what the evidence showed, and the ids of the calls that showed it. A finding you ruled out is worth as much to the reader as one that held; a candidate you had no way to check is recorded as untestable.
+The record is append-only, and every finding settles exactly one candidate. To revise a candidate you have already settled, record another finding naming that same candidate: the newest finding about a candidate carries the verdict that stands, and the earlier finding stays on the record beneath it as superseded. If you could not find the cause, record what you tested and say so; that is an honest and useful ending, and inventing a cause to avoid it is not.`;
 
-The record is append-only, and every finding settles exactly one candidate. To state a new view of a candidate you have already settled, record another finding naming that same candidate: the newest finding about a candidate carries the verdict that stands, and the earlier finding stays on the record beneath it as superseded. If you could not work out the cause, record what you tested and say so; that is an honest and useful ending, and inventing a cause to avoid it is not.
+// Investigations only, after the record block: it tells the model that a closed
+// investigation answers as a chat until the person reopens it.
+export const AFTER_CLOSED = `
 
-Record what you settle as you settle it, while the results are still in front of you. When every candidate you opened carries a finding, call CloseInvestigation. You are then asked to test your own conclusions once, and after that to write the report, which gets a turn of its own with one tool on it and nothing else.`;
+## After the investigation is closed
+
+The investigation is closed once you have written the closing message. Every message the person sends after that is a follow-up. Answer each follow-up directly, and use your read tools when the answer needs current data. OpenCandidates, RecordFinding, and CloseInvestigation are not offered now, and the report stays as written.
+
+If something you read for a follow-up contradicts a finding, tell the person which finding it contradicts and what you read. The person can reopen the investigation, which returns it to testing with every earlier candidate and finding still on the record.`;
 
 // One per gap kind, each the fixed part of its message: the loop counts what it
 // already spent on that gap by matching these words rather than a second tally.
@@ -170,7 +176,7 @@ function writeLine(call: GatedCall): string {
 const REPORT_RUBRIC = `The findings and the candidates you ruled out are rendered beneath what you write, so do not restate them. Write, for the person reading this in the morning:
 
 - summary: what broke and why, in a few sentences they can read in ten seconds.
-- timeline: the moments that mattered, each with the evidence id behind it.
+- timeline: the moments that mattered, each with the evidence id behind it and its time copied from the result that entry cites.
 - impact: who was affected and for how long.
 - recommendation: the one action to take now, or that none is needed.
 

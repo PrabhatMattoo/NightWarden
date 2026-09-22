@@ -22,7 +22,7 @@ import {
 import { getTranscriptRows } from "../session/transcript-store.js";
 import { publishReportUpdated } from "../session/stream.js";
 import { targetKeyFromInput } from "../session/transcript.js";
-import { evidenceNumber } from "./evidence-id.js";
+import { evidenceNumber, highestEvidenceNumber } from "./evidence-id.js";
 import { DOCKER_TOOLS } from "./tools/docker.js";
 import { GITHUB_TOOLS } from "./tools/github.js";
 import { HOST_TOOLS } from "./tools/host.js";
@@ -288,6 +288,11 @@ export async function openCandidates(
   sessionId: string,
   input: OpenCandidatesInput,
 ): Promise<RecordOutcome> {
+  // The evidence in hand now, stamped on each candidate so a finding is later
+  // held to a result gathered after this point.
+  const openedAtEvidence = highestEvidenceNumber(
+    await getTranscriptRows(sessionId),
+  );
   const opened = await updateRecord(sessionId, (record) => {
     const known = new Set(record.candidates.map((c) => c.id));
     let n = record.candidates.length;
@@ -301,6 +306,7 @@ export async function openCandidates(
         statement: c.statement,
         ifTrue: c.ifTrue,
         ifFalse: c.ifFalse,
+        openedAtEvidence,
         ...(parent !== undefined && { parent }),
       };
     });
@@ -352,6 +358,29 @@ function unknownCandidate(record: InvestigationRecord, named: string): string {
   return `${named} is not a candidate on this record, so nothing was recorded. ${opened}`;
 }
 
+// A finding rests on a result gathered after the candidate opened, so it tests
+// the candidate rather than restating the read that raised it. Null when it holds.
+function citationGap(
+  candidate: Candidate,
+  ids: string[],
+  untestable: boolean,
+): string | null {
+  const afterOpen = ids.filter(
+    (id) => evidenceNumber(id) > candidate.openedAtEvidence,
+  );
+  if (untestable) {
+    return afterOpen.length === ids.length
+      ? null
+      : `Not recorded. An untestable finding may cite nothing, or cite only results from attempts you made after opening ${candidate.id}. Remove the earlier citations, or cite nothing.`;
+  }
+  if (ids.length === 0) {
+    return `Not recorded. A finding needs at least one citation unless its verdict is untestable. Pass the evidence ids of the results that settled ${candidate.id}.`;
+  }
+  return afterOpen.length === 0
+    ? `Not recorded. Every result cited for ${candidate.id} was gathered before you opened ${candidate.id}, so it raised the candidate rather than testing it. Gather a result after opening ${candidate.id} and cite that, or record ${candidate.id} as untestable if no tool can test it.`
+    : null;
+}
+
 // One act, recorded once the candidate it names has been tested. Append-only: a
 // later finding about that candidate carries the verdict that now stands.
 export async function recordFinding(
@@ -362,18 +391,22 @@ export async function recordFinding(
   const { kept, unknown } = knownCitations(entries, input.evidenceIds);
   /* All of them or none: recording what survives changes the claim the model
      made, on a record that says nothing about what it dropped. */
-  if (unknown.length > 0 || kept.length === 0) {
+  if (unknown.length > 0) {
     return { recorded: false, message: citationRefusal(entries, unknown) };
   }
   const evidenceIds = kept;
+  const untestable = input.verdict === "untestable";
   type Outcome = { refusal: string } | { id: string; open: string[] };
   const outcome = await updateRecord<Outcome>(sessionId, (record) => {
-    if (!record.candidates.some((c) => c.id === input.candidate)) {
+    const candidate = record.candidates.find((c) => c.id === input.candidate);
+    if (candidate === undefined) {
       return {
         next: record,
         value: { refusal: unknownCandidate(record, input.candidate) },
       };
     }
+    const gap = citationGap(candidate, evidenceIds, untestable);
+    if (gap !== null) return { next: record, value: { refusal: gap } };
     const finding: Finding = {
       id: `f${record.findings.length + 1}`,
       verdict: input.verdict,
@@ -412,30 +445,59 @@ interface ComposeReportInput {
   recommendation: string;
 }
 
-// Written whole rather than appended, because it is authored once. Citations
-// are filtered as a finding's are, so no entry points at a call that never ran.
+// The ISO instants a result carries, listed back so a refusal shows what the
+// entry could have copied instead of the time it guessed.
+const TIMESTAMP =
+  /\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?/g;
+function instantsIn(result: string): string[] {
+  return [...new Set(result.match(TIMESTAMP) ?? [])].slice(0, 8);
+}
+
+// The time an entry claims must appear, to the second, in the result it cites,
+// so a time in the report is one the reader can open and check.
+function timelineGap(
+  entry: { at: string; what: string; evidenceId?: string },
+  byEvidence: Map<string, ToolCall>,
+): string | null {
+  if (entry.evidenceId === undefined) {
+    return `The timeline entry "${entry.what}" needs an evidence id: the id of the tool call whose result carries this time.`;
+  }
+  const call = byEvidence.get(entry.evidenceId);
+  if (call === undefined || call.result === null) {
+    return `The timeline entry "${entry.what}" cites ${entry.evidenceId}, which names no result you have read. Cite the call whose result carries this time.`;
+  }
+  const second = entry.at.slice(0, 19);
+  if (
+    !call.result.includes(second) &&
+    !call.result.includes(second.replace("T", " "))
+  ) {
+    const held = instantsIn(call.result);
+    const shows =
+      held.length === 0
+        ? "That result carries no timestamp."
+        : `That result carries: ${held.join(", ")}.`;
+    return `The timeline entry "${entry.what}" is timed ${entry.at}, which does not appear in ${entry.evidenceId}. ${shows} Copy a time from the result you cite, and never guess one.`;
+  }
+  return null;
+}
+
+// Authored once and written whole; a timeline entry whose time or citation does
+// not hold up refuses the report rather than landing a time nobody can check.
 export async function composeReport(
   sessionId: string,
   input: ComposeReportInput,
 ): Promise<RecordOutcome> {
-  // Answered, not merely known: a timeline entry pointing at a call that never
-  // returned shows the reader nothing when they open it.
   const entries = await toolCallsIn(sessionId);
-  const resolve = (id: string): string | undefined =>
-    knownCitations(entries, [id]).kept[0];
-  // The entry is kept when its citation is dropped: the lane describes the
-  // moment rather than the call, so an unresolvable id must not cost it.
-  const timeline = input.timeline.map((entry) => {
-    const cited =
-      entry.evidenceId === undefined ? undefined : resolve(entry.evidenceId);
-    return cited !== undefined
-      ? { ...entry, evidenceId: cited }
-      : {
-          at: entry.at,
-          what: entry.what,
-          ...(entry.lane !== undefined && { lane: entry.lane }),
-        };
-  });
+  const byEvidence = new Map(
+    entries.flatMap((e) =>
+      e.evidenceId === undefined ? [] : [[e.evidenceId, e]],
+    ),
+  );
+  for (const entry of input.timeline) {
+    const gap = timelineGap(entry, byEvidence);
+    if (gap !== null) return { recorded: false, message: gap };
+  }
+  const timeline = input.timeline.map((entry) => ({ ...entry }));
   await amendRecord(sessionId, (record) => ({
     ...record,
     report: {

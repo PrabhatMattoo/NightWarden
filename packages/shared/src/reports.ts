@@ -25,6 +25,9 @@ export interface Candidate {
   ifFalse: string;
   // The candidate this one explains, when it goes a step deeper into a cause.
   parent?: string;
+  // The highest evidence id in hand when the candidate opened, so a finding is
+  // held to a result gathered after it rather than to the reads that raised it.
+  openedAtEvidence: number;
 }
 
 export interface Finding {

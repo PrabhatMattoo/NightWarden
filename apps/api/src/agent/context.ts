@@ -10,10 +10,11 @@ import {
   budgetLine,
   HARNESS,
   INVESTIGATION,
+  KEEPING_INFORMED,
   type PromptOptions,
 } from "./prompts/system.js";
-import { REPORT } from "./prompts/report.js";
-import { sandboxInstructions } from "./prompts/sandbox.js";
+import { REPORT, AFTER_CLOSED } from "./prompts/report.js";
+import { WORKING_ON_CODE } from "./prompts/sandbox.js";
 import { resolveAlertTarget } from "../alerts/resolve-target.js";
 import { stripSystemReminder } from "./system-reminder.js";
 
@@ -33,10 +34,10 @@ const DEFAULT_PROMPT_OPTIONS: PromptOptions = {
 /* Invariant blocks first: every session shares the opening two byte for byte,
    which is the prefix a provider can cache. Only the budget line varies. */
 function systemPromptFor(opts: PromptOptions, investigation: boolean): string {
-  let prompt = IDENTITY + HARNESS;
+  let prompt = IDENTITY + HARNESS + KEEPING_INFORMED;
   if (opts.fleetTools) prompt += FLEET;
-  if (opts.repo !== null) prompt += sandboxInstructions(opts.repo);
-  if (investigation) prompt += INVESTIGATION + REPORT;
+  if (opts.repo !== null) prompt += WORKING_ON_CODE;
+  if (investigation) prompt += INVESTIGATION + REPORT + AFTER_CLOSED;
   prompt += budgetLine(opts, investigation);
   return prompt;
 }
@@ -81,11 +82,6 @@ export function buildInitialContext(
           )
           .join("\n\n");
 
-  const opening =
-    alerts.length === 1
-      ? "An alert has fired. Investigate it."
-      : `${alerts.length} correlated alerts have fired together. Investigate them as one incident.`;
-
   /* Stated, never guessed at. The sender says how many it left out; without this
      the agent reads a short group as the whole incident and concludes from it. */
   const droppedLine =
@@ -93,13 +89,11 @@ export function buildInitialContext(
       ? ""
       : `\nThe alert source left ${droppedAlerts} further alert${droppedAlerts === 1 ? "" : "s"} out of this delivery, so this group is larger than what you can see here. Treat the list above as part of the incident, not all of it.\n`;
 
-  const openingTurn = `${opening}
-
-<alert>
+  const openingTurn = `<alert>
 ${alertsSection}
 </alert>
 ${formatGroupContext(groupContext)}${droppedLine}${buildFleetSummary(fleetView)}
-Begin now. Start with whichever read tool most directly addresses this alert type. When you have applied a fix or worked out what the fix should be, state the cause and that fix in plain text.`;
+Gather the initial evidence now, all in one turn.`;
 
   // Stripped whole: labels, annotations and group context are the sender's text,
   // and nothing we write here contains the marker for it to remove.
