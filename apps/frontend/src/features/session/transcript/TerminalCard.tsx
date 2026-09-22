@@ -37,7 +37,7 @@ export function TerminalBody({
   return (
     <div className="flex flex-col gap-2">
       {argv !== null && argv !== "" && (
-        <pre className="m-0 font-mono text-sm leading-relaxed break-words whitespace-pre-wrap">
+        <pre className="m-0 font-mono text-sm leading-relaxed break-words whitespace-pre-wrap text-ink-subtle">
           <span className="text-ink-subtle select-none">$ </span>
           {argv}
         </pre>
@@ -47,7 +47,7 @@ export function TerminalBody({
       ) : (
         <pre
           className={cn(
-            "m-0 font-mono text-sm leading-relaxed break-words whitespace-pre-wrap",
+            "m-0 font-mono text-sm leading-relaxed break-words whitespace-pre-wrap text-ink-subtle",
             run.exitCode !== 0 && "text-fail",
           )}
         >

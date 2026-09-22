@@ -90,7 +90,6 @@ function AlertBand({
   if (alerts.length === 0) return null;
   return (
     <section className="border-b border-border pb-4">
-      <BandHeading>{alerts.length > 1 ? "Alerts" : "Alert"}</BandHeading>
       <ul className="m-0 flex list-none flex-col gap-2 p-0">
         {alerts.map(({ alert, clearedAt }) => (
           <li key={`${alert.sourceAlertId}-${alert.firedAt}`}>
@@ -127,115 +126,108 @@ function AlertBand({
 // Released writes are contributed here rather than listed by the model, so an
 // action cannot be missing from a timeline it did not author.
 type Row =
-  | { at: string; kind: "entry"; entry: TimelineEntry }
-  | { at: string; kind: "alert" };
+  | { kind: "event"; at: string; what: string }
+  | { kind: "alert"; at: string }
+  | {
+      kind: "action";
+      at: string;
+      action: {
+        toolName: string;
+        target: string | null;
+        decision: "approved" | "rejected";
+        isError?: boolean;
+        actor?: GatedCall["actor"];
+      };
+    };
 
 function timelineRows(
   written: TimelineEntry[],
   decisions: GatedCall[],
-  firedAt: string | null,
+  alertFiredAt: string | null = null,
 ): Row[] {
   const entries: Row[] = written.map((entry) => ({
+    kind: "event" as const,
     at: entry.at,
-    kind: "entry",
-    entry,
+    what: entry.what,
   }));
   const actions: Row[] = decisions.map((call) => ({
+    kind: "action" as const,
     at: call.at,
-    kind: "entry",
-    entry: {
-      at: call.at,
-      what: call.toolName,
-      action: {
-        toolName: call.toolName,
-        target: call.target,
-        decision: call.decision,
-        ...(call.isError === true && { isError: true }),
-        ...(call.actor !== undefined && { actor: call.actor }),
-      },
+    action: {
+      toolName: call.toolName,
+      target: call.target,
+      decision: call.decision,
+      ...(call.isError === true && { isError: true }),
+      ...(call.actor !== undefined && { actor: call.actor }),
     },
   }));
-  const rows = [...entries, ...actions];
-  // The rule only reads as a boundary with something on both sides of it.
-  const splits =
-    firedAt !== null &&
-    rows.some((row) => row.at < firedAt) &&
-    rows.some((row) => row.at >= firedAt);
-  if (splits) rows.push({ at: firedAt, kind: "alert" });
-  return rows.sort((a, b) => a.at.localeCompare(b.at));
-}
-
-// The call behind a moment, in the same chip the evidence blocks use.
-function EvidenceChip({
-  entry,
-  evidence,
-}: {
-  entry: TimelineEntry;
-  evidence: Map<string, ResolvedEvidence>;
-}): React.JSX.Element | null {
-  const cited =
-    entry.evidenceId === undefined ? undefined : evidence.get(entry.evidenceId);
-  if (cited === undefined) return null;
-  return (
-    <CitationChip toolCallId={cited.toolCallId} toolName={cited.toolName} />
+  const alertRow: Row[] =
+    alertFiredAt === null ? [] : [{ kind: "alert" as const, at: alertFiredAt }];
+  return [...entries, ...actions, ...alertRow].sort((a, b) =>
+    a.at.localeCompare(b.at),
   );
 }
 
-// Every row on one grid, the alert's included: one time column, one size, one
-// alignment, so nothing on it reads as a different kind of thing.
-function TimelineRow({
-  row,
-  evidence,
-}: {
-  row: Row;
-  evidence: Map<string, ResolvedEvidence>;
-}): React.JSX.Element {
-  const time = (
-    <span className="shrink-0 tabular-nums text-sm text-ink-subtle">
-      {clock(row.at)}
-    </span>
-  );
+// Every row on one vertical spine: a time column, a connected node, and the narrative.
+function TimelineRow({ row }: { row: Row }): React.JSX.Element {
+  const isAlert = row.kind === "alert";
 
-  if (row.kind === "alert") {
-    return (
-      <li className="flex items-center gap-3 py-2">
-        {time}
-        <span className="shrink-0 text-sm text-muted-foreground">
-          the alert fired
-        </span>
-        <span aria-hidden className="h-px min-w-0 flex-1 bg-border-strong" />
-      </li>
-    );
-  }
-
-  const action = row.entry.action;
   return (
-    <li className="flex items-baseline gap-3">
-      {time}
-      {action === undefined ? (
-        <>
-          <span className="min-w-0 flex-1 text-sm">{row.entry.what}</span>
-          <EvidenceChip entry={row.entry} evidence={evidence} />
-        </>
-      ) : (
-        <span className="flex min-w-0 items-baseline gap-2">
-          <StatusText tone={decisionView(action).tone}>
-            {decisionView(action).label}
-          </StatusText>
-          <span className="min-w-0 truncate font-mono text-sm">
-            {action.toolName}
-            {action.target !== null && (
-              <span className="text-muted-foreground"> {action.target}</span>
+    <li className="group relative flex items-start gap-3">
+      {/* Time column */}
+      <span className="w-14 shrink-0 pt-1 text-right tabular-nums text-xs text-ink-subtle">
+        {clock(row.at)}
+      </span>
+
+      {/* Node column with continuous vertical spine */}
+      <div className="relative flex w-3 shrink-0 justify-center self-stretch">
+        {/* Spine line connecting across all items */}
+        <span
+          aria-hidden
+          className="absolute top-0 bottom-0 w-px bg-border-strong group-first:top-2.5 group-last:bottom-auto group-last:h-2.5"
+        />
+        {/* Node dot */}
+        <span
+          aria-hidden
+          className={cn(
+            "mt-1.5 shrink-0 rounded-full ring-4 ring-background",
+            isAlert
+              ? "h-2.5 w-2.5 bg-primary-ink"
+              : row.kind === "action"
+                ? "h-2 w-2 border border-background bg-primary-ink/70"
+                : "h-2 w-2 border border-background bg-border-strong",
+          )}
+        />
+      </div>
+
+      {/* Content column */}
+      <div className="min-w-0 flex-1 pb-6 pt-1 text-sm leading-snug group-last:pb-0">
+        {isAlert ? (
+          <span className="font-medium text-foreground">The alert fired</span>
+        ) : row.kind === "event" ? (
+          <span className="text-foreground">{row.what}</span>
+        ) : (
+          <span className="flex min-w-0 flex-wrap items-baseline gap-2">
+            <StatusText tone={decisionView(row.action).tone}>
+              {decisionView(row.action).label}
+            </StatusText>
+            <span className="font-mono text-sm">
+              {row.action.toolName}
+              {row.action.target !== null && (
+                <span className="text-muted-foreground">
+                  {" "}
+                  {row.action.target}
+                </span>
+              )}
+            </span>
+            {row.action.actor !== undefined && (
+              <span className="shrink-0 text-xs text-ink-subtle">
+                by {row.action.actor.name} ({row.action.actor.email})
+              </span>
             )}
           </span>
-          {/* Muted, so who approved sits beside the action without outranking it. */}
-          {action.actor !== undefined && (
-            <span className="shrink-0 text-sm text-ink-subtle">
-              by {action.actor.name} ({action.actor.email})
-            </span>
-          )}
-        </span>
-      )}
+        )}
+      </div>
     </li>
   );
 }
@@ -408,7 +400,15 @@ export function ReportPanel({
      redraws nothing, because one measurement read twice reads as two. */
   const drawn = new Set<string>();
   const evidenceUnder = (ids: string[]): React.JSX.Element[] => {
-    const cited = [...new Set(ids)].flatMap((id) => byId.get(id) ?? []);
+    const cited = [...new Set(ids)]
+      .flatMap((id) => byId.get(id) ?? [])
+      .filter(
+        (entry) =>
+          entry.kind !== "logs" &&
+          entry.kind !== "terminal" &&
+          entry.kind !== "state" &&
+          entry.kind !== "exception",
+      );
     return cited.map((entry) => {
       const repeat = drawn.has(entry.toolCallId);
       drawn.add(entry.toolCallId);
@@ -423,20 +423,15 @@ export function ReportPanel({
     });
   };
 
-  // One row for the whole claim, so a call naming no target still has somewhere
-  // to render.
+  // Citations under a claim rendered as popping cobalt text links.
   const sourcesUnder = (ids: string[]): React.JSX.Element | null => {
     const cited = [...new Set(ids)].flatMap((id) => byId.get(id) ?? []);
     if (cited.length === 0) return null;
     return (
-      <div className="mt-6 flex flex-wrap items-center gap-2">
-        <span className={cn("mr-1", SECTION_HEADING)}>Sources</span>
+      <div className="mt-4 flex flex-wrap items-baseline gap-x-4 gap-y-2">
+        <span className={SECTION_HEADING}>Sources</span>
         {cited.map((entry) => (
-          <CitationChip
-            key={entry.toolCallId}
-            toolCallId={entry.toolCallId}
-            toolName={entry.toolName}
-          />
+          <CitationChip key={entry.toolCallId} evidence={entry} alert={alert} />
         ))}
       </div>
     );
@@ -549,13 +544,9 @@ export function ReportPanel({
       {rows.length > 0 && (
         <section id={TIMELINE_ID} className="mt-12 scroll-mt-6">
           <BandHeading>What happened</BandHeading>
-          <ul className="m-0 flex list-none flex-col gap-2 p-0">
+          <ul className="m-0 mt-4 list-none p-0">
             {rows.map((row, i) => (
-              <TimelineRow
-                key={`${row.at}-${row.kind}-${i}`}
-                row={row}
-                evidence={byId}
-              />
+              <TimelineRow key={`${row.at}-${row.kind}-${i}`} row={row} />
             ))}
           </ul>
         </section>

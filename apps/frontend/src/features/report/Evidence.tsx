@@ -19,8 +19,6 @@ import { Measurement } from "./Measurement.js";
 import { plotCaption, plotFrom } from "./plot.js";
 import {
   carriesSeries,
-  isSevere,
-  isWarning,
   logExcerpt,
   type LogExcerpt,
   readingGroups,
@@ -62,27 +60,19 @@ function Readings({ groups }: { groups: ReadingGroup[] }): React.JSX.Element {
   );
 }
 
-function lineTone(line: string): string {
-  if (isSevere(line)) return "text-fail";
-  return isWarning(line) ? "text-wait" : "text-muted-foreground";
-}
-
 function LogBody({ excerpt }: { excerpt: LogExcerpt }): React.JSX.Element {
   return (
     <div>
-      <pre className="m-0 font-mono text-sm leading-relaxed break-words whitespace-pre-wrap">
+      <pre className="m-0 font-mono text-sm leading-relaxed text-muted-foreground break-words whitespace-pre-wrap">
         {excerpt.worstAbove !== null && (
           <>
-            <span className={lineTone(excerpt.worstAbove)}>
-              {excerpt.worstAbove}
-            </span>
-            {"\n"}
+            <span className="block">{excerpt.worstAbove}</span>
             <span className="text-ink-subtle">{"⋮"}</span>
             {"\n"}
           </>
         )}
         {excerpt.lines.map((line, at) => (
-          <span key={at} className={cn("block", lineTone(line))}>
+          <span key={at} className="block">
             {line}
           </span>
         ))}

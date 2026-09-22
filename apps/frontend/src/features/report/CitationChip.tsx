@@ -1,36 +1,31 @@
-import { ArrowUpRight } from "lucide-react";
-
-import { Button } from "@/shared/ui/button";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/shared/ui/tooltip";
+import type { NormalizedAlert, ResolvedEvidence } from "@nightwarden/shared";
 import { revealToolCall } from "@/features/session/transcript/revealToolCall";
+import { targetOf } from "@/features/session/transcript/toolPresentation";
 
-// A bordered pill so it reads as a control at rest without spending hue, and
-// an arrow because it leaves this page for the transcript.
+// A popping cobalt text link citing a tool call, revealing it in the
+// transcript on click.
 export function CitationChip({
-  toolCallId,
-  toolName,
+  evidence,
 }: {
-  toolCallId: string;
-  toolName: string;
+  evidence: ResolvedEvidence;
+  alert?: NormalizedAlert | null;
 }): React.JSX.Element {
+  const target = targetOf(evidence.input);
+
   return (
-    /* Not a native title: that never appears on keyboard focus, and where a
-       control goes is exactly what a keyboard user needs before pressing it. */
-    <Tooltip>
-      <TooltipTrigger
-        render={
-          <Button
-            variant="outline"
-            size="sm"
-            className="shrink-0 rounded-full border-input font-mono text-ink-subtle hover:border-primary-ink hover:bg-transparent hover:text-primary-ink"
-            onClick={() => revealToolCall(toolCallId)}
-          />
-        }
-      >
-        <ArrowUpRight aria-hidden />
-        {toolName}
-      </TooltipTrigger>
-      <TooltipContent>Show {toolName} in the transcript</TooltipContent>
-    </Tooltip>
+    <button
+      type="button"
+      onClick={() => revealToolCall(evidence.toolCallId)}
+      className="group inline-flex items-baseline gap-1 text-sm font-medium text-primary-ink"
+    >
+      <span className="underline-offset-2 group-hover:underline">
+        {evidence.toolName}
+      </span>
+      {target !== null && (
+        <span className="text-xs font-normal text-muted-foreground">
+          ({target})
+        </span>
+      )}
+    </button>
   );
 }

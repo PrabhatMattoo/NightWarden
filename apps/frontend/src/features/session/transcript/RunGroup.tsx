@@ -100,9 +100,6 @@ export function RunGroup({
             </p>
           )}
 
-          {/* The group's one rule, held whether the activity is open or shut. */}
-          <div className="my-1 h-px bg-border" />
-
           <Collapsible open={open}>
             <CollapsibleContent>
               <div className="flex flex-col gap-0">

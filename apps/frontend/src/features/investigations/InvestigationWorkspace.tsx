@@ -29,13 +29,14 @@ import { useSessionDeletion } from "@/features/session/useSessionDeletion";
 import { useSessionReport } from "@/features/report/useSessionReport";
 import { useSessions } from "@/features/session/useSessions";
 import { investigationQueue } from "@/features/investigations/queue";
-import { ICON_UI } from "@/shared/lib/iconProps";
+import { ICON_INLINE, ICON_UI } from "@/shared/lib/iconProps";
 import { reportToMarkdown } from "@/features/report/reportMarkdown";
 import { toast } from "@/shared/lib/toast";
 import { readStoredNumber, writeStoredNumber } from "@/shared/lib/persisted";
 import { cssNumber } from "@/shared/lib/cssNumber";
 import { cn } from "@/shared/lib/utils";
 import { apiFetch } from "@/shared/api/client";
+import { onReveal } from "@/features/session/transcript/revealToolCall";
 
 // A question about the reader's screen, not this layout, so the width they set
 // on the report panel outlives the session.
@@ -196,6 +197,14 @@ export function InvestigationWorkspace(): React.JSX.Element {
 
   const canReopen = reportReady && !running;
 
+  // Revealing a cited tool from the report turns off full screen so the
+  // transcript is visible beside it.
+  useEffect(() => {
+    return onReveal(() => {
+      setMaximized(false);
+    });
+  }, []);
+
   const closeReport = (): void => {
     setReportOpen(false);
     setMaximized(false);
@@ -239,7 +248,7 @@ export function InvestigationWorkspace(): React.JSX.Element {
           <div className="ml-auto flex shrink-0 items-center gap-2">
             {canReopen && (
               <Button
-                variant="outline"
+                variant="default"
                 size="sm"
                 disabled={reopen.isPending}
                 onClick={() => reopen.mutate()}

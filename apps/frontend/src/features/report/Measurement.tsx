@@ -1,142 +1,49 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { scaleLinear, scaleTime } from "d3-scale";
+import { max, min } from "d3-array";
+import { line as d3Line } from "d3-shape";
 import { formatBytes } from "@/shared/lib/format";
-import type { Line, Plot, PlotUnit } from "./plot.js";
+import type { Line, Point, Plot, PlotUnit } from "./plot.js";
 import { clock } from "@/shared/lib/time";
 import { compact } from "./format.js";
 
-/* Hand-drawn SVG rather than a charting dependency. Nothing re-queries, so a
-   chart still draws after the metric's retention window has expired. */
-
-const W = 720;
+const DEFAULT_W = 720;
 const H = 240;
 const PAD_L = 56;
 const PAD_R = 14;
 const PAD_T = 14;
 const PAD_B = 30;
 
-// Six hues, then it repeats. A chart with more lines than that is read by its
-// shape rather than by picking one line out, and the tooltip names them all.
 const SERIES_HUES = 6;
 const strokeOf = (at: number): string =>
   `var(--series-${(at % SERIES_HUES) + 1})`;
 
-// Compact notation is only right for a count. A byte value read that way says
-// "4.3B" for four gigabytes, so a metric that names its unit is read in it.
 function readingIn(unit: PlotUnit | null): (value: number) => string {
   return unit === "bytes" ? formatBytes : (value) => compact.format(value);
 }
 
-interface Scale {
-  x: (at: number) => number;
-  y: (value: number) => number;
-  min: number;
-  max: number;
-  t0: number;
-  t1: number;
-}
+function useContainerWidth(defaultWidth = DEFAULT_W) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [width, setWidth] = useState(defaultWidth);
 
-function scaleOf(lines: Line[]): Scale {
-  const values = lines.flatMap((line) => line.points.map((p) => p.value));
-  const times = lines.flatMap((line) => line.points.map((p) => p.at));
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-  const t0 = Math.min(...times);
-  const t1 = Math.max(...times);
-  // A flat series has no range to divide by, and a single instant no width.
-  const span = max - min || 1;
-  const window = t1 - t0 || 1;
-  return {
-    min,
-    max,
-    t0,
-    t1,
-    x: (at) => PAD_L + ((at - t0) / window) * (W - PAD_L - PAD_R),
-    y: (value) => H - PAD_B - ((value - min) / span) * (H - PAD_T - PAD_B),
-  };
-}
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    if (rect.width > 0) setWidth(Math.round(rect.width));
 
-/* The axes are the difference between a chart and a squiggle: without them the
-   hover says 487 MB and nothing on screen says what the top of the box was. */
-function Axes({
-  scale,
-  read,
-}: {
-  scale: Scale;
-  read: (value: number) => string;
-}): React.JSX.Element {
-  const mid = (scale.min + scale.max) / 2;
-  const ticks = [scale.max, mid, scale.min];
-  const midTime = scale.t0 + (scale.t1 - scale.t0) / 2;
-  return (
-    <g>
-      {ticks.map((value) => (
-        <g key={value}>
-          <line
-            x1={PAD_L}
-            x2={W - PAD_R}
-            y1={scale.y(value)}
-            y2={scale.y(value)}
-            className="stroke-border"
-            strokeWidth={1}
-          />
-          <text
-            x={PAD_L - 8}
-            y={scale.y(value) + 4}
-            textAnchor="end"
-            className="fill-ink-subtle font-mono text-xs"
-          >
-            {read(value)}
-          </text>
-        </g>
-      ))}
-      {[
-        { at: scale.t0, anchor: "start" as const },
-        { at: midTime, anchor: "middle" as const },
-        { at: scale.t1, anchor: "end" as const },
-      ].map(({ at, anchor }) => (
-        <text
-          key={at}
-          x={scale.x(at)}
-          y={H - 10}
-          textAnchor={anchor}
-          className="fill-ink-subtle font-mono text-xs"
-        >
-          {clock(at)}
-        </text>
-      ))}
-    </g>
-  );
-}
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const w = entry.contentRect.width;
+        if (w > 0) setWidth(Math.round(w));
+      }
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
 
-// Drawn only from the alert's own timestamp: a threshold is in no result we
-// hold, so none is invented.
-function AlertMark({
-  at,
-  scale,
-}: {
-  at: number;
-  scale: Scale;
-}): React.JSX.Element {
-  return (
-    <g>
-      <line
-        x1={scale.x(at)}
-        x2={scale.x(at)}
-        y1={PAD_T}
-        y2={H - PAD_B}
-        className="stroke-fail"
-        strokeWidth={1}
-        strokeDasharray="4 3"
-      />
-      <text
-        x={scale.x(at) + 5}
-        y={PAD_T + 10}
-        className="fill-fail font-mono text-xs"
-      >
-        alert {clock(at)}
-      </text>
-    </g>
-  );
+  return [containerRef, width] as const;
 }
 
 function LineChart({
@@ -148,56 +55,158 @@ function LineChart({
   unit: PlotUnit | null;
   alertAt: number | null;
 }): React.JSX.Element {
+  const [containerRef, width] = useContainerWidth();
   const [hover, setHover] = useState<number | null>(null);
   const read = readingIn(unit);
-  const scale = scaleOf(lines);
 
-  // The point of each line nearest the hovered instant, so one crosshair
-  // answers for every series rather than for whichever was drawn last.
+  const allValues = lines.flatMap((line) => line.points.map((p) => p.value));
+  const allTimes = lines.flatMap((line) => line.points.map((p) => p.at));
+
+  const tMin = min(allTimes) ?? 0;
+  const tMax = max(allTimes) ?? 1;
+  const vMin = min(allValues) ?? 0;
+  const vMax = max(allValues) ?? 1;
+
+  const xScale = scaleTime()
+    .domain([new Date(tMin), new Date(tMax === tMin ? tMin + 60_000 : tMax)])
+    .range([PAD_L, Math.max(PAD_L + 1, width - PAD_R)]);
+
+  const yScale = scaleLinear()
+    .domain(vMin === vMax ? [vMin - 1, vMax + 1] : [vMin, vMax])
+    .range([H - PAD_B, PAD_T])
+    .nice();
+
+  const pathGen = d3Line<Point>()
+    .x((d) => xScale(new Date(d.at)))
+    .y((d) => yScale(d.value));
+
+  const yTicks = yScale.ticks(3);
+  const tickCount = width < 420 ? 2 : width < 600 ? 3 : 5;
+  const xTicks = xScale.ticks(tickCount);
+
   const atHover = lines.map((line) =>
-    hover === null
+    hover === null || line.points.length === 0
       ? null
       : line.points.reduce((best, p) =>
           Math.abs(p.at - hover) < Math.abs(best.at - hover) ? p : best,
         ),
   );
 
+  const alertX = alertAt === null ? null : xScale(new Date(alertAt));
+  const showAlert =
+    alertX !== null && alertX >= PAD_L && alertX <= width - PAD_R;
+  const flipAlert = alertX !== null && alertX > width - PAD_R - 65;
+
   return (
     <figure className="m-0">
-      <div className="relative">
+      <div ref={containerRef} className="relative w-full">
         <svg
-          viewBox={`0 0 ${W} ${H}`}
+          viewBox={`0 0 ${width} ${H}`}
           role="img"
           aria-label={lines.map((line) => line.label).join(", ")}
           className="w-full rounded-md border border-border bg-background"
           onPointerMove={(e) => {
             const box = e.currentTarget.getBoundingClientRect();
-            const at = ((e.clientX - box.left) / box.width) * W;
-            const ratio = (at - PAD_L) / (W - PAD_L - PAD_R);
-            setHover(scale.t0 + ratio * (scale.t1 - scale.t0));
+            const mouseX = Math.max(
+              PAD_L,
+              Math.min(width - PAD_R, e.clientX - box.left),
+            );
+            const date = xScale.invert(mouseX);
+            setHover(date.getTime());
           }}
           onPointerLeave={() => setHover(null)}
         >
-          <Axes scale={scale} read={read} />
-          {alertAt !== null && <AlertMark at={alertAt} scale={scale} />}
-          {lines.map((line, at) => (
-            <polyline
-              key={line.label}
-              points={line.points
-                .map((p) => `${scale.x(p.at)},${scale.y(p.value)}`)
-                .join(" ")}
-              fill="none"
-              stroke={strokeOf(at)}
-              strokeWidth={1.5}
-              strokeLinejoin="round"
-              strokeLinecap="round"
-            />
+          {/* Y Axis Grid & Labels */}
+          {yTicks.map((val) => (
+            <g key={val}>
+              <line
+                x1={PAD_L}
+                x2={width - PAD_R}
+                y1={yScale(val)}
+                y2={yScale(val)}
+                className="stroke-border"
+                strokeWidth={1}
+              />
+              <text
+                x={PAD_L - 8}
+                y={yScale(val) + 4}
+                textAnchor="end"
+                className="fill-ink-subtle font-mono text-xs"
+              >
+                {read(val)}
+              </text>
+            </g>
           ))}
+
+          {/* X Axis Time Labels with right-edge flipping */}
+          {xTicks.map((d) => {
+            const xPos = xScale(d);
+            const isNearRight = xPos > width - PAD_R - 35;
+            const isNearLeft = xPos < PAD_L + 35;
+            const anchor: "start" | "middle" | "end" = isNearRight
+              ? "end"
+              : isNearLeft
+                ? "start"
+                : "middle";
+            return (
+              <text
+                key={d.getTime()}
+                x={xPos}
+                y={H - 10}
+                textAnchor={anchor}
+                className="fill-ink-subtle font-mono text-xs"
+              >
+                {clock(d.getTime())}
+              </text>
+            );
+          })}
+
+          {/* Alert Marker */}
+          {showAlert && (
+            <g>
+              <line
+                x1={alertX}
+                x2={alertX}
+                y1={PAD_T}
+                y2={H - PAD_B}
+                className="stroke-fail"
+                strokeWidth={1}
+                strokeDasharray="4 3"
+              />
+              <text
+                x={flipAlert ? alertX - 5 : alertX + 5}
+                y={PAD_T + 10}
+                textAnchor={flipAlert ? "end" : "start"}
+                className="fill-fail font-mono text-xs"
+              >
+                alert {clock(alertAt!)}
+              </text>
+            </g>
+          )}
+
+          {/* Series Paths */}
+          {lines.map((line, at) => {
+            const pathData = pathGen(line.points);
+            if (!pathData) return null;
+            return (
+              <path
+                key={line.label}
+                d={pathData}
+                fill="none"
+                stroke={strokeOf(at)}
+                strokeWidth={1.5}
+                strokeLinejoin="round"
+                strokeLinecap="round"
+              />
+            );
+          })}
+
+          {/* Hover Crosshair & Points */}
           {hover !== null && atHover[0] != null && (
             <g>
               <line
-                x1={scale.x(atHover[0].at)}
-                x2={scale.x(atHover[0].at)}
+                x1={xScale(new Date(atHover[0].at))}
+                x2={xScale(new Date(atHover[0].at))}
                 y1={PAD_T}
                 y2={H - PAD_B}
                 className="stroke-border-strong"
@@ -208,8 +217,8 @@ function LineChart({
                 point === null ? null : (
                   <circle
                     key={at}
-                    cx={scale.x(point.at)}
-                    cy={scale.y(point.value)}
+                    cx={xScale(new Date(point.at))}
+                    cy={yScale(point.value)}
                     r={3.5}
                     fill={strokeOf(at)}
                     className="stroke-background"
@@ -220,13 +229,15 @@ function LineChart({
             </g>
           )}
         </svg>
+
+        {/* Hover Tooltip */}
         {hover !== null && atHover[0] != null && (
           <div
             className="pointer-events-none absolute top-2 rounded-md border border-border-strong bg-card px-2 py-1 font-mono text-sm whitespace-nowrap shadow-raised"
             style={{
-              left: `${(scale.x(atHover[0].at) / W) * 100}%`,
+              left: `${(xScale(new Date(atHover[0].at)) / width) * 100}%`,
               transform:
-                scale.x(atHover[0].at) > W / 2
+                xScale(new Date(atHover[0].at)) > width / 2
                   ? "translateX(-100%) translateX(-8px)"
                   : "translateX(8px)",
             }}
@@ -252,6 +263,7 @@ function LineChart({
           </div>
         )}
       </div>
+
       {lines.length > 1 && (
         <ul className="m-0 mt-2 flex list-none flex-wrap gap-x-4 gap-y-1 p-0">
           {lines.map((line, at) => (
@@ -273,8 +285,6 @@ function LineChart({
   );
 }
 
-// One reading per label has no time axis, so the comparison is the point. Bars
-// are proportional to the largest, which is the only claim the data supports.
 function Bars({
   unit,
   bars,
@@ -283,7 +293,7 @@ function Bars({
   bars: { label: string; value: number }[];
 }): React.JSX.Element {
   const read = readingIn(unit);
-  const max = Math.max(...bars.map((b) => b.value), 0) || 1;
+  const maxVal = Math.max(...bars.map((b) => b.value), 0) || 1;
   return (
     <ul className="m-0 flex list-none flex-col gap-2 p-0">
       {bars.map((bar, at) => (
@@ -296,7 +306,7 @@ function Bars({
               aria-hidden
               className="h-2 rounded-full"
               style={{
-                width: `${Math.max((bar.value / max) * 100, 1)}%`,
+                width: `${Math.max((bar.value / maxVal) * 100, 1)}%`,
                 background: strokeOf(at),
               }}
             />

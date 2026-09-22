@@ -66,7 +66,23 @@ function RootLayout(): React.JSX.Element {
   );
 }
 
-const rootRoute = createRootRoute({ component: RootLayout });
+function RootError({ error }: { error: unknown }): React.JSX.Element {
+  return (
+    <div className="flex h-svh flex-col items-center justify-center gap-2 p-6 text-center">
+      <h1 className="m-0 text-xl font-semibold">Something went wrong</h1>
+      <p className="m-0 text-sm text-muted-foreground">
+        {error instanceof Error
+          ? error.message
+          : "An unexpected error occurred."}
+      </p>
+    </div>
+  );
+}
+
+const rootRoute = createRootRoute({
+  component: RootLayout,
+  errorComponent: RootError,
+});
 
 const loginRoute = createRoute({
   getParentRoute: () => rootRoute,

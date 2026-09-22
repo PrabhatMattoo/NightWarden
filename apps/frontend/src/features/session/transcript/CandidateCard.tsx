@@ -49,7 +49,7 @@ export function CandidateCard({
           className="group flex w-full items-center gap-2 px-4 py-3 text-left text-sm"
         >
           <span className="font-medium">Candidates</span>
-          <span className="text-xs text-muted-foreground">{summary(rows)}</span>
+          <span className="text-sm text-muted-foreground">{summary(rows)}</span>
           <DisclosureChevron />
         </CollapsibleTrigger>
         <CollapsibleContent>
@@ -61,25 +61,25 @@ export function CandidateCard({
                   key={row.id}
                   className="grid grid-cols-[max-content_1fr_max-content] items-baseline gap-x-3 gap-y-1 border-t border-border px-4 py-3"
                 >
-                  <span className="font-mono text-xs text-ink-subtle">
+                  <span className="font-mono text-sm text-ink-subtle">
                     {row.id}
                   </span>
                   <span
                     className={cn(
-                      "text-sm",
+                      "text-sm font-medium",
                       view.struck &&
-                        "text-muted-foreground line-through decoration-muted-foreground/50",
+                        "font-normal text-muted-foreground line-through decoration-muted-foreground/50",
                     )}
                   >
                     {row.statement}
                   </span>
                   <span
-                    className={cn("text-xs whitespace-nowrap", view.className)}
+                    className={cn("text-sm whitespace-nowrap", view.className)}
                   >
                     {view.label}
                   </span>
                   {row.note !== undefined && (
-                    <span className="col-start-2 col-end-4 text-xs leading-relaxed text-muted-foreground">
+                    <span className="col-start-2 col-end-4 text-sm leading-relaxed text-muted-foreground">
                       {row.note}
                     </span>
                   )}

@@ -1,6 +1,11 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { FrontendEvent, TranscriptItem } from "@nightwarden/shared";
+import type {
+  CandidateCardItem,
+  FrontendEvent,
+  ReportCardItem,
+  TranscriptItem,
+} from "@nightwarden/shared";
 import type { ActivityLine } from "@/features/session/transcript/types";
 import { transcriptItemKey } from "@nightwarden/shared";
 import { mergeTranscript } from "@/features/session/transcript/mergeTranscript";
@@ -58,14 +63,20 @@ function dockedCard(items: TranscriptItem[]): TranscriptItem | undefined {
 
 // Every run rewrites it, so no position among the messages is right: written
 // where it happened it goes stale, pushed last it sits under a later question.
-function dockedReport(items: TranscriptItem[]): TranscriptItem | undefined {
-  return items.find((item) => item.kind === "report_card");
+function dockedReport(items: TranscriptItem[]): ReportCardItem | undefined {
+  return items.find(
+    (item): item is ReportCardItem => item.kind === "report_card",
+  );
 }
 
 // Live state on the same terms: every finding rewrites the board, so it holds
 // one place above the input rather than ageing where the run opened it.
-function dockedCandidates(items: TranscriptItem[]): TranscriptItem | undefined {
-  return items.find((item) => item.kind === "candidate_card");
+function dockedCandidates(
+  items: TranscriptItem[],
+): CandidateCardItem | undefined {
+  return items.find(
+    (item): item is CandidateCardItem => item.kind === "candidate_card",
+  );
 }
 
 function ScrollToEndChatInput(
@@ -175,7 +186,7 @@ function TranscriptColumn({
 /** /agent renders with no id; the two $id routes pass the param. */
 export function SessionView({
   sessionId: sessionIdFromRoute = null,
-  reportOpen = false,
+  reportOpen: _reportOpen = false,
 }: {
   sessionId?: string | null;
   // The candidate board is docked only for the run; once the report is open
@@ -497,16 +508,20 @@ export function SessionView({
         </MessageScroller>
 
         {/* Highest of the three: it is the standing state of the work, while
-            the two below it are things asking to be acted on. */}
-        {candidateItem && !reportOpen && (
-          <div className="mx-auto mb-2 w-full max-w-narrow px-6">
-            <TranscriptItemRenderer
-              item={candidateItem}
-              onResolve={handleResolve}
-              onRetryReport={handleRetryReport}
-            />
-          </div>
-        )}
+            the two below it are things asking to be acted on. Dismissed once
+            a report stands, and restored if a later run opens new candidates. */}
+        {candidateItem &&
+          (reportItem?.kind !== "report_card" ||
+            reportItem.state.phase !== "ready" ||
+            candidateItem.rows.some((row) => row.state === "open")) && (
+            <div className="mx-auto mb-2 w-full max-w-narrow px-6">
+              <TranscriptItemRenderer
+                item={candidateItem}
+                onResolve={handleResolve}
+                onRetryReport={handleRetryReport}
+              />
+            </div>
+          )}
 
         {/* Only a failed write-up docks a card now; ready opens the report on
             its own, so what is left is the one thing asking to be acted on. */}

@@ -56,7 +56,7 @@ export function commandLineOf(input: Record<string, unknown>): string | null {
   return inputString(input, "command");
 }
 
-const MONO = "font-mono text-sm leading-relaxed";
+const MONO = "font-mono text-sm leading-relaxed text-ink-subtle";
 
 // Capped text with an explicit, counted opt-in. "Show all" reveals exactly what
 // the runner returned, already redacted and already size-capped upstream.
@@ -113,7 +113,7 @@ function ToolBody({
         ].map(([label, value]) => (
           <div key={label} className="flex gap-3">
             <dt className="w-16 shrink-0 text-sm text-ink-subtle">{label}</dt>
-            <dd className="m-0 min-w-0 text-sm wrap-break-word whitespace-pre-wrap">
+            <dd className="m-0 min-w-0 text-sm wrap-break-word whitespace-pre-wrap text-ink-subtle">
               {value}
             </dd>
           </div>
@@ -169,9 +169,11 @@ function ToolRow({ item }: { item: ToolCallItem }): React.JSX.Element {
       if (revealTarget() !== item.toolCallId) return;
       setOpen(true);
       setRevealed(true);
-      requestAnimationFrame(() =>
-        rowRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }),
-      );
+      // Allow the collapsible height transitions (200ms) to finish
+      // unfolding before smoothly scrolling, avoiding the double-jump layout shift.
+      window.setTimeout(() => {
+        rowRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }, 200);
       window.setTimeout(() => {
         setRevealed(false);
         endReveal(item.toolCallId);
@@ -216,24 +218,26 @@ function ToolRow({ item }: { item: ToolCallItem }): React.JSX.Element {
         <CollapsibleTrigger
           disabled={unanswered}
           nativeButton
-          className="group flex w-full items-baseline gap-2 py-1 text-left text-ink-subtle transition-colors group-hover:text-foreground"
+          className="group flex w-full items-baseline gap-1.5 py-1 text-left text-ink-subtle"
         >
           {/* The sweep is what says "still going", so the name carries it and
               the row needs no second word beside it. */}
           <span
             data-testid="tool-call-name"
             className={cn(
-              "shrink-0 font-mono text-base font-medium",
+              "shrink-0 font-mono text-base font-medium transition-colors group-hover:text-foreground",
               working && "live",
             )}
           >
             {toolName}
           </span>
           {target !== null && (
-            <span className="shrink-0 font-mono text-base">{target}</span>
+            <span className="shrink-0 font-mono text-base transition-colors group-hover:text-foreground">
+              {target}
+            </span>
           )}
           {actor !== null && decisionWord !== null && (
-            <span className="min-w-0 truncate text-base">
+            <span className="min-w-0 truncate text-base transition-colors group-hover:text-foreground">
               {decisionWord} by {actor.name} ({actor.email})
             </span>
           )}
@@ -244,8 +248,10 @@ function ToolRow({ item }: { item: ToolCallItem }): React.JSX.Element {
           for, so nothing here sets it back. Tight above because it belongs to
           the row, looser below because it is finished. */}
         {!unanswered && (
-          <CollapsibleContent className="mt-1 mb-4">
-            <ToolBody toolName={toolName} input={input} result={result} />
+          <CollapsibleContent>
+            <div className="mt-1 mb-4">
+              <ToolBody toolName={toolName} input={input} result={result} />
+            </div>
           </CollapsibleContent>
         )}
       </Collapsible>

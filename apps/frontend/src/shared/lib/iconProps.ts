@@ -1,5 +1,5 @@
 export const ICON_INLINE = {
-  size: 14,
+  size: 16,
   strokeWidth: 1.75,
   "aria-hidden": true,
 } as const;
