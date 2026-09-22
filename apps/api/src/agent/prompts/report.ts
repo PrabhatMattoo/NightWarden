@@ -9,7 +9,7 @@ import {
   principalFindings,
   standingFindings,
 } from "@nightwarden/shared";
-import type { RecordGap } from "../report.js";
+import type { OpenCandidate, RecordGap } from "../report.js";
 
 // Short on purpose: the tool description sits next to the decision, while this
 // competes with a long context by turn fifteen.
@@ -40,7 +40,7 @@ function sentenceFor(gap: RecordGap): string {
       return `${EMPTY_RECORD_MESSAGE} Call RecordFinding for each candidate you opened, naming it in 'candidate', with the verdict it earned, so the record says what you settled, including what you ruled out. If you could not work out the cause, record what you tested and settle it as disproven or untestable; that is an honest ending, and inventing a cause to avoid it is not.`;
     case "untested_candidates": {
       const rows = gap.open.map((c) => `${c.id}  ${c.statement}`).join("\n");
-      return `${UNTESTED_CANDIDATES_MESSAGE} Settle each of these with RecordFinding, naming it in 'candidate':\n${rows}\nA candidate a tool result settles takes the verdict that result earned. A candidate you have no way to check takes 'untestable', which is a complete answer. Call CloseInvestigation once every one of them carries a finding.`;
+      return `${UNTESTED_CANDIDATES_MESSAGE} Settle each of these with RecordFinding, naming it in 'candidate':\n${rows}\nA candidate a tool result settles takes the verdict that result earned. A candidate you have no way to check takes 'untestable', which is a complete answer. Once every candidate carries a finding, the harness asks you to test your own conclusions, and CloseInvestigation is offered from there.`;
     }
   }
 }
@@ -59,10 +59,10 @@ export function recordGapsMessage(gaps: RecordGap[]): string {
   return gaps.map(sentenceFor).join(" ");
 }
 
-// Sent before the forced candidates turn: enough evidence is in hand to weigh
-// explanations, so the run opens them before it looks further.
+// Sent once at the start of the opening stage: the reads have answered, so the
+// run commits to its explanations before it looks for the evidence that tests them.
 export const CANDIDATES_OPENING_MESSAGE =
-  "You have gathered initial evidence. Open the candidate explanations worth testing now, together, each with what you expect to see if it is true and what would prove it false. Open at least two: one round of reads has answered, which is too early to be certain a single explanation is the only one worth testing, and a candidate you go on to disprove is worth recording because it stops the reader retracing it.";
+  "The reads you requested have finished. Open your candidates now with OpenCandidates: at least two candidates, in one call. For each candidate, state what you expect to see if the candidate is true, and what result would prove the candidate false. You can open more candidates later, during testing.";
 
 // Sent when the set of open candidates changes, so the ones still to test stay
 // in view rather than being lost behind a long chain of reads.
@@ -77,9 +77,30 @@ export function frontierMessage(record: InvestigationRecord): string {
   return `Still open:\n${rows.join("\n")}\nTest one of these before you finish.`;
 }
 
-// Sent when an investigation turn asks for no tool: finishing is an act, and the
-// fixed text lets a resumed run count this message rather than a prefix of it.
-export const CLOSE_PROMPT_MESSAGE = `Your investigation is still open. A turn that calls no tool leaves it where it was. If every candidate you opened carries a finding, call CloseInvestigation. If one is still open, settle it with RecordFinding first. If you need to read something before you can settle it, call the tool that reads it.`;
+/* The fixed opening of every no-tool nudge, so the allowance counts one pattern
+   across its stage-specific wordings rather than four. */
+export const TEXT_ONLY_PREFIX =
+  "Your last reply called no tool, so the investigation did not move forward.";
+
+/* What a no-tool reply is told depends on where the investigation stands, since
+   the next move is the stage's own. */
+export function textOnlyReplyMessage(
+  stage: "opening" | "testing" | "falsifying" | "writingReport",
+  open: readonly OpenCandidate[],
+): string {
+  switch (stage) {
+    case "opening":
+      return `${TEXT_ONLY_PREFIX} Open your candidates now with OpenCandidates: at least two candidates, in one call.`;
+    case "testing":
+      return open.length === 0
+        ? `${TEXT_ONLY_PREFIX} Open new candidates with OpenCandidates, or record a finding for an existing candidate with RecordFinding.`
+        : `${TEXT_ONLY_PREFIX} These candidates do not have a finding yet:\n${open.map((c) => `${c.id}  ${c.statement}`).join("\n")}\nTest each candidate with a read, then record the outcome with RecordFinding.`;
+    case "falsifying":
+      return `${TEXT_ONLY_PREFIX} Run the next read that could disprove a finding, or call CloseInvestigation if no further read would change any finding.`;
+    case "writingReport":
+      return `${TEXT_ONLY_PREFIX} Write the report now with ComposeReport.`;
+  }
+}
 
 // The fixed part of the falsification message, matched to count whether it ran.
 export const FALSIFICATION_MESSAGE =
@@ -98,8 +119,8 @@ export function falsificationMessage(record: InvestigationRecord): string {
   const standing = principalFindings(record.findings);
   const close =
     standing.length === 0
-      ? "You have not established a cause. If there is a candidate you have not tried, open it and test it. Otherwise call CloseInvestigation, and say plainly in your write-up that no cause was established."
-      : "Test what you said would disprove each finding that still stands, if you have not. If something breaks a finding, record another finding naming that same candidate: your new verdict stands and the earlier finding stays on the record beneath it as superseded. If nothing changes your conclusions, call CloseInvestigation.";
+      ? "No finding established a cause. If a possible explanation is still untested, open that explanation as a candidate and test the candidate. Otherwise, call CloseInvestigation, and state in the report that no cause was found."
+      : "For each finding that stands, run the read that would prove that finding false, unless you have already run that read. If a read breaks a finding, record a new finding for that candidate: your new verdict stands and the earlier finding stays on the record beneath it as superseded. If you open a new candidate, test the new candidate and record a finding for it before you finish. When no further read would change any finding, call CloseInvestigation.";
   const table =
     rows.length === 0
       ? "You opened no candidates."
@@ -243,3 +264,11 @@ Say where the report is and name which of its sections carry substance. Then clo
    the tool's own words, so this says what to do rather than repeating why. */
 export const REPORT_RETRY_MESSAGE =
   "Your last ComposeReport call did not land. Read what it answered, correct the arguments it named, and call ComposeReport again.";
+
+/* The fixed part of the reopen turn, which the stage derivation also reads: a
+   row carrying it starts the reopened investigation's own epoch. */
+export const REOPEN_PREFIX = "The user reopened this investigation";
+
+// The opening turn of a reopened investigation, written the way an alert's is:
+// as the harness's own row, before any turn the model takes.
+export const REOPEN_MESSAGE = `${REOPEN_PREFIX}, and every earlier candidate and finding is still on the record. Open new candidates for what the new evidence suggests, or record new findings for existing candidates, with RecordFinding. For each candidate you open, state what you expect to see if the candidate is true, and what result would prove the candidate false.`;

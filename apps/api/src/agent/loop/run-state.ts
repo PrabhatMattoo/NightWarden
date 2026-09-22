@@ -55,16 +55,6 @@ export class RunState {
   // Set before the first turn and re-read each turn as integrations connect.
   offered!: OfferedToolset;
   turn = 0;
-  // A citable call has answered, so candidates can be opened against real
-  // evidence rather than before any was gathered.
-  evidenceGathered = false;
-  // The falsification challenge has been put to the model.
-  challengeIssued = false;
-  /* The report phase is reached: the run closed again after the challenge. Per
-     run, so a later one settling something new asks again rather than overwriting. */
-  reportUnlocked = false;
-  // The closing turn has run, so the run has already addressed the reader.
-  closingTurnDone = false;
   // Per name across the whole run, so the fourth ask is answered as the fourth.
   readonly refusedNames = new Map<string, number>();
 
@@ -74,12 +64,15 @@ export class RunState {
     nextEvidence: number,
     // Read-only prefix already on disk, ahead of what this run appends.
     private readonly seeded: readonly ProviderMessage[],
+    // The durable transcript before this run, so the stage derives from the whole
+    // session while this run adds to it in memory.
+    private readonly priorRows: readonly TranscriptRow[] = [],
   ) {
     this.nextSeq = nextSeq;
     this.nextEvidence = nextEvidence;
   }
 
-  stage(
+  enqueue(
     kind: TranscriptRow["kind"],
     parts: MessagePart[],
     clientId?: string,
@@ -93,6 +86,12 @@ export class RunState {
       timestamp: new Date().toISOString(),
       ...(clientId !== undefined && { clientId }),
     });
+  }
+
+  // The durable prefix plus this run's rows, so the stage reads one view of the
+  // session live and on resume alike.
+  allRows(): TranscriptRow[] {
+    return [...this.priorRows, ...this.rows];
   }
 
   conversation(): ProviderMessage[] {
@@ -116,15 +115,14 @@ export class RunState {
   // call made in this reply has no handle until its answer arrives.
   stageResults(uses: readonly ToolUse[], results: readonly ToolResult[]): void {
     const stamped = resultParts(results, citableIds(uses), this.nextEvidence);
-    if (stamped.next > this.nextEvidence) this.evidenceGathered = true;
     this.nextEvidence = stamped.next;
-    this.stage("user", stamped.parts);
+    this.enqueue("user", stamped.parts);
   }
 
   // The one emitter of the marker, so also the door untrusted text arrives at:
   // an injected alert's labels are the sender's and must not close our tag.
   sendSystemReminder(text: string): void {
-    this.stage("system_reminder", [
+    this.enqueue("system_reminder", [
       { type: "text", text: asSystemReminder(stripSystemReminder(text)) },
     ]);
   }

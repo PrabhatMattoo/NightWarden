@@ -153,10 +153,6 @@ export interface SubmittedReport {
   // what ran is the released-write log, which the model cannot write to.
   recommendation: string;
   submittedAt: string;
-  // Lets a later run ask whether the report is behind without reading a clock.
-  // Stamped by the write that stores it, so it cannot overstate its coverage.
-  findingsCoveredUpTo: string;
-  writesCoveredUpTo: number;
 }
 
 // Everything one investigation holds. The candidates the run is weighing, the

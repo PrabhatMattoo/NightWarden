@@ -2,7 +2,6 @@ import { randomUUID } from "node:crypto";
 import { buildInitialContext, buildChatContext } from "../context.js";
 import type { PromptOptions } from "../prompts/system.js";
 import {
-  CLOSE_PROMPT_MESSAGE,
   EMPTY_RECORD_MESSAGE,
   RECORD_CHECK_MESSAGE,
   UNTESTED_CANDIDATES_MESSAGE,
@@ -21,10 +20,8 @@ import {
 import { loadConfig } from "../../config/store.js";
 import { getGitHubIntegration } from "../../integrations/store.js";
 import { getSession } from "../../session/store.js";
-import {
-  getNextSeq,
-  getTranscriptRows,
-} from "../../session/transcript-store.js";
+import { getNextSeq } from "../../session/transcript-store.js";
+import { seedRows } from "../../session/seed.js";
 import {
   publishTextMessageContent,
   publishInterrupt,
@@ -181,19 +178,20 @@ export async function runSession(input: RunSessionInput): Promise<RunOutcome> {
       },
     );
 
-  // Carried for the run rather than recounted, so a long investigation does not
-  // re-read its whole transcript to number one call.
-  const priorRows = await getTranscriptRows(sessionId);
+  // The rows the model is handed, dead exchanges unwound, so the stage and the
+  // allowances derive from what it sees rather than from turns it never gets.
+  const priorRows = await seedRows(sessionId);
   const seeded = input.seed ?? [];
   const state = new RunState(
     sessionId,
     await getNextSeq(sessionId),
     highestEvidenceNumber(priorRows) + 1,
     seeded,
+    priorRows,
   );
-  // Recovered in one place from the transcript so a resume continues its phases
-  // rather than reopening candidates or re-running the falsification turn.
-  Object.assign(state, deriveRunProgress(priorRows));
+  // The stage is derived from the transcript each turn, so a resume continues
+  // where it left off; only the text-only allowance is seeded here.
+  const { textOnlySpent } = deriveRunProgress(priorRows);
   // Constant for the run, so counted once here rather than re-scanned per turn.
   const approvedWrites = approvedWriteCount(
     gatedCalls(toolCallsFrom(priorRows)),
@@ -217,7 +215,7 @@ export async function runSession(input: RunSessionInput): Promise<RunOutcome> {
         [],
         state.nextSeq,
       );
-      state.stage("assistant", closing.parts);
+      state.enqueue("assistant", closing.parts);
     } catch (err) {
       if (!signal?.aborted) throw err;
     }
@@ -285,7 +283,7 @@ export async function runSession(input: RunSessionInput): Promise<RunOutcome> {
     // Written immediately so the frontend shows the turn the moment it is sent,
     // rather than waiting for the assistant's reply to flush both at once.
     if (input.userMessage) {
-      state.stage(
+      state.enqueue(
         "user",
         [{ type: "text", text: stripSystemReminder(input.userMessage) }],
         input.clientMessageId,
@@ -302,7 +300,7 @@ export async function runSession(input: RunSessionInput): Promise<RunOutcome> {
     const first = own
       ? asSystemReminder(openingTurn)
       : stripSystemReminder(input.userMessage ?? "");
-    state.stage(
+    state.enqueue(
       own ? "system_reminder" : "user",
       [{ type: "text", text: first }],
       own ? undefined : input.clientMessageId,
@@ -320,9 +318,7 @@ export async function runSession(input: RunSessionInput): Promise<RunOutcome> {
     empty_record: spentOn(priorRows, EMPTY_RECORD_MESSAGE),
     untested_candidates: spentOn(priorRows, UNTESTED_CANDIDATES_MESSAGE),
   });
-  const closePrompts = closePromptPolicy(
-    spentOn(priorRows, CLOSE_PROMPT_MESSAGE),
-  );
+  const closePrompts = closePromptPolicy(textOnlySpent);
   /* Per run, unlike the gate allowances: a later run revising an earlier report
      is making its first attempt at a new write-up, not repeating a failed one. */
   const reportAttempts = reportAttemptPolicy(0);

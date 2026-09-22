@@ -1,5 +1,9 @@
 import { METRICS_SOURCE_KINDS, openCandidateIds } from "@nightwarden/shared";
-import type { ReportCardItem, ToolName } from "@nightwarden/shared";
+import type {
+  InvestigationRecord,
+  ReportCardItem,
+  ToolName,
+} from "@nightwarden/shared";
 import type { ToolDispatchContext } from "../tools/types.js";
 import {
   effectiveToolset,
@@ -13,19 +17,19 @@ import { recoveryState } from "../../verification/recovery.js";
 import {
   approvedWriteCount,
   gatedCalls,
+  openCandidateRows,
   recordGaps,
-  reportIsBehind,
   setLastStatedCandidates,
   toolCallsIn,
 } from "../report.js";
 import {
   CANDIDATES_OPENING_MESSAGE,
-  CLOSE_PROMPT_MESSAGE,
   closingMessage,
   falsificationMessage,
   frontierMessage,
   REPORT_RETRY_MESSAGE,
   reportRequest,
+  textOnlyReplyMessage,
 } from "../prompts/report.js";
 import { appendErrorMessage } from "../../session/transcript-store.js";
 import {
@@ -38,9 +42,10 @@ import type { ChatResponse, ToolResult, ToolUse } from "../../llm/types.js";
 import { COMPOSE_REPORT_TOOL } from "../tools/report.js";
 import { processToolUses } from "./turn.js";
 import { REPORT_GIVEN_UP, reportEnding, turnEnding } from "./endings.js";
-import { citableAnswers } from "./guardrails.js";
+import { citableAnswers, deriveRunProgress } from "./guardrails.js";
+import type { RunProgress } from "./guardrails.js";
 import { formatInjectedAlerts } from "./injection.js";
-import type { RunContext, RunState, TurnResult } from "./run-state.js";
+import type { RunContext, TurnResult } from "./run-state.js";
 
 // What the fleet and the connected integrations currently allow. Read together,
 // because the prompt describing them is built from the same call.
@@ -143,8 +148,10 @@ async function suspendOnGate(
 
 // Keeps the open candidates in view whenever the set changes, so the ones still
 // to test are not lost behind a long chain of reads. The set is read live.
-async function emitFrontierIfChanged(ctx: RunContext): Promise<void> {
-  const record = await getRecord(ctx.sessionId);
+async function emitFrontierIfChanged(
+  ctx: RunContext,
+  record: InvestigationRecord | undefined,
+): Promise<void> {
   if (record === undefined) return;
   const open = openCandidateIds(record);
   const last = record.lastStatedCandidates;
@@ -164,45 +171,58 @@ const RECORD_TOOL_NAMES: readonly ToolName[] = [
   "CloseInvestigation",
 ];
 
-type Phase =
-  | "gatheringEvidence"
-  | "openingCandidates"
-  | "testingCandidates"
+type Stage =
+  | "conversation"
+  | "gathering"
+  | "opening"
+  | "testing"
+  | "falsifying"
   | "writingReport"
-  | "closingTurn";
+  | "closingTurn"
+  | "closed";
 
-/* Every phase is read off what the record and the transcript already hold, so a
-   resumed run continues where it reached rather than repeating a phase. */
-async function phaseOf(ctx: RunContext, state: RunState): Promise<Phase> {
-  if (!ctx.opensInvestigation) return "testingCandidates";
-  if (!state.evidenceGathered) return "gatheringEvidence";
-  const record = await getRecord(ctx.sessionId);
-  if (record === undefined || record.candidates.length === 0)
-    return "openingCandidates";
-  const behind = reportIsBehind(record, ctx.approvedWrites);
-  /* Challenged and settled, write-up behind the record: a refused ComposeReport
-     leaves both true (the retry), and a later run that settles more revises here. */
-  if (behind && state.reportUnlocked) {
-    if (openCandidateIds(record).length === 0) return "writingReport";
+/* Read off the record and the stage facts derived from the transcript, so a
+   resumed or reopened run lands where the investigation stands. */
+function stageOf(
+  ctx: RunContext,
+  progress: RunProgress,
+  record: InvestigationRecord | undefined,
+): Stage {
+  if (!ctx.opensInvestigation) return "conversation";
+  if (record !== undefined && record.report !== null) {
+    if (progress.reportWritten && progress.closingTurnDone) return "closed";
+    // The write-up landed this epoch, so the one thing left is to say so.
+    if (progress.reportWritten && !progress.closingTurnDone)
+      return "closingTurn";
   }
-  // The write-up is current, so the one thing left is to say so to the reader.
-  if (!behind && !state.closingTurnDone) return "closingTurn";
-  return "testingCandidates";
+  if (progress.reportPending) return "writingReport";
+  if (!progress.firstTurnSettled) return "gathering";
+  if (record === undefined || record.candidates.length === 0) return "opening";
+  if (progress.challengeIssued && openCandidateIds(record).length === 0)
+    return "falsifying";
+  return "testing";
 }
 
 /* One set both shown to the model and executed from, so a turn cannot be offered
-   what it cannot run; a tool the run must not reach for yet is not on the turn. */
-function toolsForPhase(phase: Phase, offered: OfferedToolset): OfferedToolset {
+   what it cannot run; a tool the stage withholds is not on the turn. */
+function toolsForStage(stage: Stage, offered: OfferedToolset): OfferedToolset {
   const keep = (names: (name: ToolName) => boolean): OfferedToolset => ({
     tools: offered.tools.filter((tool) => names(tool.schema.name)),
     elicitations: offered.elicitations,
   });
-  switch (phase) {
-    case "gatheringEvidence":
+  switch (stage) {
+    // Before candidates exist, and after the investigation closes, the record's
+    // tools stay with the machinery: nothing is there to settle either way.
+    case "conversation":
+    case "closed":
+    case "gathering":
       return keep((name) => !RECORD_TOOL_NAMES.includes(name));
-    case "openingCandidates":
+    case "opening":
       return keep((name) => name === "OpenCandidates");
-    case "testingCandidates":
+    // CloseInvestigation is falsification's door alone, so testing withholds it.
+    case "testing":
+      return keep((name) => name !== "CloseInvestigation");
+    case "falsifying":
       return offered;
     /* The write-up is composed from the record, and asking a human is already
        settled by the time it runs, so neither is on the turn. */
@@ -213,23 +233,19 @@ function toolsForPhase(phase: Phase, offered: OfferedToolset): OfferedToolset {
   }
 }
 
-/* An accepted close means the record is whole: the challenge runs first where
-   there is anything to break, otherwise phaseOf reads the write-up off the record. */
-async function offerFalsification(ctx: RunContext): Promise<void> {
-  const { state, sessionId } = ctx;
-  const record = await getRecord(sessionId);
-  if (
-    !state.challengeIssued &&
-    record !== undefined &&
-    record.candidates.length > 0
-  ) {
-    state.challengeIssued = true;
-    state.sendSystemReminder(falsificationMessage(record));
-    return;
-  }
-  // A close once the challenge is out means the run has nothing further to break,
-  // so the report is reached; a close only ever lands a turn later than it.
-  if (state.challengeIssued) state.reportUnlocked = true;
+/* The challenge goes out when every candidate is settled and this epoch has
+   work behind it, so a close never carries it. True when it fired. */
+function emitChallengeIfDue(
+  ctx: RunContext,
+  progress: RunProgress,
+  record: InvestigationRecord | undefined,
+): boolean {
+  if (progress.challengeIssued) return false;
+  if (record === undefined || record.candidates.length === 0) return false;
+  if (openCandidateIds(record).length > 0) return false;
+  if (!progress.recordChanged) return false;
+  ctx.state.sendSystemReminder(falsificationMessage(record));
+  return true;
 }
 
 /* The tool already named what is missing, so this only spends the allowance.
@@ -308,14 +324,24 @@ export async function runOneTurn(ctx: RunContext): Promise<TurnResult> {
     await state.flush();
   }
 
-  // Which phase the run is in, read from what the record holds rather than
+  // Read once before any tool runs: the challenge and the stage both decide from
+  // this snapshot, which no tool has moved yet.
+  const recordBefore = await getRecord(sessionId);
+  /* The challenge precedes the stage it opens, so a close lands inside it. When
+     it fires the reminder is in the rows, so the stage re-derives to see it. */
+  let progress = deriveRunProgress(state.allRows());
+  if (emitChallengeIfDue(ctx, progress, recordBefore)) {
+    progress = deriveRunProgress(state.allRows());
+  }
+
+  // Which stage the run is in, derived from the transcript rather than
   // remembered, so a resumed run lands where it left off.
-  const phase = await phaseOf(ctx, state);
-  /* Each phase says what it wants before it offers the tools to answer with, so
+  const stage = stageOf(ctx, progress, recordBefore);
+  /* Each stage says what it wants before it offers the tools to answer with, so
      the ask and the toolset that serves it are decided in one place. */
-  if (phase === "openingCandidates") {
+  if (stage === "opening" && !progress.openingSaid) {
     state.sendSystemReminder(CANDIDATES_OPENING_MESSAGE);
-  } else if (phase === "writingReport") {
+  } else if (stage === "writingReport") {
     const attempt = ctx.reportAttempts();
     if (attempt === null) {
       log.warn({ turn }, "write-up not written within its attempts");
@@ -327,15 +353,14 @@ export async function runOneTurn(ctx: RunContext): Promise<TurnResult> {
     state.sendSystemReminder(
       attempt === 1 ? await writeUpRequest(ctx) : REPORT_RETRY_MESSAGE,
     );
-  } else if (phase === "closingTurn") {
-    const record = await getRecord(sessionId);
-    if (record === undefined) return { kind: "outcome", outcome: "completed" };
-    state.closingTurnDone = true;
-    state.sendSystemReminder(closingMessage(record));
+  } else if (stage === "closingTurn") {
+    if (recordBefore === undefined)
+      return { kind: "outcome", outcome: "completed" };
+    state.sendSystemReminder(closingMessage(recordBefore));
   }
   await state.flush();
-  const forThisPhase = toolsForPhase(phase, state.offered);
-  const toolSchemas = offeredSchemas(forThisPhase);
+  const forThisStage = toolsForStage(stage, state.offered);
+  const toolSchemas = offeredSchemas(forThisStage);
 
   const startedAt = Date.now();
   let response: ChatResponse;
@@ -346,7 +371,7 @@ export async function runOneTurn(ctx: RunContext): Promise<TurnResult> {
       state.nextSeq,
       ctx.runSignal,
     );
-    state.stage("assistant", response.parts);
+    state.enqueue("assistant", response.parts);
   } catch (err) {
     if (ctx.signal?.aborted) {
       log.info({ turn }, "run stopped by user");
@@ -381,7 +406,7 @@ export async function runOneTurn(ctx: RunContext): Promise<TurnResult> {
   // A lost write-up says so in its own terms; the ending is written to the
   // transcript, since without an error row a nothing turn derives to completed.
   const reportLost =
-    phase === "writingReport"
+    stage === "writingReport"
       ? reportEnding(response.stopReason, llm.maxOutputTokens)
       : null;
   /* The record is the half worth keeping, so a lost write-up says so: without it
@@ -400,26 +425,33 @@ export async function runOneTurn(ctx: RunContext): Promise<TurnResult> {
     return { kind: "outcome", outcome: "completed" };
   }
 
-  /* The last phase: the reader has been addressed and there is nothing after it,
+  /* The last stage: the reader has been addressed and there is nothing after it,
      so the run ends here however the model spent the turn. */
-  if (phase === "closingTurn") {
+  if (stage === "closingTurn") {
     log.info({ turn }, "investigation written up and closed");
     return { kind: "outcome", outcome: "completed" };
   }
 
   if (response.toolUses.length === 0) {
-    if (!ctx.opensInvestigation) {
-      log.info({ turn }, "chat finished with free-form response");
+    // A conversation, open or closed, ends on its own words.
+    if (stage === "conversation" || stage === "closed") {
+      log.info({ turn }, "conversation finished with free-form response");
       return { kind: "outcome", outcome: "completed" };
     }
-    /* Finishing is an act here, so a turn that asked for nothing has not asked to
+    // The first turn asked for nothing, so it is settled and the stage moves on.
+    if (stage === "gathering") {
+      return { kind: "continue" };
+    }
+    /* Finishing is an act, so a turn that asked for nothing has not asked to
        finish. Say so, and stand down once the allowance for saying it is spent. */
     if (ctx.closePrompts()) {
-      log.info(
-        { turn },
-        "investigation turn called no tool; asking it to close",
+      log.info({ turn }, "investigation turn called no tool; nudging it");
+      state.sendSystemReminder(
+        textOnlyReplyMessage(
+          stage,
+          recordBefore === undefined ? [] : openCandidateRows(recordBefore),
+        ),
       );
-      state.sendSystemReminder(CLOSE_PROMPT_MESSAGE);
       await state.flush();
       return { kind: "continue" };
     }
@@ -442,7 +474,7 @@ export async function runOneTurn(ctx: RunContext): Promise<TurnResult> {
 
   const { toolResults, gated, refused } = await processToolUses({
     toolUses: response.toolUses,
-    offered: forThisPhase,
+    offered: forThisStage,
     sessionId,
     execCtx,
     log,
@@ -485,6 +517,9 @@ export async function runOneTurn(ctx: RunContext): Promise<TurnResult> {
   // Drained at the tool boundary, the earliest point the model can act on one,
   // as their own turn after the results.
   state.stageResults(response.toolUses, toolResults);
+  // Read once after the tools ran: the frontier, the card, and the record debt
+  // all reflect what this turn just settled.
+  const recordAfter = await getRecord(sessionId);
   // Already durable: the dispatcher wrote each one when it arrived. The inbox
   // exists to tell the model, which is a separate concern from keeping it.
   const injected = ctx.drainInbox?.(sessionId) ?? [];
@@ -492,11 +527,11 @@ export async function runOneTurn(ctx: RunContext): Promise<TurnResult> {
     state.sendSystemReminder(formatInjectedAlerts(injected));
   }
 
-  await emitFrontierIfChanged(ctx);
+  await emitFrontierIfChanged(ctx, recordAfter);
 
   /* The write-up landed, so the card that was spinning now names what it opens.
-     A refusal leaves the record behind, which is the next turn's write-up phase. */
-  if (phase === "writingReport") {
+     A refusal leaves the record behind, which is the next turn's write-up stage. */
+  if (stage === "writingReport") {
     const wrote = response.toolUses.some(
       (use) =>
         use.name === "ComposeReport" &&
@@ -506,24 +541,24 @@ export async function runOneTurn(ctx: RunContext): Promise<TurnResult> {
         ),
     );
     if (wrote) {
-      publishReportCard(
-        sessionId,
-        "ready",
-        (await getRecord(sessionId))?.report?.headline,
-      );
+      publishReportCard(sessionId, "ready", recordAfter?.report?.headline);
     }
   }
 
-  const closing = response.toolUses.find(
-    (use) => use.name === "CloseInvestigation",
-  );
+  /* A close only executes in falsification; anywhere else the turn already
+     answered it as unoffered, and standing the run down would be a lie. */
+  const closing =
+    stage === "falsifying"
+      ? response.toolUses.find((use) => use.name === "CloseInvestigation")
+      : undefined;
   if (closing !== undefined) {
     const accepted = toolResults.some(
       (result) =>
         result.toolCallId === closing.toolCallId && result.isError !== true,
     );
-    if (accepted) await offerFalsification(ctx);
-    else {
+    // An accepted close is read off the transcript next turn; a refusal spends
+    // its allowance and may stand the run down.
+    if (!accepted) {
       const ending = await spendCloseRefusal(ctx, turn);
       if (ending !== null) {
         await state.flush();
@@ -532,7 +567,7 @@ export async function runOneTurn(ctx: RunContext): Promise<TurnResult> {
     }
   }
 
-  const claims = ((await getRecord(sessionId))?.findings ?? []).length;
+  const claims = (recordAfter?.findings ?? []).length;
   const ask = ctx.recordDebt.check(
     claims,
     citableAnswers(response.toolUses, toolResults),

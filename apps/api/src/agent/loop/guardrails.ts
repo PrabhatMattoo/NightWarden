@@ -1,9 +1,11 @@
 import type { TranscriptRow } from "@nightwarden/shared";
 import { isCitable, type RecordGap } from "../report.js";
-import { highestEvidenceNumber } from "../evidence-id.js";
 import {
+  CANDIDATES_OPENING_MESSAGE,
   CLOSING_MESSAGE,
   FALSIFICATION_MESSAGE,
+  REOPEN_PREFIX,
+  TEXT_ONLY_PREFIX,
   recordGapsMessage,
   recordCheck,
 } from "../prompts/report.js";
@@ -152,17 +154,43 @@ export function spentOn(
   ).length;
 }
 
-// Pending: closed after the challenge but no ComposeReport landed yet. A report
-// already written is not restored - a follow-up re-earns it with a fresh close.
-function reportPending(rows: readonly TranscriptRow[]): boolean {
+// A reopen starts its own epoch: every stage fact reads only the rows after it.
+function epochRows(rows: readonly TranscriptRow[]): readonly TranscriptRow[] {
+  for (let i = rows.length - 1; i >= 0; i--) {
+    const row = rows[i]!;
+    if (row.kind === "system_reminder" && row.content.includes(REOPEN_PREFIX)) {
+      return rows.slice(i);
+    }
+  }
+  return rows;
+}
+
+// Session-wide, because a first turn never un-settles: a resumed run reads it.
+function firstTurnSettled(rows: readonly TranscriptRow[]): boolean {
+  const first = rows.find((r) => r.kind === "assistant");
+  if (first === undefined) return false;
+  const called = first.parts.flatMap((p) =>
+    p.type === "tool_call" ? [p.toolCallId] : [],
+  );
+  if (called.length === 0) return true;
+  const answered = new Set(
+    rows.flatMap((r) =>
+      r.parts.flatMap((p) => (p.type === "tool_result" ? [p.toolCallId] : [])),
+    ),
+  );
+  return called.every((id) => answered.has(id));
+}
+
+// An accepted close after this epoch's challenge, with no write-up landed since.
+function reportPending(epoch: readonly TranscriptRow[]): boolean {
   const accepted = new Set<string>();
-  for (const row of rows)
+  for (const row of epoch)
     for (const part of row.parts)
       if (part.type === "tool_result" && part.isError !== true)
         accepted.add(part.toolCallId);
   let challenged = false;
   let closedAfterChallenge = false;
-  for (const row of rows) {
+  for (const row of epoch) {
     if (
       row.kind === "system_reminder" &&
       row.content.includes(FALSIFICATION_MESSAGE)
@@ -180,21 +208,70 @@ function reportPending(rows: readonly TranscriptRow[]): boolean {
   return closedAfterChallenge;
 }
 
-// The four phase milestones this session has passed. Read once from the durable
-// transcript on resume; the live run keeps them in memory as each event lands.
+// A candidate or finding landed in this epoch, so a reopen has work to challenge.
+function recordChanged(epoch: readonly TranscriptRow[]): boolean {
+  const names = new Map<string, string>();
+  for (const row of epoch)
+    for (const part of row.parts)
+      if (part.type === "tool_call") names.set(part.toolCallId, part.name);
+  return epoch.some((row) =>
+    row.parts.some(
+      (part) =>
+        part.type === "tool_result" &&
+        part.isError !== true &&
+        (names.get(part.toolCallId) === "OpenCandidates" ||
+          names.get(part.toolCallId) === "RecordFinding"),
+    ),
+  );
+}
+
+// A write-up landed in this epoch: the goodbye turn runs only after one.
+function reportWritten(epoch: readonly TranscriptRow[]): boolean {
+  const answered = new Set(
+    epoch.flatMap((row) =>
+      row.parts.flatMap((p) =>
+        p.type === "tool_result" && p.isError !== true ? [p.toolCallId] : [],
+      ),
+    ),
+  );
+  return epoch.some((row) =>
+    row.parts.some(
+      (part) =>
+        part.type === "tool_call" &&
+        part.name === "ComposeReport" &&
+        answered.has(part.toolCallId),
+    ),
+  );
+}
+
+// The stage facts, derived from the transcript each turn and on resume alike, so
+// the live run and a resumed one read the same view.
 export interface RunProgress {
-  evidenceGathered: boolean;
+  firstTurnSettled: boolean;
+  openingSaid: boolean;
   challengeIssued: boolean;
-  reportUnlocked: boolean;
+  reportPending: boolean;
+  reportWritten: boolean;
   closingTurnDone: boolean;
+  recordChanged: boolean;
+  textOnlySpent: number;
 }
 
 export function deriveRunProgress(rows: readonly TranscriptRow[]): RunProgress {
+  const epoch = epochRows(rows);
+  const said = (opening: string): boolean =>
+    epoch.some(
+      (r) => r.kind === "system_reminder" && r.content.includes(opening),
+    );
   return {
-    evidenceGathered: highestEvidenceNumber(rows) > 0,
-    challengeIssued: spentOn(rows, FALSIFICATION_MESSAGE) > 0,
-    reportUnlocked: reportPending(rows),
-    closingTurnDone: spentOn(rows, CLOSING_MESSAGE) > 0,
+    firstTurnSettled: firstTurnSettled(rows),
+    openingSaid: said(CANDIDATES_OPENING_MESSAGE),
+    challengeIssued: said(FALSIFICATION_MESSAGE),
+    reportPending: reportPending(epoch),
+    reportWritten: reportWritten(epoch),
+    closingTurnDone: said(CLOSING_MESSAGE),
+    recordChanged: recordChanged(epoch),
+    textOnlySpent: spentOn(epoch, TEXT_ONLY_PREFIX),
   };
 }
 

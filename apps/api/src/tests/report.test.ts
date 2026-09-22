@@ -22,11 +22,11 @@ import {
   gatedCalls,
   isCitable,
   recordGaps,
-  reportIsBehind,
   resolveEvidence,
   toolCallsIn,
 } from "../agent/report.js";
 import { REPORT_TOOLS, COMPOSE_REPORT_TOOL } from "../agent/tools/report.js";
+import { REOPEN_MESSAGE } from "../agent/prompts/report.js";
 import { buildSeed } from "../session/seed.js";
 import { executeTool } from "../agent/tools/toolset.js";
 import { getRecord } from "../session/record-store.js";
@@ -1099,7 +1099,7 @@ describe("the investigation record", () => {
     }
     function closePrompts(index = 0): string[] {
       return harnessMessages(index).filter((m) =>
-        m.includes("Your investigation is still open"),
+        m.includes("Your last reply called no tool"),
       );
     }
     function reportRequests(index = 0): string[] {
@@ -1229,7 +1229,6 @@ describe("the investigation record", () => {
         createContractFakeProvider([
           ...recordTurn("root_cause"),
           closeTurn(),
-          closeTurn(),
           submitTurn(),
           CLOSING_TURN,
         ]),
@@ -1255,7 +1254,6 @@ describe("the investigation record", () => {
       mockCreateProvider.mockImplementationOnce(() =>
         createContractFakeProvider([
           ...recordTurn("root_cause"),
-          closeTurn(),
           closeTurn(),
           submitTurn(),
           CLOSING_TURN,
@@ -1300,20 +1298,20 @@ describe("the investigation record", () => {
 
       const requests = closePrompts();
       expect(requests).toHaveLength(3);
-      expect(requests[0]).toContain("A turn that calls no tool");
+      expect(requests[0]).toContain("Open your candidates now");
       // No write-up: the run never reached the record, let alone the report.
       expect(reportRequests()).toHaveLength(0);
       expect((await getRecord(sessionId))?.report ?? null).toBeNull();
-      // Four turns asked for, three answered with a prompt, then the closing one.
+      // One gathering turn, three opening nudges, one stand-down, then the closing.
       const provider = mockCreateProvider.mock.results[0]!.value as {
         chat: ReturnType<typeof vi.fn>;
       };
-      expect(provider.chat).toHaveBeenCalledTimes(5);
+      expect(provider.chat).toHaveBeenCalledTimes(6);
 
       // Neither the prompts nor the alert briefing NightWarden opened with is
       // drawn: the user sees one conversation, with the agent.
       const drawn = JSON.stringify(await buildTranscript(sessionId));
-      expect(drawn).not.toContain("Your investigation is still open");
+      expect(drawn).not.toContain("Your last reply called no tool");
       expect(drawn).not.toContain("Your investigation is over");
       expect(drawn).not.toContain("<alert>");
     });
@@ -1394,7 +1392,6 @@ describe("the investigation record", () => {
         createContractFakeProvider([
           ...recordTurn("root_cause"),
           closeTurn(),
-          closeTurn(),
           { toolUses: [], text: "", stopReason: "length" },
         ]),
       );
@@ -1421,18 +1418,17 @@ describe("the investigation record", () => {
       const provider = mockCreateProvider.mock.results[0]!.value as {
         chat: ReturnType<typeof vi.fn>;
       };
-      expect(provider.chat).toHaveBeenCalledTimes(6);
+      expect(provider.chat).toHaveBeenCalledTimes(5);
       expect(reportRequests()).toHaveLength(1);
     });
 
     // A follow-up writes over the same column, so the request carries what it
     // replaces: without it the model rewrites from a possibly compacted context.
-    it("shows a second run the report it is replacing, as its own prior work", async () => {
+    it("shows a reopened run the report it is replacing, as its own prior work", async () => {
       mockCreateProvider
         .mockImplementationOnce(() =>
           createContractFakeProvider([
             ...recordTurn("root_cause"),
-            closeTurn(),
             closeTurn(),
             submitTurn("free up the disk"),
             CLOSING_TURN,
@@ -1455,10 +1451,11 @@ describe("the investigation record", () => {
       // The first run has nothing to revise, so it is shown nothing.
       expect(reportRequests()[0]).not.toContain("previous-report");
 
+      // A reopen, not a plain follow-up, is what returns the run to the record.
       await runSession({
         sessionId,
         seed: await buildSeed(sessionId),
-        userMessage: "is it fixed?",
+        systemReminder: REOPEN_MESSAGE,
       });
 
       const second = harnessMessages(1).find((m) =>
@@ -1480,7 +1477,6 @@ describe("the investigation record", () => {
         .mockImplementationOnce(() =>
           createContractFakeProvider([
             ...recordTurn("root_cause"),
-            closeTurn(),
             closeTurn(),
             submitTurn("free up the disk"),
             CLOSING_TURN,
@@ -1511,103 +1507,38 @@ describe("the investigation record", () => {
       });
     });
 
-    /* Coverage is stamped by the write that stores the report, so a failed turn
-       leaves the last good one standing and the next run sees the gap. */
-    it("rewrites for a follow-up run whose own write-up was refused", async () => {
-      mockCreateProvider
-        .mockImplementationOnce(() =>
-          createContractFakeProvider([
-            ...recordTurn("root_cause"),
-            closeTurn(),
-            closeTurn(),
-            submitTurn("free up the disk"),
-            CLOSING_TURN,
-          ]),
-        )
-        // Records a second claim, then malforms every submission it is asked for.
-        .mockImplementationOnce(() =>
-          createContractFakeProvider([
-            ...recordTurn("root_cause", false),
-            closeTurn(),
-            ...Array.from({ length: 5 }, () => ({
-              toolUses: [
-                {
-                  toolCallId: `bad-${randomUUID()}`,
-                  name: "ComposeReport" as const,
-                  input: { headline: "" },
-                },
-              ],
-              text: "",
-            })),
-          ]),
-        )
-        .mockImplementationOnce(() =>
-          createContractFakeProvider([
-            closeTurn(),
-            submitTurn("add a volume"),
-            CLOSING_TURN,
-          ]),
-        );
+    // A malformed write-up refuses whole, so the run gives up once its attempts
+    // are spent, and the record it settled stands rather than a half report.
+    it("gives up the write-up after its attempts are spent, leaving the record", async () => {
+      mockCreateProvider.mockImplementationOnce(() =>
+        createContractFakeProvider([
+          ...recordTurn("root_cause"),
+          closeTurn(),
+          ...Array.from({ length: 5 }, () => ({
+            toolUses: [
+              {
+                toolCallId: `bad-${randomUUID()}`,
+                name: "ComposeReport" as const,
+                input: { headline: "" },
+              },
+            ],
+            text: "",
+          })),
+        ]),
+      );
       const sessionId = randomUUID();
       await seedAlertSession(buildSessionMeta(sessionId, null, undefined), [
         alert("refused-writeup"),
       ]);
 
-      await runSession({ sessionId, alerts: [alert("refused-writeup")] });
-      await runSession({
+      const outcome = await runSession({
         sessionId,
-        seed: await buildSeed(sessionId),
-        userMessage: "is it fixed?",
+        alerts: [alert("refused-writeup")],
       });
-
-      // The second run's claim is on the record and its write-up never landed,
-      // so the stamp still names the first run's.
-      expect((await getRecord(sessionId))!.report).toMatchObject({
-        recommendation: "free up the disk",
-        findingsCoveredUpTo: "f2",
-      });
-
-      await runSession({
-        sessionId,
-        seed: await buildSeed(sessionId),
-        userMessage: "and now?",
-      });
-
-      // A third run is told it is behind rather than keeping a write-up that
-      // never accounted for the second run's findings.
-      expect((await getRecord(sessionId))!.report).toMatchObject({
-        recommendation: "add a volume",
-        findingsCoveredUpTo: "f4",
-      });
-    });
-
-    // A released write puts the write-up behind even when no claim moved: the
-    // report renders what ran, so it would otherwise omit it.
-    it("rewrites for a run that released a write and settled nothing new", async () => {
-      const sessionId = randomUUID();
-      await seedAlertSession(buildSessionMeta(sessionId, null, undefined), [
-        alert("write-only"),
-      ]);
-      mockCreateProvider.mockImplementationOnce(() =>
-        createContractFakeProvider([
-          ...recordTurn("root_cause"),
-          closeTurn(),
-          closeTurn(),
-          submitTurn("raise the pool"),
-          CLOSING_TURN,
-        ]),
-      );
-      await runSession({ sessionId, alerts: [alert("write-only")] });
-
-      const before = (await getRecord(sessionId))!.report!;
-      expect(before.writesCoveredUpTo).toBe(0);
-      expect(
-        reportIsBehind(
-          (await getRecord(sessionId))!,
-          before.writesCoveredUpTo + 1,
-        ),
-      ).toBe(true);
-      expect(reportIsBehind((await getRecord(sessionId))!, 0)).toBe(false);
+      expect(outcome).toBe("completed");
+      // No write-up landed, but every finding the run settled is still on record.
+      expect((await getRecord(sessionId))!.report).toBeNull();
+      expect((await getRecord(sessionId))!.findings.length).toBeGreaterThan(0);
     });
 
     /* Asked over calls that answered and questioned the system: a refused call
@@ -1649,7 +1580,6 @@ describe("the investigation record", () => {
             readTurn(),
             ...recordTurn("root_cause"),
             closeTurn(),
-            closeTurn(),
             submitTurn(),
             CLOSING_TURN,
           ]),
@@ -1675,7 +1605,6 @@ describe("the investigation record", () => {
             readTurn(),
             readTurn(),
             readTurn(),
-            closeTurn(),
             closeTurn(),
             submitTurn(),
             CLOSING_TURN,
@@ -1704,7 +1633,6 @@ describe("the investigation record", () => {
         )
         .mockImplementationOnce(() =>
           createContractFakeProvider([
-            closeTurn(),
             closeTurn(),
             submitTurn("free up the disk"),
             CLOSING_TURN,
@@ -1739,7 +1667,6 @@ describe("the investigation record", () => {
           createContractFakeProvider([
             ...recordTurn("root_cause"),
             // Close, the challenge, close again, then a lost write-up turn.
-            closeTurn(),
             closeTurn(),
             { toolUses: [], text: "", stopReason: "length" },
           ]),
@@ -1780,7 +1707,6 @@ describe("the investigation record", () => {
       mockCreateProvider.mockImplementationOnce(() =>
         createContractFakeProvider([
           ...recordTurn("disproven"),
-          closeTurn(),
           closeTurn(),
           submitTurn("watch the disk for another day"),
           CLOSING_TURN,
@@ -1856,7 +1782,6 @@ describe("the investigation record", () => {
         mockCreateProvider.mockImplementationOnce(() =>
           createContractFakeProvider([
             ...recordTurn("disproven"),
-            closeTurn(),
             closeTurn(),
             ...extra,
             CLOSING_TURN,

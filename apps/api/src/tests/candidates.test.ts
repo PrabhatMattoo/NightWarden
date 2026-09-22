@@ -202,7 +202,6 @@ describe("candidates, the frontier and falsification", () => {
         findingTurn("root_cause", POOL.statement, { candidate: "c1" }),
         findingTurn("disproven", PG.statement, { candidate: "c2" }),
         closeTurn(),
-        closeTurn(),
         submitTurn,
         closingTurn,
       ]),
@@ -223,15 +222,50 @@ describe("candidates, the frontier and falsification", () => {
     expect(frontier[0]).toContain("c2");
   });
 
-  it("refuses a close while a candidate is left untested", async () => {
+  it("refuses a close that races candidates opened in the same turn", async () => {
+    // Falsification opens deeper candidates and closes in one turn: the record
+    // tools run in order, so the close sees the new candidates and names them.
+    const mixed = () => ({
+      toolUses: [
+        {
+          toolCallId: `tu-open-${randomUUID()}`,
+          name: "OpenCandidates",
+          input: {
+            candidates: [
+              {
+                statement: "the pool ceiling was set too low",
+                ifTrue: "the ceiling sits below peak demand",
+                ifFalse: "the ceiling sits above peak demand",
+              },
+              {
+                statement: "a client leaked connections",
+                ifTrue: "one client holds connections it never returns",
+                ifFalse: "every client returns its connections",
+              },
+            ],
+          },
+        },
+        {
+          toolCallId: `tu-close-${randomUUID()}`,
+          name: "CloseInvestigation",
+          input: {},
+        },
+      ],
+      text: "",
+    });
     mockCreateProvider.mockImplementationOnce(() =>
       createContractFakeProvider([
         readTurn(),
         openTurn([POOL, PG]),
         findingTurn("root_cause", POOL.statement, { candidate: "c1" }),
-        closeTurn(),
         findingTurn("disproven", PG.statement, { candidate: "c2" }),
-        closeTurn(),
+        mixed(),
+        findingTurn("disproven", "the pool ceiling was set too low", {
+          candidate: "c3",
+        }),
+        findingTurn("disproven", "a client leaked connections", {
+          candidate: "c4",
+        }),
         closeTurn(),
         submitTurn,
         closingTurn,
@@ -254,7 +288,7 @@ describe("candidates, the frontier and falsification", () => {
       result.includes("candidates you have not settled"),
     );
     expect(named).toHaveLength(1);
-    expect(named[0]).toContain("c2");
+    expect(named[0]).toContain("c3");
     expect((await getRecord(id))!.report).not.toBeNull();
   });
 
@@ -267,7 +301,6 @@ describe("candidates, the frontier and falsification", () => {
         openTurn([POOL, PG]),
         findingTurn("root_cause", POOL.statement, { candidate: "c1" }),
         findingTurn("disproven", PG.statement, { candidate: "c2" }),
-        closeTurn(),
         closeTurn(),
         submitTurn,
         closingTurn,
@@ -302,7 +335,6 @@ describe("candidates, the frontier and falsification", () => {
         findingTurn("root_cause", POOL.statement, { candidate: "c1" }),
         findingTurn("disproven", PG.statement, { candidate: "c2" }),
         closeTurn(),
-        closeTurn(),
         submitTurn,
         closingTurn,
       ]),
@@ -319,9 +351,8 @@ describe("candidates, the frontier and falsification", () => {
       [POOL.statement, "root_cause"],
       [PG.statement, "disproven"],
     ]);
-    /* Both calls keep their row. Committing to what to test is the work as much
-       as settling it is, and dropping the opening left two blocks of reasoning
-       adjacent with nothing between them to explain the jump. */
+    /* Both calls keep their row: committing to what to test is work too, and
+       dropping the opening leaves two blocks of reasoning unexplained. */
     const toolNames = items.flatMap((i) =>
       i.kind === "tool_call" ? [i.toolName] : [],
     );
@@ -338,7 +369,6 @@ describe("candidates, the frontier and falsification", () => {
         openTurn([POOL, PG]),
         findingTurn("root_cause", POOL.statement, { candidate: "c1" }),
         findingTurn("disproven", PG.statement, { candidate: "c2" }),
-        closeTurn(),
         closeTurn(),
         submitTurn,
         closingTurn,
@@ -364,7 +394,6 @@ describe("candidates, the frontier and falsification", () => {
         findingTurn("trigger", POOL.statement, { candidate: "c1" }),
         findingTurn("disproven", PG.statement, { candidate: "c2" }),
         findingTurn("root_cause", POOL.statement, { candidate: "c1" }),
-        closeTurn(),
         closeTurn(),
         submitTurn,
         closingTurn,

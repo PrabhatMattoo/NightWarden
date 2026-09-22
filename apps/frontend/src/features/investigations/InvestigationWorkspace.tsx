@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useMutation } from "@tanstack/react-query";
 import { useNavigate, useParams } from "@tanstack/react-router";
 import {
   ChevronLeft,
@@ -8,6 +9,7 @@ import {
   Minimize2,
   MoreHorizontal,
   PanelRight,
+  RotateCcw,
   Trash2,
 } from "lucide-react";
 
@@ -33,6 +35,7 @@ import { toast } from "@/shared/lib/toast";
 import { readStoredNumber, writeStoredNumber } from "@/shared/lib/persisted";
 import { cssNumber } from "@/shared/lib/cssNumber";
 import { cn } from "@/shared/lib/utils";
+import { apiFetch } from "@/shared/api/client";
 
 // A question about the reader's screen, not this layout, so the width they set
 // on the report panel outlives the session.
@@ -178,6 +181,21 @@ export function InvestigationWorkspace(): React.JSX.Element {
       );
   };
 
+  // Reopening returns a closed investigation to testing with its record intact;
+  // the run itself revises the report from what it finds.
+  const reopen = useMutation({
+    mutationFn: () =>
+      apiFetch<void>(`/api/sessions/${sessionId}/reopen`, { method: "POST" }),
+    onError: (err) =>
+      toast.show({
+        title: "Could not reopen the investigation",
+        message: err instanceof Error ? err.message : "Try again.",
+        variant: "error",
+      }),
+  });
+
+  const canReopen = reportReady && !running;
+
   const closeReport = (): void => {
     setReportOpen(false);
     setMaximized(false);
@@ -218,7 +236,19 @@ export function InvestigationWorkspace(): React.JSX.Element {
             </DropdownMenuContent>
           </DropdownMenu>
 
-          <div className="ml-auto flex shrink-0 items-center gap-1">
+          <div className="ml-auto flex shrink-0 items-center gap-2">
+            {canReopen && (
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={reopen.isPending}
+                onClick={() => reopen.mutate()}
+                className="gap-1.5"
+              >
+                <RotateCcw {...ICON_INLINE} />
+                Reopen investigation
+              </Button>
+            )}
             <QueueStepper sessionId={sessionId} />
             {/* A gap separates this pair from the stepper, which moves between
                 records rather than reshaping the one on screen. */}

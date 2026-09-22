@@ -9,8 +9,11 @@ import {
 } from "@nightwarden/shared/schemas";
 import { parseRequest } from "../request-body.js";
 import { gatedCalls, resolveEvidence, toolCallsIn } from "../agent/report.js";
+import { REOPEN_MESSAGE } from "../agent/prompts/report.js";
+import { deriveRunProgress } from "../agent/loop/guardrails.js";
 import { hasPendingHumanInput } from "./gate-store.js";
 import { getRecord } from "./record-store.js";
+import { getTranscriptRows } from "./transcript-store.js";
 import {
   createSession,
   deleteSession,
@@ -242,6 +245,59 @@ export async function registerSessionRoutes(
           .send({ error: "session is busy: a run is already in flight" });
       }
       logger.info({ sessionId, seeded: seed.length }, "session resumed");
+      return reply.code(202).send({ sessionId });
+    },
+  );
+
+  // The person's call alone, since reopening judges the write-up rather than the
+  // world: the investigation returns to testing with its record intact.
+  fastify.post<{ Params: { id: string } }>(
+    "/sessions/:id/reopen",
+    { preHandler: requireSession },
+    async (request, reply) => {
+      const sessionId = request.params.id;
+      const session = await getSession(sessionId);
+      if (session === undefined) {
+        return reply.code(404).send({ error: "unknown session" });
+      }
+      if (!session.investigation) {
+        return reply
+          .code(400)
+          .send({ error: "a chat has no investigation to reopen" });
+      }
+      const record = await getRecord(sessionId);
+      const { reportWritten, closingTurnDone } = deriveRunProgress(
+        await getTranscriptRows(sessionId),
+      );
+      if (
+        record === undefined ||
+        record.report === null ||
+        !reportWritten ||
+        !closingTurnDone
+      ) {
+        return reply
+          .code(409)
+          .send({ error: "the investigation is not closed" });
+      }
+      // Parked on a human rather than racing, on the same terms as a message.
+      if (await hasPendingHumanInput(sessionId)) {
+        return reply
+          .code(409)
+          .send({ error: "session is busy: awaiting approval" });
+      }
+      const seed = await buildSeed(sessionId);
+      if (
+        !(await dispatcher.dispatch({
+          sessionId,
+          seed,
+          systemReminder: REOPEN_MESSAGE,
+        }))
+      ) {
+        return reply
+          .code(409)
+          .send({ error: "session is busy: a run is already in flight" });
+      }
+      logger.info({ sessionId }, "investigation reopened");
       return reply.code(202).send({ sessionId });
     },
   );

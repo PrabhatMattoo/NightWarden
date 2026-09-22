@@ -231,25 +231,10 @@ export function gatedCalls(entries: readonly ToolCall[]): GatedCall[] {
   });
 }
 
-// Only the released ones: a declined write changed nothing, so it cannot put the
-// write-up behind. Monotonic, since a call already answered never un-answers.
+// Only the released ones: a declined write changed nothing, so the write-up owes
+// it no recommendation. Monotonic, since a call already answered never un-answers.
 export function approvedWriteCount(calls: readonly GatedCall[]): number {
   return calls.filter((c) => c.decision === "approved").length;
-}
-
-/* Compared against the record rather than a clock: the stamp is written by the
-   same transaction as the report, so the two cannot disagree. */
-export function reportIsBehind(
-  record: InvestigationRecord,
-  approvedWrites: number,
-): boolean {
-  const report = record.report;
-  if (report === null) return true;
-  // Findings are append-only, so the last id changing is the whole test.
-  return (
-    (record.findings.at(-1)?.id ?? "") !== report.findingsCoveredUpTo ||
-    approvedWrites !== report.writesCoveredUpTo
-  );
 }
 
 // A list rather than a boolean, so the record-gaps message can name only what
@@ -451,9 +436,6 @@ export async function composeReport(
           ...(entry.lane !== undefined && { lane: entry.lane }),
         };
   });
-  const approvedWrites = approvedWriteCount(gatedCalls(entries));
-  // Stamped inside the transaction, from the record being written against:
-  // counted anywhere else it could name findings this report never saw.
   await amendRecord(sessionId, (record) => ({
     ...record,
     report: {
@@ -464,8 +446,6 @@ export async function composeReport(
       impact: input.impact,
       recommendation: input.recommendation,
       submittedAt: new Date().toISOString(),
-      findingsCoveredUpTo: record.findings.at(-1)?.id ?? "",
-      writesCoveredUpTo: approvedWrites,
     },
   }));
   publishReportUpdated(sessionId);

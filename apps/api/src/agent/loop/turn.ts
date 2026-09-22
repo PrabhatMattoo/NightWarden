@@ -42,10 +42,8 @@ function editDistance(a: string, b: string): number {
   return prev[b.length]!;
 }
 
-/* The real tool name closest to what was asked for, or null when nothing is
-   near. Searched across every name the build has rather than the ones this turn
-   offers: correcting a misspelling and saying what is callable are two jobs, and
-   a phase that withholds a tool has not stopped the name from being wrong. */
+/* The closest real tool name, searched across every name the build has rather
+   than the ones this turn offers: a misspelling and a withheld tool differ. */
 function nearestToolName(wanted: string): string | null {
   let best: string | null = null;
   let bestDistance = Infinity;
@@ -60,6 +58,27 @@ function nearestToolName(wanted: string): string | null {
   return bestDistance <= Math.max(wanted.length, best.length) * 0.4
     ? best
     : null;
+}
+
+// The record tools read and write the one shared record, so a turn runs them in
+// order rather than in the parallel batch the system reads share.
+const RECORD_TOOLS = new Set<string>([
+  "OpenCandidates",
+  "RecordFinding",
+  "CloseInvestigation",
+]);
+
+// The record's tools are withheld by stage, never by a missing connection.
+function recordToolMessage(wanted: string): string | null {
+  switch (wanted) {
+    case "CloseInvestigation":
+      return "CloseInvestigation is not offered on this turn. It becomes available when every candidate carries a finding and the harness has asked you to test your own conclusions.";
+    case "OpenCandidates":
+    case "RecordFinding":
+      return `${wanted} is not offered on this turn. The stage the investigation is in decides which tools are offered, and the stage's own reminder names what it asks for.`;
+    default:
+      return null;
+  }
 }
 
 // Three facts, because one sentence covered both a tool withheld for want of
@@ -170,11 +189,15 @@ export async function processToolUses(params: {
         { tool: tool.name, exists: isToolName(tool.name), asked: asked + 1 },
         "LLM requested unavailable tool",
       );
+      // A record tool is real and connected but withheld by the stage, so it is
+      // answered by stage rather than as a missing runner or integration.
+      const withheld = recordToolMessage(tool.name);
       steps.push({
         kind: "answer",
         result: {
           toolCallId: tool.toolCallId,
-          content: unavailableMessage(tool.name, offeredNames, asked + 1),
+          content:
+            withheld ?? unavailableMessage(tool.name, offeredNames, asked + 1),
           isError: true,
         },
       });
@@ -226,8 +249,12 @@ export async function processToolUses(params: {
     };
   };
 
+  // The record tools read and write the one shared record, so they contend and
+  // run in emission order rather than batched with the system reads.
   const isRead = (step: Step): boolean =>
-    step.kind === "run" && step.tool.effect === "read";
+    step.kind === "run" &&
+    step.tool.effect === "read" &&
+    !RECORD_TOOLS.has(step.call.name);
 
   /* Filled by index, so a result keeps the position its call was emitted in and
      the evidence ids the loop stamps cannot move with the timing. */
