@@ -1,6 +1,8 @@
 // Host facts come from the Docker runner alone: a Kubernetes runner serves a
 // cluster and has no single host to report on.
 
+import type { Coverage } from "./coverage.js";
+
 export interface HostMemoryResult {
   totalBytes: number;
   availableBytes: number;
@@ -46,6 +48,7 @@ export interface HostDmesgResult {
   lines: Array<{ timestamp: string; message: string }>;
   oomEventsFound: boolean;
   fsErrorsFound: boolean;
+  coverage?: Coverage;
 }
 
 export interface HostFileResult {
@@ -53,4 +56,5 @@ export interface HostFileResult {
   lineCount: number;
   path: string;
   redactedLineCount: number;
+  coverage?: Coverage;
 }

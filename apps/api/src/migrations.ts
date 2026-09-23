@@ -127,6 +127,14 @@ CREATE TABLE IF NOT EXISTS session_transcript (
   PRIMARY KEY (session_id, seq)
 );
 
+-- A citable result past the ceiling, kept whole so the agent can page through it.
+CREATE TABLE IF NOT EXISTS tool_result_store (
+  session_id     TEXT     NOT NULL REFERENCES sessions(session_id) ON DELETE CASCADE,
+  tool_call_id   TEXT     NOT NULL,
+  content        TEXT     NOT NULL,
+  PRIMARY KEY (session_id, tool_call_id)
+);
+
 
 -- Better Auth's own four tables, shaped by what its getMigrations emits. It
 -- writes dates as ISO strings and booleans as 0/1.

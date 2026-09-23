@@ -287,7 +287,7 @@ describe("metrics tools through the tool dispatch", () => {
     expect(windowMs).toBe((10_080 + 30) * 60_000);
     const content = parsedContent<MetricsRangeResult>(result);
     expect(content.series).toHaveLength(20);
-    expect(content.seriesOmitted).toBe(5);
+    expect(content.coverage).toMatchObject({ shown: 20, total: 25 });
   });
 
   /* Twenty series is a count, not a size: at the step this tool asks for, each
@@ -309,7 +309,11 @@ describe("metrics tools through the tool dispatch", () => {
 
     const content = parsedContent<MetricsRangeResult>(result);
     expect(content.series.length).toBeLessThan(20);
-    expect(content.seriesOmitted).toBe(20 - content.series.length);
+    expect(content.coverage).toMatchObject({
+      shown: content.series.length,
+      total: 20,
+      kept: "first",
+    });
     // Each series that survived kept every point, so the shape it draws is the
     // one Prometheus returned rather than a truncated curve.
     for (const s of content.series) expect(s.values).toHaveLength(200);

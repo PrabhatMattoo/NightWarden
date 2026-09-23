@@ -1001,6 +1001,30 @@ describe("Kubernetes runner command handlers", () => {
       expect(result.note).toContain("carry no timestamp");
     });
 
+    it("keeps the newest events that fit and says how many it left out", async () => {
+      const burst = Array.from({ length: 130 }, (_, i) => ({
+        ...POD_EVENT,
+        reason: `BackOff-${i}`,
+        lastTimestamp: minutesAgo(50 - i * 0.3),
+      }));
+      mockCoreApi.listNamespacedEvent.mockResolvedValue({ items: burst });
+
+      const result = (await getWorkloadEvents({
+        service: K8S_SERVICE,
+      })) as {
+        events: Array<{ reason: string }>;
+        coverage?: { shown: number; total: number; kept: string };
+      };
+
+      expect(result.events.at(-1)?.reason).toBe("BackOff-129");
+      expect(result.events.length).toBeLessThanOrEqual(100);
+      expect(result.coverage).toMatchObject({
+        shown: result.events.length,
+        total: 130,
+        kept: "newest",
+      });
+    });
+
     // A busy namespace unfiltered is thousands of events, refused whole at the
     // result ceiling, so the tool answers nothing at the wrong moment.
     it("asks the apiserver to narrow by type before the wire", async () => {

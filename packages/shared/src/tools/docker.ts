@@ -2,6 +2,7 @@
 // so they live beside the validation in ../schemas/docker-commands.ts.
 
 import type { LogLine } from "./common.js";
+import type { Coverage } from "./coverage.js";
 
 export interface DockerContainerInstance {
   name: string;
@@ -29,6 +30,8 @@ export interface DockerLogsResult {
   scannedLines: number;
   // The scan filled its tail, so older lines exist that it never looked at.
   scanHitTail: boolean;
+  // Matching lines past the size budget, the oldest left out first.
+  coverage?: Coverage;
   note: string;
 }
 
@@ -70,6 +73,7 @@ export interface DockerEvent {
 }
 export interface DockerEventsResult {
   events: DockerEvent[];
+  coverage?: Coverage;
 }
 
 export interface DockerProcess {

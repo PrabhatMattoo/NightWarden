@@ -18,6 +18,8 @@ export {
   parseTargetKey,
 } from "./service-identity.js";
 export type { LogLine, NotFoundResult, FleetResult } from "./tools/common.js";
+export type { Coverage, CoverageKept } from "./tools/coverage.js";
+export { coverageOf, fitList, ITEM_BUDGET_CHARS } from "./tools/coverage.js";
 export type {
   DockerContainerInstance,
   DockerServiceListResult,

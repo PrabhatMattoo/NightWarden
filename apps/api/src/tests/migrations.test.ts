@@ -43,6 +43,7 @@ describe("the migration runner", () => {
       "schema_migrations",
       "session_transcript",
       "sessions",
+      "tool_result_store",
       "user",
       "verification",
     ]);

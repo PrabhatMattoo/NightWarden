@@ -1,12 +1,13 @@
 import { execFile } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { promisify } from "node:util";
-import type {
-  HostCpuResult,
-  HostDiskResult,
-  HostDmesgResult,
-  HostMemoryResult,
-  HostNetworkResult,
+import {
+  fitList,
+  type HostCpuResult,
+  type HostDiskResult,
+  type HostDmesgResult,
+  type HostMemoryResult,
+  type HostNetworkResult,
 } from "@nightwarden/shared";
 import type { HostDmesgInput } from "@nightwarden/shared/schemas";
 
@@ -225,7 +226,14 @@ export async function getHostDmesg(
     exec("dmesg", ["-T"]),
   );
 
-  const slice = stdout.trim().split("\n").filter(Boolean).slice(-tailLines);
+  const all = stdout.trim().split("\n").filter(Boolean);
+  const { items: slice, coverage } = fitList(all, {
+    keep: "end",
+    max: tailLines,
+    kept: "newest",
+    noun: "kernel log lines",
+    reach: "Raise tailLines, or narrow filterLevel, to read further back.",
+  });
 
   let oomEventsFound = false;
   let fsErrorsFound = false;
@@ -246,5 +254,10 @@ export async function getHostDmesg(
     return { timestamp: tsMatch ? tsMatch[1]! : "", message };
   });
 
-  return { lines, oomEventsFound, fsErrorsFound };
+  return {
+    lines,
+    oomEventsFound,
+    fsErrorsFound,
+    ...(coverage && { coverage }),
+  };
 }

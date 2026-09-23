@@ -1,7 +1,7 @@
 import { PassThrough } from "node:stream";
 import { setHeaderOptions } from "@kubernetes/client-node";
 import type * as k8s from "@kubernetes/client-node";
-import { kubernetesWorkloadKey } from "@nightwarden/shared";
+import { fitList, kubernetesWorkloadKey } from "@nightwarden/shared";
 import type {
   K8sExecResult,
   K8sConfigResult,
@@ -194,11 +194,19 @@ export async function getWorkloadLogs(
     matchesFilter(entry.line, input.contains ?? [], input.excludes ?? []),
   );
   const scanHitTail = scanned.length >= tailLines;
+  const fitted = fitList(lines, {
+    keep: "end",
+    kept: "newest",
+    noun: "matching lines",
+    reach:
+      "Narrow contains, or lower tailLines with since, to read the older ones.",
+  });
 
   return {
-    lines,
+    lines: fitted.items,
     scannedLines: scanned.length,
     scanHitTail,
+    ...(fitted.coverage && { coverage: fitted.coverage }),
     note: logScanNote(scanned.length, lines.length, tailLines, scanHitTail),
     podName: resolved.podName,
     containerName: resolved.containerName ?? null,
@@ -297,10 +305,7 @@ export async function getWorkloadStats(
     metricsAvailable = false;
   }
 
-  const shown = podList.items.slice(0, MAX_PODS_REPORTED);
-  const omitted = podList.items.length - shown.length;
-
-  const pods: K8sPodStats[] = shown.map((pod) => {
+  const all: K8sPodStats[] = podList.items.map((pod) => {
     const podName = pod.metadata?.name ?? "";
     const usage = usageByPod.get(podName);
     const statuses = new Map(
@@ -318,13 +323,20 @@ export async function getWorkloadStats(
       ),
     };
   });
+  const { items: pods, coverage } = fitList(all, {
+    keep: "start",
+    max: MAX_PODS_REPORTED,
+    kept: "first",
+    noun: "pods",
+    reach: "Read the pods left out through their own logs and events.",
+  });
 
   return {
     workload: service.workload,
     namespace: service.namespace,
     metricsAvailable,
     pods,
-    ...(omitted > 0 && { podsOmitted: omitted }),
+    ...(coverage && { coverage }),
   };
 }
 
@@ -383,14 +395,19 @@ export async function getWorkloadEvents(
   const matched = inWindow.sort(
     (a, b) => (eventTime(a) ?? 0) - (eventTime(b) ?? 0),
   );
-  const shown = matched.slice(-MAX_EVENTS_REPORTED);
-  const omitted = matched.length - shown.length;
+  const { items: shown, coverage } = fitList(matched.map(normalizeEvent), {
+    keep: "end",
+    max: MAX_EVENTS_REPORTED,
+    kept: "newest",
+    noun: "events",
+    reach: "Lower sinceMinutes, or set warningsOnly, to read the older ones.",
+  });
 
   return {
     workload: service.workload,
     namespace: service.namespace,
-    events: shown.map(normalizeEvent),
-    ...(omitted > 0 && { eventsOmitted: omitted }),
+    events: shown,
+    ...(coverage && { coverage }),
     warningsOnly,
     sinceMinutes,
     note: eventScopeNote({

@@ -3,6 +3,7 @@
 
 import type { K8sWorkloadKind } from "../service-identity.js";
 import type { LogLine } from "./common.js";
+import type { Coverage } from "./coverage.js";
 
 export interface K8sWorkloadInstance {
   name: string;
@@ -33,6 +34,8 @@ export interface K8sLogsResult {
   scannedLines: number;
   // The scan filled its tail, so older lines exist that it never looked at.
   scanHitTail: boolean;
+  // Matching lines past the size budget, the oldest left out first.
+  coverage?: Coverage;
   note: string;
   podName: string;
   containerName: string | null;
@@ -120,7 +123,7 @@ export interface K8sStatsResult {
   // requests, limits and restart counts still carry.
   metricsAvailable: boolean;
   pods: K8sPodStats[];
-  podsOmitted?: number;
+  coverage?: Coverage;
 }
 
 export interface K8sEvent {
@@ -141,7 +144,7 @@ export interface K8sEventsResult {
   namespace: string;
   // The workload's own events plus its pods', oldest first.
   events: K8sEvent[];
-  eventsOmitted?: number;
+  coverage?: Coverage;
   warningsOnly: boolean;
   sinceMinutes: number;
   note: string;

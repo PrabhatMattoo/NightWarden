@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { fitList, type Coverage } from "@nightwarden/shared";
 import {
   MetricsApiError,
   alertingRules,
@@ -22,7 +23,7 @@ import type { Tool, ToolExecuteResult } from "./types.js";
 interface MetricsQueryResult {
   resultType: string;
   series: MetricsSeries[];
-  seriesOmitted?: number;
+  coverage?: Coverage;
   note?: string;
 }
 
@@ -34,13 +35,13 @@ export interface MetricsRangeResult extends MetricsQueryResult {
 
 interface MetricNamesResult {
   names: string[];
-  namesOmitted?: number;
+  coverage?: Coverage;
   note: string;
 }
 
 interface AlertRulesResult {
   rules: AlertingRule[];
-  rulesOmitted?: number;
+  coverage?: Coverage;
 }
 
 const DEFAULT_LOOKBACK_MINUTES = 180;
@@ -76,8 +77,13 @@ function nonFiniteIn(series: MetricsSeries[]): string[] {
 // Capped by count, then by size: a range query returns twenty series of two
 // hundred points each, which is several times what one result may occupy.
 function capSeries(data: MetricsQueryData): MetricsQueryResult {
-  const initialOmitted = Math.max(0, data.series.length - MAX_SERIES);
-  const kept = data.series.slice(0, MAX_SERIES);
+  const { items: kept, coverage } = fitList(data.series, {
+    keep: "start",
+    max: MAX_SERIES,
+    kept: "first",
+    noun: "series",
+    reach: "Aggregate with sum by or topk to fit the series that matter.",
+  });
   const notes = [
     ...data.warnings.map(
       (warning) =>
@@ -97,7 +103,7 @@ function capSeries(data: MetricsQueryData): MetricsQueryResult {
   return {
     resultType: data.resultType,
     series: kept,
-    ...(initialOmitted > 0 && { seriesOmitted: initialOmitted }),
+    ...(coverage && { coverage }),
     ...(notes.length > 0 && { note: notes.join(" ") }),
   };
 }
@@ -230,7 +236,6 @@ export const METRICS_TOOLS: Tool[] = [
     citable: true,
     renderAs: "metric",
     timeoutMs: 30_000,
-    trimmable: { field: "series", end: "tail", omittedField: "seriesOmitted" },
     execute: async (input, ctx): Promise<ToolExecuteResult> => {
       const source = await resolveMetricsSource();
       if (!isSource(source)) return source;
@@ -269,7 +274,6 @@ export const METRICS_TOOLS: Tool[] = [
     citable: true,
     renderAs: "metric",
     timeoutMs: 30_000,
-    trimmable: { field: "series", end: "tail", omittedField: "seriesOmitted" },
     execute: async (input, ctx): Promise<ToolExecuteResult> => {
       const source = await resolveMetricsSource();
       if (!isSource(source)) return source;
@@ -358,11 +362,16 @@ export const METRICS_TOOLS: Tool[] = [
             content: `No metric names matched. ${searched} Widen the substring, or drop it to see what this source stores at all.`,
           };
         }
+        const { items: shown, coverage } = fitList(names, {
+          keep: "start",
+          max: MAX_METRIC_NAMES,
+          kept: "first",
+          noun: "metric names",
+          reach: "Narrow the substring to list the ones left out.",
+        });
         const result: MetricNamesResult = {
-          names: names.slice(0, MAX_METRIC_NAMES),
-          ...(names.length > MAX_METRIC_NAMES && {
-            namesOmitted: names.length - MAX_METRIC_NAMES,
-          }),
+          names: shown,
+          ...(coverage && { coverage }),
           note: searched,
         };
         return { content: result };
@@ -421,7 +430,6 @@ export const METRICS_TOOLS: Tool[] = [
     citable: true,
     renderAs: "text",
     timeoutMs: 30_000,
-    trimmable: { field: "rules", end: "tail", omittedField: "rulesOmitted" },
     execute: async (input, ctx): Promise<ToolExecuteResult> => {
       const source = await resolveMetricsSource();
       if (!isSource(source)) return source;
@@ -449,11 +457,16 @@ export const METRICS_TOOLS: Tool[] = [
                 : `No alerting rule name contains "${contains}".`,
           };
         }
-        const initialOmitted = Math.max(0, matched.length - MAX_ALERT_RULES);
-        const kept = matched.slice(0, MAX_ALERT_RULES);
+        const { items: kept, coverage } = fitList(matched, {
+          keep: "start",
+          max: MAX_ALERT_RULES,
+          kept: "first",
+          noun: "alerting rules",
+          reach: "Pass contains to narrow the rules to the one that fired.",
+        });
         const result: AlertRulesResult = {
           rules: kept,
-          ...(initialOmitted > 0 && { rulesOmitted: initialOmitted }),
+          ...(coverage && { coverage }),
         };
         return { content: result };
       } catch (err) {

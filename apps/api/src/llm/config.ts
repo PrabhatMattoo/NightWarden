@@ -38,6 +38,9 @@ export const CATALOG_TIMEOUT_MS = 10_000;
 // Claude Code's Bash tool and OpenHands' runtime arrived at the same figure.
 export const MAX_TOOL_RESULT_CHARS = 30_000;
 
+// A result past the ceiling is kept whole for paging, up to this much.
+export const MAX_STORED_RESULT_CHARS = 2_000_000;
+
 export const DEFAULT_SANDBOX_IDLE_TIMEOUT_MS = 60 * 60_000;
 export const DEFAULT_SANDBOX_CPUS = 2;
 export const DEFAULT_SANDBOX_MEMORY_MB = 4096;

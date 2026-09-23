@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { fitList, type Coverage } from "@nightwarden/shared";
 import { getSentryIntegration } from "../../integrations/store.js";
 import {
   SentryApiError,
@@ -157,7 +158,7 @@ export interface SentryIssuesResult {
   query: string;
   sort: string;
   nextCursor: string | null;
-  issuesOmitted?: number;
+  coverage?: Coverage;
   note: string;
 }
 
@@ -208,6 +209,7 @@ export interface SentryEventResult {
   tags: Array<{ key: string | null; value: string | null }>;
   formatted?: string;
   entries?: unknown[];
+  coverage?: Coverage;
   vendorFramesDropped?: number;
   note: string;
 }
@@ -256,7 +258,7 @@ export interface SentryReleasesResult {
   alertFiredAt: string;
   projectsSearched: string;
   nextCursor: string | null;
-  releasesOmitted?: number;
+  coverage?: Coverage;
   note: string;
 }
 
@@ -422,7 +424,6 @@ export const SENTRY_TOOLS: Tool[] = [
     citable: true,
     renderAs: "exception",
     timeoutMs: 30_000,
-    trimmable: { field: "issues", end: "tail", omittedField: "issuesOmitted" },
     execute: async (input, ctx): Promise<ToolExecuteResult> => {
       const conn = await connection();
       if (conn === null) return notConfigured();
@@ -446,7 +447,12 @@ export const SENTRY_TOOLS: Tool[] = [
           end,
           cursor: cursor ?? null,
         });
-        const issues = page.rows.map(toIssue);
+        const { items: issues, coverage } = fitList(page.rows.map(toIssue), {
+          keep: "start",
+          kept: "first",
+          noun: "issues",
+          reach: "Narrow the query or lower limit.",
+        });
         const notes: string[] = [
           "count and userCount are Sentry's totals for the issue; inWindow holds the counts restricted to the window searched, and is null when Sentry did not narrow them.",
         ];
@@ -477,6 +483,7 @@ export const SENTRY_TOOLS: Tool[] = [
           query,
           sort,
           nextCursor: page.nextCursor,
+          ...(coverage && { coverage }),
           note: notes.join(" "),
         };
         return { content: result };
@@ -495,11 +502,6 @@ export const SENTRY_TOOLS: Tool[] = [
     citable: true,
     renderAs: "exception",
     timeoutMs: 30_000,
-    trimmable: {
-      field: "entries",
-      end: "tail",
-      omittedField: "entriesOmitted",
-    },
     execute: async (input, ctx): Promise<ToolExecuteResult> => {
       const conn = await connection();
       if (conn === null) return notConfigured();
@@ -517,11 +519,20 @@ export const SENTRY_TOOLS: Tool[] = [
         const formatted = str(event, "formatted");
         const notes: string[] = [];
         let entries: unknown[] | undefined;
+        let entriesCoverage: Coverage | undefined;
         let vendorFramesDropped: number | undefined;
 
         if (formatted === null) {
           const trimmed = trimFrames(list(event, "entries"));
-          entries = trimmed.entries;
+          const fitted = fitList(trimmed.entries, {
+            keep: "start",
+            kept: "first",
+            noun: "sections of this event",
+            reach:
+              "Read the rest in Sentry itself; no argument narrows one event.",
+          });
+          entries = fitted.items;
+          entriesCoverage = fitted.coverage;
           vendorFramesDropped = trimmed.dropped;
         }
         if (release === null) {
@@ -554,6 +565,7 @@ export const SENTRY_TOOLS: Tool[] = [
           })),
           ...(formatted !== null && { formatted }),
           ...(entries !== undefined && { entries }),
+          ...(entriesCoverage && { coverage: entriesCoverage }),
           ...(vendorFramesDropped !== undefined && { vendorFramesDropped }),
           note: notes.join(" "),
         };
@@ -573,7 +585,6 @@ export const SENTRY_TOOLS: Tool[] = [
     citable: true,
     renderAs: "text",
     timeoutMs: 30_000,
-    trimmable: { field: "values", end: "tail", omittedField: "valuesOmitted" },
     execute: async (input, ctx): Promise<ToolExecuteResult> => {
       const conn = await connection();
       if (conn === null) return notConfigured();
@@ -588,24 +599,28 @@ export const SENTRY_TOOLS: Tool[] = [
           key,
           environments,
         );
-        const values = raw.slice(0, MAX_TAG_VALUES).map((row) => ({
-          value: str(row, "value"),
-          count: num(row, "count"),
-          firstSeen: str(row, "firstSeen"),
-          lastSeen: str(row, "lastSeen"),
-        }));
-        const omitted = Math.max(0, raw.length - MAX_TAG_VALUES);
+        const { items: values, coverage } = fitList(
+          raw.map((row) => ({
+            value: str(row, "value"),
+            count: num(row, "count"),
+            firstSeen: str(row, "firstSeen"),
+            lastSeen: str(row, "lastSeen"),
+          })),
+          {
+            keep: "start",
+            max: MAX_TAG_VALUES,
+            kept: "first",
+            noun: "values, ranked by Sentry",
+            reach:
+              "The ones left out are the rarest; filter by environment to see others.",
+          },
+        );
         const notes = [
           `These counts cover the whole life of the issue, not the window around the alert: Sentry accepts no time range on this call. Read firstSeen and lastSeen on each value before treating any of it as concurrent with the alert.`,
         ];
         if (values.length === 0) {
           notes.push(
             `No values recorded for the tag "${key}" on this issue, which means the tag was never set on its events rather than that the issue is narrow.`,
-          );
-        }
-        if (omitted > 0) {
-          notes.push(
-            `${omitted} further value(s) are not shown; the ones here are the ones Sentry ranked first.`,
           );
         }
         const result = {
@@ -617,7 +632,7 @@ export const SENTRY_TOOLS: Tool[] = [
             environments,
             "every environment",
           ),
-          ...(omitted > 0 && { valuesOmitted: omitted }),
+          ...(coverage && { coverage }),
           note: notes.join(" "),
         };
         return { content: result };
@@ -636,11 +651,6 @@ export const SENTRY_TOOLS: Tool[] = [
     citable: true,
     renderAs: "change",
     timeoutMs: 30_000,
-    trimmable: {
-      field: "releases",
-      end: "tail",
-      omittedField: "releasesOmitted",
-    },
     execute: async (input, ctx): Promise<ToolExecuteResult> => {
       const conn = await connection();
       if (conn === null) return notConfigured();
@@ -657,7 +667,15 @@ export const SENTRY_TOOLS: Tool[] = [
           limit,
           cursor ?? null,
         );
-        const releases = page.rows.map((row) => toRelease(row, anchor));
+        const { items: releases, coverage } = fitList(
+          page.rows.map((row) => toRelease(row, anchor)),
+          {
+            keep: "start",
+            kept: "newest",
+            noun: "releases on this page",
+            reach: "Lower count to read fewer at a time.",
+          },
+        );
         const notes: string[] = [];
         if (releases.length === 0) {
           notes.push(
@@ -683,6 +701,7 @@ export const SENTRY_TOOLS: Tool[] = [
             "every project the token can reach",
           ),
           nextCursor: page.nextCursor,
+          ...(coverage && { coverage }),
           note: notes.join(" "),
         };
         return { content: result };
@@ -701,11 +720,6 @@ export const SENTRY_TOOLS: Tool[] = [
     citable: true,
     renderAs: "change",
     timeoutMs: 30_000,
-    trimmable: {
-      field: "commits",
-      end: "tail",
-      omittedField: "commitsOmitted",
-    },
     execute: async (input, ctx): Promise<ToolExecuteResult> => {
       const conn = await connection();
       if (conn === null) return notConfigured();
@@ -718,15 +732,23 @@ export const SENTRY_TOOLS: Tool[] = [
           version,
           cursor ?? null,
         );
-        const commits = page.rows.map((row) => ({
-          id: str(row, "id"),
-          message: str(row, "message"),
-          dateCreated: str(row, "dateCreated"),
-          author: obj(row, "author"),
-          repository: str(obj(row, "repository") ?? {}, "name"),
-          pullRequest: obj(row, "pullRequest"),
-          suspectCommitType: str(row, "suspectCommitType"),
-        }));
+        const { items: commits, coverage } = fitList(
+          page.rows.map((row) => ({
+            id: str(row, "id"),
+            message: str(row, "message"),
+            dateCreated: str(row, "dateCreated"),
+            author: obj(row, "author"),
+            repository: str(obj(row, "repository") ?? {}, "name"),
+            pullRequest: obj(row, "pullRequest"),
+            suspectCommitType: str(row, "suspectCommitType"),
+          })),
+          {
+            keep: "start",
+            kept: "first",
+            noun: "commits on this page",
+            reach: "Follow nextCursor for the rest of the release.",
+          },
+        );
         const notes: string[] = [];
         if (commits.length === 0) {
           notes.push(
@@ -743,6 +765,7 @@ export const SENTRY_TOOLS: Tool[] = [
           commits,
           returned: commits.length,
           nextCursor: page.nextCursor,
+          ...(coverage && { coverage }),
           note: notes.join(" "),
         };
         return { content: result };

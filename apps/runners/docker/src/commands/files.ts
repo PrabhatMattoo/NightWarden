@@ -1,7 +1,7 @@
+import { fitList, type HostFileResult } from "@nightwarden/shared";
+import type { HostFileInput } from "@nightwarden/shared/schemas";
 import { redactSecrets } from "@nightwarden/runner-core";
 import { openAllowedFile } from "../safety/paths.js";
-import type { HostFileResult } from "@nightwarden/shared";
-import type { HostFileInput } from "@nightwarden/shared/schemas";
 
 export async function readFileCommand(
   input: HostFileInput,
@@ -16,15 +16,21 @@ export async function readFileCommand(
     await handle.close();
   }
 
-  const maxLines = input.maxLines ?? 500;
   const allLines = raw.split("\n");
-  const sliced = allLines.slice(0, maxLines).join("\n");
-  const { content, redactedCount } = redactSecrets(sliced);
+  const { items: kept, coverage } = fitList(allLines, {
+    keep: "start",
+    max: input.maxLines ?? 500,
+    kept: "first",
+    noun: "lines",
+    reach: "Raise maxLines to read further into the file.",
+  });
+  const { content, redactedCount } = redactSecrets(kept.join("\n"));
 
   return {
     content,
-    lineCount: Math.min(allLines.length, maxLines),
+    lineCount: kept.length,
     path: input.path,
     redactedLineCount: redactedCount,
+    ...(coverage && { coverage }),
   };
 }

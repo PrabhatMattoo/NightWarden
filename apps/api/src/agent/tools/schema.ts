@@ -7,7 +7,6 @@ import type {
   ToolExecuteContext,
   ToolExecuteResult,
   ToolPolicy,
-  TrimmableList,
 } from "./types.js";
 
 type InputSchema = ToolSchema["input_schema"];
@@ -54,7 +53,6 @@ type ApiToolSpec<T extends z.ZodObject> = Citability & {
   policy: ToolPolicy;
   idempotent?: true;
   timeoutMs?: number;
-  trimmable?: TrimmableList | TrimmableList[];
   // A property for the reason the registry's is: shorthand would not check it.
   execute: (
     input: z.infer<T>,

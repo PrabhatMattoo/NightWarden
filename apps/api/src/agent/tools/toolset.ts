@@ -1,5 +1,6 @@
 import { executeRunnerTool } from "../runner-dispatch.js";
 import { parseInput } from "./schema.js";
+import { storeToolResult } from "../../session/tool-result-store.js";
 import { stripSystemReminder } from "../system-reminder.js";
 import {
   DEFAULT_TOOL_TIMEOUT_MS,
@@ -15,7 +16,7 @@ import { METRICS_TOOLS } from "./metrics.js";
 import { REPO_TOOLS } from "./repo.js";
 import { REPORT_TOOLS } from "./report.js";
 import { SENTRY_TOOLS } from "./sentry.js";
-import { trimToBudget } from "./result-budget.js";
+import { keptForPaging, pageOf, STORED_RESULT_TOOLS } from "./stored-result.js";
 import type {
   DispatchedToolResult,
   Tool,
@@ -38,12 +39,23 @@ export const TOOL_REGISTRY: Tool[] = [
   ...LOKI_TOOLS,
   ...SENTRY_TOOLS,
   ...REPORT_TOOLS,
+  ...STORED_RESULT_TOOLS,
 ];
 
 // Refused whole rather than shortened: a sliced JSON result parses as a smaller
 // truth, which is how an agent reports no errors in logs it never saw.
 function tooLarge(name: string, chars: number): string {
   return `${name} produced ${chars} characters. A single result may be at most ${MAX_TOOL_RESULT_CHARS}, so none of this one was read. Narrow the call - a tighter filter, a shorter window, a smaller limit - and run it again.`;
+}
+
+// Stripped here rather than per tool: a log line or a file is the outside
+// world speaking, and this is the one door all of it comes through.
+function rendered(content: unknown, indent?: number): string {
+  return stripSystemReminder(
+    typeof content === "string"
+      ? content
+      : JSON.stringify(content, null, indent),
+  );
 }
 
 // The caller supplies a ceiling, and a tool's own limit can only narrow it,
@@ -72,38 +84,30 @@ export async function executeTool(
       ? await tool.execute(parsed.data, effectiveCtx)
       : await executeRunnerTool(tool, parsed.data, effectiveCtx);
 
-  const rawContent = result.content;
-  let effectiveContent: unknown = rawContent;
-
-  if (
-    !result.isError &&
-    tool.trimmable !== undefined &&
-    typeof rawContent === "object" &&
-    rawContent !== null
-  ) {
-    effectiveContent = trimToBudget(
-      rawContent as Record<string, unknown>,
-      tool.trimmable,
-      MAX_TOOL_RESULT_CHARS,
-    );
+  const content = rendered(result.content);
+  if (content.length <= MAX_TOOL_RESULT_CHARS) {
+    return {
+      content,
+      ...(result.isError === true && { isError: true as const }),
+    };
   }
-
-  // Stripped here rather than per tool: a log line or a file is the outside
-  // world speaking, and this is the one door all of it comes through.
-  const content = stripSystemReminder(
-    typeof effectiveContent === "string"
-      ? effectiveContent
-      : JSON.stringify(effectiveContent),
-  );
-  if (content.length > MAX_TOOL_RESULT_CHARS) {
+  // Only evidence is worth paging: anything else past the ceiling is refused.
+  if (result.isError === true || !tool.citable) {
     return {
       content: tooLarge(tool.schema.name, content.length),
       isError: true,
     };
   }
+  // Indented so each item starts its own line and a page can end between them.
+  const stored = keptForPaging(rendered(result.content, 2));
+  await storeToolResult(identity.sessionId, identity.toolCallId, stored);
   return {
-    content,
-    ...(result.isError === true && { isError: true as const }),
+    content: pageOf(
+      stored,
+      1,
+      (next) =>
+        `Read on with ReadToolResult, passing this result's Evidence ID and page ${next}`,
+    ),
   };
 }
 
@@ -166,6 +170,8 @@ export function effectiveToolset(
       // The record is the investigation's, so a chat is offered no way to write
       // one. What a session is was decided before the run started.
       ...(investigation ? REPORT_TOOLS : []),
+      // Needs nothing connected: it reads back what another tool already returned.
+      ...STORED_RESULT_TOOLS,
     ],
     // Never stripped: a question needs no integration and no runner to reach a
     // human, so every session can ask one.

@@ -15,6 +15,7 @@ export interface Database {
   sessions: SessionsTable;
   alerts: AlertsTable;
   session_transcript: SessionTranscriptTable;
+  tool_result_store: ToolResultStoreTable;
   schema_migrations: SchemaMigrationsTable;
 }
 
@@ -190,6 +191,12 @@ interface SessionTranscriptTable {
   timestamp: string;
   // The sender's id for a person's message; null on every row no person sent.
   client_id: string | null;
+}
+
+interface ToolResultStoreTable {
+  session_id: string;
+  tool_call_id: string;
+  content: string;
 }
 
 interface SchemaMigrationsTable {

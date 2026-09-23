@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { fitList, ITEM_BUDGET_CHARS, type Coverage } from "@nightwarden/shared";
 import { getLokiIntegration } from "../../integrations/store.js";
 import {
   LokiApiError,
@@ -11,7 +12,6 @@ import {
   type LokiMetricSeries,
 } from "../../integrations/loki.js";
 import { alertAnchorFor } from "./alert-anchor.js";
-import { ITEM_BUDGET_CHARS } from "./result-budget.js";
 import { apiTool, optionalText } from "./schema.js";
 import type { Tool, ToolExecuteResult } from "./types.js";
 
@@ -42,7 +42,7 @@ export interface LokiLogsResult {
 export interface LokiMetricsResult {
   resultType: string;
   series: LokiMetricSeries[];
-  seriesOmitted?: number;
+  coverage?: Coverage;
   windowStart: string;
   windowEnd: string;
   stepSeconds: number;
@@ -57,7 +57,7 @@ export interface LogLabelsResult {
   values?: string[];
   selector?: string;
   matches?: Array<Record<string, string>>;
-  omitted?: number;
+  coverage?: Coverage;
   note: string;
 }
 
@@ -246,14 +246,16 @@ function corrective(err: unknown): ToolExecuteResult {
 // well past what one result may occupy.
 function capMetricSeries(data: LokiMetricData): {
   series: LokiMetricSeries[];
-  seriesOmitted?: number;
+  coverage?: Coverage;
 } {
-  const initialOmitted = Math.max(0, data.series.length - MAX_SERIES);
-  const kept = data.series.slice(0, MAX_SERIES);
-  return {
-    series: kept,
-    ...(initialOmitted > 0 && { seriesOmitted: initialOmitted }),
-  };
+  const { items: series, coverage } = fitList(data.series, {
+    keep: "start",
+    max: MAX_SERIES,
+    kept: "first",
+    noun: "series",
+    reach: "Aggregate with sum by or topk to fit the series that matter.",
+  });
+  return { series, ...(coverage && { coverage }) };
 }
 
 export const LOKI_TOOLS: Tool[] = [
@@ -343,8 +345,6 @@ export const LOKI_TOOLS: Tool[] = [
           );
         }
 
-        // Classed rather than returned as a clean answer, so the report and the
-        // conviction arithmetic cannot read nothing as something.
         const result: LokiLogsResult = {
           streams,
           returnedLines,
@@ -356,7 +356,7 @@ export const LOKI_TOOLS: Tool[] = [
           windowEnd: end.toISOString(),
           note: notes.join(" "),
         };
-        return returnedLines === 0 ? { content: result } : { content: result };
+        return { content: result };
       } catch (err) {
         return corrective(err);
       }
@@ -372,7 +372,6 @@ export const LOKI_TOOLS: Tool[] = [
     citable: true,
     renderAs: "metric",
     timeoutMs: 30_000,
-    trimmable: { field: "series", end: "tail", omittedField: "seriesOmitted" },
     execute: async (input, ctx): Promise<ToolExecuteResult> => {
       const integration = await getLokiIntegration();
       if (integration === null) return notConfigured();
@@ -456,15 +455,20 @@ export const LOKI_TOOLS: Tool[] = [
             start,
             end,
           );
-          const matches = all.slice(0, MAX_SERIES_MATCHES);
-          const omitted = all.length - matches.length;
+          const { items: matches, coverage } = fitList(all, {
+            keep: "start",
+            max: MAX_SERIES_MATCHES,
+            kept: "first",
+            noun: "streams",
+            reach: "Add a label to the selector to narrow the streams.",
+          });
           const result: LogLabelsResult = {
             mode: "series",
             windowStart,
             windowEnd,
             selector,
             matches,
-            ...(omitted > 0 && { omitted }),
+            ...(coverage && { coverage }),
             note:
               all.length === 0
                 ? "No streams matched that selector in the window."
@@ -484,15 +488,21 @@ export const LOKI_TOOLS: Tool[] = [
             start,
             end,
           );
-          const values = all.slice(0, MAX_LABELS);
-          const omitted = all.length - values.length;
+          const { items: values, coverage } = fitList(all, {
+            keep: "start",
+            max: MAX_LABELS,
+            kept: "first",
+            noun: "values",
+            reach:
+              "Match a value with a regex in the QueryLogs selector instead.",
+          });
           const result: LogLabelsResult = {
             mode: "values",
             windowStart,
             windowEnd,
             label,
             values,
-            ...(omitted > 0 && { omitted }),
+            ...(coverage && { coverage }),
             note:
               all.length === 0
                 ? `No values for label '${label}' in the window.`
@@ -509,14 +519,19 @@ export const LOKI_TOOLS: Tool[] = [
           start,
           end,
         );
-        const labels = all.slice(0, MAX_LABELS);
-        const omitted = all.length - labels.length;
+        const { items: labels, coverage } = fitList(all, {
+          keep: "start",
+          max: MAX_LABELS,
+          kept: "first",
+          noun: "labels",
+          reach: "Pass a selector to list only the labels on those streams.",
+        });
         const result: LogLabelsResult = {
           mode: "labels",
           windowStart,
           windowEnd,
           labels,
-          ...(omitted > 0 && { omitted }),
+          ...(coverage && { coverage }),
           note:
             all.length === 0
               ? "No labels present in the window - is the Loki URL correct and are logs flowing?"

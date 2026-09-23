@@ -196,7 +196,7 @@ describe("ListRecentGitChanges through the tool dispatch", () => {
 
   /* A week-long window on a busy repo returns hundreds of commits, and pull
      requests carry file lists on top; the same budget bounds both. */
-  it("drops whole changes past the budget and counts what it left out", async () => {
+  it("drops whole changes past the budget and says which ones it left out", async () => {
     await connectGitHub();
     const mock = makeMock();
     mock.commits = Array.from({ length: 400 }, (_, i) =>
@@ -212,7 +212,12 @@ describe("ListRecentGitChanges through the tool dispatch", () => {
 
     const result = parsedContent<ListRecentGitChangesResult>(dispatched);
     expect(result.commits.length).toBeLessThan(400);
-    expect(result.changesOmitted).toBe(400 - result.commits.length);
+    expect(result.commitsCoverage).toMatchObject({
+      shown: result.commits.length,
+      total: 400,
+      kept: "newest",
+    });
+    expect(result.commitsCoverage?.note).toMatch(/not evidence/);
     // Bounded here rather than refused at the ceiling, so the agent still gets
     // the changes nearest the alert instead of nothing at all.
     expect(dispatched.isError).toBeUndefined();

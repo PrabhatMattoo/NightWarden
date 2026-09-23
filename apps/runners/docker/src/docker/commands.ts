@@ -1,6 +1,7 @@
 import type Dockerode from "dockerode";
 import {
   deriveDockerServiceIdentity,
+  fitList,
   dockerServiceKey,
   type DockerExecResult,
   type DockerConfigResult,
@@ -67,6 +68,7 @@ export async function getContainerList(): Promise<DockerServiceListResult> {
 }
 
 const DEFAULT_TAIL_LINES = 200;
+const MAX_EVENTS_REPORTED = 100;
 
 // The tail is applied by the engine before any filtering, so a small number of
 // matches is a fact about the lines searched, never about the log.
@@ -131,11 +133,19 @@ export async function getContainerLogs(
     matchesFilter(entry.line, input.contains ?? [], input.excludes ?? []),
   );
   const scanHitTail = allLines.length >= tailLines;
+  const { items: lines, coverage } = fitList(filtered, {
+    keep: "end",
+    kept: "newest",
+    noun: "matching lines",
+    reach:
+      "Narrow contains, or pass until as the oldest line's ts, to read the older ones.",
+  });
 
   return {
-    lines: filtered,
+    lines,
     scannedLines: allLines.length,
     scanHitTail,
+    ...(coverage && { coverage }),
     note: logScanNote(allLines.length, filtered.length, tailLines, scanHitTail),
   };
 }
@@ -249,7 +259,7 @@ export async function getContainerEvents(
   });
 
   const text = Buffer.concat(chunks).toString("utf8");
-  const events: DockerEvent[] = text
+  const all: DockerEvent[] = text
     .trim()
     .split("\n")
     .filter(Boolean)
@@ -265,7 +275,14 @@ export async function getContainerEvents(
       };
     });
 
-  return { events };
+  const { items: events, coverage } = fitList(all, {
+    keep: "end",
+    max: MAX_EVENTS_REPORTED,
+    kept: "newest",
+    noun: "events",
+    reach: "Lower sinceMinutes to read the older ones in a shorter window.",
+  });
+  return { events, ...(coverage && { coverage }) };
 }
 
 export async function getContainerProcesses(

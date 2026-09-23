@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { fitList, ITEM_BUDGET_CHARS, type Coverage } from "@nightwarden/shared";
 import { getGitHubIntegration } from "../../integrations/store.js";
 import { alertAnchorFor } from "./alert-anchor.js";
 import {
@@ -36,9 +37,8 @@ export interface ListRecentGitChangesResult {
   windowEnd: string;
   pullRequests: RecentPullRequest[];
   commits: RecentCommit[];
-  // Merged in the window but past the size budget, so this is not the whole
-  // history of it. Absent when everything found is here.
-  changesOmitted?: number;
+  pullRequestsCoverage?: Coverage;
+  commitsCoverage?: Coverage;
   note?: string;
 }
 
@@ -165,10 +165,6 @@ export const GITHUB_TOOLS: Tool[] = [
     citable: true,
     renderAs: "change",
     timeoutMs: 60_000,
-    trimmable: [
-      { field: "commits", end: "tail", omittedField: "changesOmitted" },
-      { field: "pullRequests", end: "tail", omittedField: "changesOmitted" },
-    ],
     execute: async (input, ctx): Promise<ToolExecuteResult> => {
       const integration = await getGitHubIntegration();
       if (integration === null) {
@@ -231,12 +227,29 @@ export const GITHUB_TOOLS: Tool[] = [
             committedAt,
           }));
 
+        // Pull requests first, since they carry the file lists a change search
+        // wants; loose commits spend what budget is left.
+        const prs = fitList(pullRequests, {
+          keep: "start",
+          kept: "newest",
+          noun: "pull requests merged in the window",
+          reach: "Shorten windowHours to read the older ones.",
+        });
+        const loose = fitList(commits, {
+          keep: "start",
+          kept: "newest",
+          noun: "commits in the window",
+          reach: "Shorten windowHours to read the older ones.",
+          budget: ITEM_BUDGET_CHARS - prs.spent,
+        });
         const result: ListRecentGitChangesResult = {
           branch,
           windowStart: since,
           windowEnd: until,
-          pullRequests,
-          commits,
+          pullRequests: prs.items,
+          commits: loose.items,
+          ...(prs.coverage && { pullRequestsCoverage: prs.coverage }),
+          ...(loose.coverage && { commitsCoverage: loose.coverage }),
           ...(note !== undefined && { note }),
         };
         return { content: result };

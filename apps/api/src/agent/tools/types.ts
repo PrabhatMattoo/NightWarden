@@ -44,12 +44,6 @@ export interface ToolExecuteContext extends ToolCallIdentity {
 // overrides the write -> approve default says why on its entry.
 export type ToolPolicy = "auto" | "approve";
 
-export interface TrimmableList {
-  field: string;
-  end: "head" | "tail";
-  omittedField?: string;
-}
-
 interface ToolCommon {
   schema: ToolSchema;
   // The same object the schema was generated from. executeTool parses with it
@@ -63,8 +57,6 @@ interface ToolCommon {
   // Per-tool override of the global tool timeout: repo tools run clones,
   // installs and test suites, which dwarf the 15s default.
   timeoutMs?: number;
-  // Trimmable arrays to drop items from if the result exceeds the budget ceiling.
-  trimmable?: TrimmableList | TrimmableList[];
 }
 
 /* Whether a claim may rest on this call, and how its result draws. One decision

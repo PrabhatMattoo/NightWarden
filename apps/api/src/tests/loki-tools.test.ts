@@ -326,7 +326,7 @@ describe("Loki tools through the tool dispatch", () => {
     const content = parsedContent<LokiMetricsResult>(result);
     expect(content.resultType).toBe("matrix");
     expect(content.series).toHaveLength(20);
-    expect(content.seriesOmitted).toBe(5);
+    expect(content.coverage).toMatchObject({ shown: 20, total: 25 });
   });
 
   it("DiscoverLogLabels lists label names, values, and series, time-bounded to the alert", async () => {

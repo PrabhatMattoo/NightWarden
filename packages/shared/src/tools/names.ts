@@ -56,6 +56,8 @@ const API_TOOL_NAMES = [
   "Bash",
   "OpenPullRequest",
   "ListRecentGitChanges",
+  // A result too large for one turn, read back a page at a time
+  "ReadToolResult",
   // The record
   "OpenCandidates",
   "RecordFinding",
