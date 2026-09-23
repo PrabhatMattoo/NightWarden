@@ -46,17 +46,30 @@ function jsonResponse(status: number, body: object) {
   };
 }
 
-// Routes by exact path suffix; falls back to the status response for the
-// initial GET /api/auth-status bootstrap call every test triggers on mount.
+type Answer =
+  ReturnType<typeof jsonResponse> | (() => ReturnType<typeof jsonResponse>);
+
+/* Routes by exact path suffix and falls back to GET /api/auth-status. Either may
+   be a function, so a sign-in can change what the status answers next. */
 function stubFetch(
-  statusResponse: object,
-  handlers: Record<string, ReturnType<typeof jsonResponse>>,
+  statusResponse: object | (() => object),
+  handlers: Record<string, Answer>,
 ) {
   const fetchMock = vi.fn().mockImplementation((url: string) => {
     for (const [path, response] of Object.entries(handlers)) {
-      if (url.endsWith(path)) return Promise.resolve(response);
+      if (url.endsWith(path))
+        return Promise.resolve(
+          typeof response === "function" ? response() : response,
+        );
     }
-    return Promise.resolve(jsonResponse(200, statusResponse));
+    return Promise.resolve(
+      jsonResponse(
+        200,
+        typeof statusResponse === "function"
+          ? statusResponse()
+          : statusResponse,
+      ),
+    );
   });
   vi.stubGlobal("fetch", fetchMock);
   return fetchMock;
@@ -106,9 +119,24 @@ describe("AuthProvider", () => {
 describe("AuthProvider actions", () => {
   it("login POSTs the sign-in endpoint with the credentials and moves phase to authenticated", async () => {
     const user = userEvent.setup();
+    let signedIn = false;
     const fetchMock = stubFetch(
-      { ownerExists: true, authenticated: false },
-      { "/sign-in/email": jsonResponse(200, { ok: true }) },
+      () =>
+        signedIn
+          ? {
+              ownerExists: true,
+              authenticated: true,
+              email: "owner@example.com",
+              name: "Owner",
+              theme: "system",
+            }
+          : { ownerExists: true, authenticated: false },
+      {
+        "/sign-in/email": () => {
+          signedIn = true;
+          return jsonResponse(200, { ok: true });
+        },
+      },
     );
 
     render(
@@ -165,9 +193,24 @@ describe("AuthProvider actions", () => {
 
   it("signup POSTs the sign-up endpoint and moves phase to authenticated", async () => {
     const user = userEvent.setup();
+    let signedUp = false;
     const fetchMock = stubFetch(
-      { ownerExists: false },
-      { "/sign-up/email": jsonResponse(200, { ok: true }) },
+      () =>
+        signedUp
+          ? {
+              ownerExists: true,
+              authenticated: true,
+              email: "owner@example.com",
+              name: "Owner",
+              theme: "system",
+            }
+          : { ownerExists: false },
+      {
+        "/sign-up/email": () => {
+          signedUp = true;
+          return jsonResponse(200, { ok: true });
+        },
+      },
     );
 
     render(

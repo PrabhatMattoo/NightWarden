@@ -65,3 +65,10 @@ export type {
   MintTokenRequest,
   SessionPageQuery,
 } from "./http.js";
+
+export {
+  configPatchSchema,
+  llmProviderNameSchema,
+  themePreferenceSchema,
+} from "./config.js";
+export type { ConfigPatch } from "./config.js";

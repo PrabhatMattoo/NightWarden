@@ -1,5 +1,5 @@
 import { fromNodeHeaders } from "better-auth/node";
-import type { Actor } from "@nightwarden/shared";
+import type { Actor, ThemePreference } from "@nightwarden/shared";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import { getAuth } from "./instance.js";
 
@@ -8,6 +8,7 @@ export interface SignedInUser {
   email: string;
   name: string;
   role: string | null;
+  theme: ThemePreference;
 }
 
 // The audit-trail slice of a signed-in user: who released a write, without the
@@ -25,8 +26,14 @@ export async function currentUser(
     headers: fromNodeHeaders(request.headers),
   });
   if (!session) return null;
-  const { id, email, name, role } = session.user;
-  return { id, email, name, role: typeof role === "string" ? role : null };
+  const { id, email, name, role, theme } = session.user;
+  return {
+    id,
+    email,
+    name,
+    role: typeof role === "string" ? role : null,
+    theme,
+  };
 }
 
 export async function isAuthenticated(

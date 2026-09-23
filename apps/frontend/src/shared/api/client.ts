@@ -14,25 +14,31 @@ export class ApiError extends Error {
   }
 }
 
-export async function apiFetch<T>(url: string, init?: RequestInit): Promise<T> {
-  // Call with a single arg for plain reads so the request is fetch(url), not
-  // fetch(url, undefined) - identical behaviour, but it keeps call sites simple.
+// A failure throws, carrying the route's `error` or Better Auth's `message` as its text.
+async function request(url: string, init?: RequestInit): Promise<Response> {
   const res = init === undefined ? await fetch(url) : await fetch(url, init);
-
-  if (!res.ok) {
-    let message = `${init?.method ?? "GET"} ${url} failed (${res.status})`;
-    let body: unknown;
-    try {
-      // Project routes reply { error: string } on failure; prefer that text.
-      body = (await res.json()) as { error?: unknown };
-      const text = (body as { error?: unknown }).error;
-      if (typeof text === "string") message = text;
-    } catch {
-      // Non-JSON error body (or none); keep the status-based message.
+  if (res.ok) return res;
+  let message = `${init?.method ?? "GET"} ${url} failed (${res.status})`;
+  let body: unknown;
+  try {
+    body = await res.json();
+    if (typeof body === "object" && body !== null) {
+      const text =
+        "error" in body && typeof body.error === "string"
+          ? body.error
+          : "message" in body && typeof body.message === "string"
+            ? body.message
+            : undefined;
+      if (text !== undefined) message = text;
     }
-    throw new ApiError(res.status, message, body);
+  } catch {
+    // Non-JSON error body (or none); keep the status-based message.
   }
+  throw new ApiError(res.status, message, body);
+}
 
+export async function apiFetch<T>(url: string, init?: RequestInit): Promise<T> {
+  const res = await request(url, init);
   if (res.status === 204) return undefined as T;
   try {
     // The one trusted cast in the frontend: responses are shape-checked at

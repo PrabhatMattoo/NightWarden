@@ -174,7 +174,7 @@ describe("GET /auth-status", () => {
     });
   });
 
-  it("reports the signed-in email and name for a valid cookie", async () => {
+  it("reports the signed-in email, name and theme for a valid cookie", async () => {
     const signedIn = await signIn(server, OWNER);
     const res = await status(server, cookieFrom(signedIn));
     expect(JSON.parse(res.body) as AuthStatusResponse).toEqual({
@@ -182,6 +182,29 @@ describe("GET /auth-status", () => {
       authenticated: true,
       email: OWNER.email,
       name: OWNER.name,
+      theme: "system",
+    });
+  });
+
+  // The account holds the choice, so every browser signed in to it agrees.
+  it("keeps a chosen theme on the account and refuses one it does not know", async () => {
+    const cookie = cookieFrom(await signIn(server, OWNER));
+    const update = (theme: string) =>
+      server.inject({
+        method: "POST",
+        url: "/api/auth/update-user",
+        headers: { cookie, origin: BROWSER_ORIGIN },
+        payload: { theme },
+      });
+
+    expect((await update("light")).statusCode).toBe(200);
+    expect(JSON.parse((await status(server, cookie)).body)).toMatchObject({
+      theme: "light",
+    });
+
+    expect((await update("sepia")).statusCode).toBe(400);
+    expect(JSON.parse((await status(server, cookie)).body)).toMatchObject({
+      theme: "light",
     });
   });
 

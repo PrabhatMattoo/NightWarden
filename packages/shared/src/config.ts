@@ -1,10 +1,70 @@
 // Global agent config: how the one brain reasons (no per-runner dimension). Every
 // value here is API-seeded and safe to send to the frontend; keys are masked.
 
-export type LLMProviderName = "anthropic" | "openai" | "openrouter";
+export const LLM_PROVIDER_NAMES = [
+  "anthropic",
+  "openai",
+  "openrouter",
+] as const;
+export type LLMProviderName = (typeof LLM_PROVIDER_NAMES)[number];
+
 // "allowlist" routes all sandbox egress through an enforcing proxy that only
 // reaches approved hosts; "none" gives no network at all; "open" is unrestricted.
-export type SandboxNetwork = "allowlist" | "open" | "none";
+export const SANDBOX_NETWORKS = ["allowlist", "open", "none"] as const;
+export type SandboxNetwork = (typeof SANDBOX_NETWORKS)[number];
+
+// Hostnames only, so a scheme, a port or a path is refused rather than guessed at.
+export const SANDBOX_HOST_PATTERN =
+  /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/i;
+
+const SECOND = 1_000;
+const MINUTE = 60 * SECOND;
+const HOUR = 60 * MINUTE;
+
+export interface SettingRange {
+  min: number;
+  max: number;
+  presets: readonly number[];
+}
+
+/* What each numeric setting may hold, and the values the settings page offers.
+   The API validates against the same bounds, so the page never offers a refusal. */
+export const SETTING_RANGES = {
+  maxConcurrentInvestigations: {
+    min: 1,
+    max: 20,
+    presets: [1, 2, 3, 5, 10, 15, 20],
+  },
+  checkInAfterMs: {
+    min: 5 * MINUTE,
+    max: 4 * HOUR,
+    presets: [10 * MINUTE, 15 * MINUTE, 30 * MINUTE, HOUR, 2 * HOUR, 4 * HOUR],
+  },
+  requestTimeoutMs: {
+    min: 30 * SECOND,
+    max: 10 * MINUTE,
+    presets: [30 * SECOND, MINUTE, 2 * MINUTE, 5 * MINUTE, 10 * MINUTE],
+  },
+  maxRetries: { min: 0, max: 5, presets: [0, 1, 2, 3, 5] },
+  toolCallCeilingMs: {
+    min: MINUTE,
+    max: 30 * MINUTE,
+    presets: [MINUTE, 5 * MINUTE, 10 * MINUTE, 20 * MINUTE, 30 * MINUTE],
+  },
+  sandboxIdleTimeoutMs: {
+    min: 15 * MINUTE,
+    max: 4 * HOUR,
+    presets: [15 * MINUTE, 30 * MINUTE, HOUR, 2 * HOUR, 4 * HOUR],
+  },
+  sandboxCpus: { min: 1, max: 8, presets: [1, 2, 4, 8] },
+  sandboxMemoryMb: {
+    min: 1024,
+    max: 16384,
+    presets: [1024, 2048, 4096, 8192, 16384],
+  },
+} as const satisfies Record<string, SettingRange>;
+
+export type NumericSetting = keyof typeof SETTING_RANGES;
 
 // Served rather than hardcoded, so a new adapter appears in the frontend
 // without a UI change.

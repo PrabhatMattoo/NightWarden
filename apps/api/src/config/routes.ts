@@ -23,68 +23,23 @@ import type {
   ModelCatalog,
   ModelOption,
 } from "@nightwarden/shared";
-
-/* Every name this build serves, so no second list is kept. Asserted to a
-   non-empty tuple, which is the only shape z.enum takes. */
-const PROVIDER_NAME = z.enum(
-  PROVIDER_OPTIONS.map((p) => p.name) as [
-    LLMProviderName,
-    ...LLMProviderName[],
-  ],
-);
-
-// Nested under `providers` so a change to one cannot touch the other's model,
-// endpoint or credential. reasoningLevel is free: the descriptor is authority.
-const ProviderPatchSchema = z.object({
-  model: z.string().min(1).nullable().optional(),
-  baseUrl: z.string().url().nullable().optional(),
-  reasoningLevel: z.string().min(1).nullable().optional(),
-});
-
-const ConfigPatchSchema = z.object({
-  provider: PROVIDER_NAME.nullable().optional(),
-  providers: z
-    .object({
-      anthropic: ProviderPatchSchema.optional(),
-      openai: ProviderPatchSchema.optional(),
-      openrouter: ProviderPatchSchema.optional(),
-    })
-    .optional(),
-  maxRetries: z.number().int().min(0).optional(),
-  requestTimeoutMs: z.number().int().positive().optional(),
-  maxConcurrentInvestigations: z.number().int().positive().optional(),
-  checkInAfterMs: z.number().int().positive().optional(),
-  toolCallCeilingMs: z.number().int().positive().optional(),
-  sandboxIdleTimeoutMs: z.number().int().positive().optional(),
-  sandboxCpus: z.number().int().positive().optional(),
-  sandboxMemoryMb: z.number().int().positive().optional(),
-  sandboxRequireGvisor: z.boolean().optional(),
-  sandboxNetwork: z.enum(["allowlist", "open", "none"]).optional(),
-  sandboxAllowlistHosts: z
-    .array(
-      z
-        .string()
-        .regex(
-          /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/i,
-          "hostnames only, e.g. registry.npmjs.org",
-        ),
-    )
-    .min(1)
-    .optional(),
-});
+import {
+  configPatchSchema,
+  llmProviderNameSchema,
+} from "@nightwarden/shared/schemas";
 
 // Each field falls back to the stored value, so a half-typed form still asks
 // something coherent. POST because a credential must never reach a URL.
 const CatalogBodySchema = z.object({
-  provider: PROVIDER_NAME.optional(),
-  baseUrl: z.string().url().optional(),
+  provider: llmProviderNameSchema.optional(),
+  baseUrl: z.url().optional(),
   apiKey: z.string().min(1).optional(),
 });
 
 // The provider is explicit: a key belongs to one provider's block, and inferring
 // it from whichever is active would file the key under the wrong one mid-switch.
 const KeyBodySchema = z.object({
-  provider: PROVIDER_NAME,
+  provider: llmProviderNameSchema,
   apiKey: z.string().min(1),
 });
 
@@ -130,7 +85,7 @@ export async function registerConfigRoutes(
     "/config",
     { preHandler: requireSession },
     async (request, reply) => {
-      const parsed = ConfigPatchSchema.safeParse(request.body);
+      const parsed = configPatchSchema.safeParse(request.body);
       if (!parsed.success) {
         return reply.code(400).send({ error: readable(parsed.error) });
       }

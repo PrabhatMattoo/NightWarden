@@ -1,4 +1,5 @@
 import type { Generated } from "kysely";
+import type { ThemePreference } from "@nightwarden/shared";
 
 // The shape every query is typed against. `migrations.ts` is the frozen history
 // that produced it; `Generated<T>` marks a column an insert may omit.
@@ -72,6 +73,7 @@ interface UserTable {
   banned: number | null;
   ban_reason: string | null;
   ban_expires: string | null;
+  theme: Generated<ThemePreference>;
 }
 
 // Renamed from Better Auth's `session`, which would otherwise sit one letter

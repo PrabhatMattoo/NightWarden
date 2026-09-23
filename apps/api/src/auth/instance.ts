@@ -1,6 +1,8 @@
 import { hash, verify } from "argon2";
 import { betterAuth } from "better-auth";
 import { admin } from "better-auth/plugins";
+import { THEME_PREFERENCES } from "@nightwarden/shared";
+import { themePreferenceSchema } from "@nightwarden/shared/schemas";
 import { getDb } from "../db.js";
 import { configuredPublicUrl, extraTrustedOrigins } from "../public-url.js";
 import { authSecret } from "../secrets.js";
@@ -51,6 +53,16 @@ function buildAuth() {
     },
     user: {
       fields: USER_FIELDS,
+      // Kept on the account so every browser a person signs in from agrees.
+      additionalFields: {
+        theme: {
+          type: [...THEME_PREFERENCES],
+          required: true,
+          defaultValue: "system",
+          input: true,
+          validator: { input: themePreferenceSchema },
+        },
+      },
       /* Registration is open only until the owner exists. Gated on the method so
          an admin adding a colleague is not self-registration and passes. */
       validateUserInfo: async ({ source }) => {

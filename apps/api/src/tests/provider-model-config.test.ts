@@ -576,6 +576,27 @@ describe("provider/model config seam", () => {
     });
   });
 
+  // The page offers only values inside these bounds; anything else is refused whole.
+  it("PATCH /config: refuses a value past a setting's bounds, naming them, and keeps the stored one", async () => {
+    const patch = (payload: Record<string, unknown>) =>
+      nw.server.inject({
+        method: "PATCH",
+        url: "/api/config",
+        headers: { cookie: `${SESSION}` },
+        payload,
+      });
+
+    const refused = await patch({ maxConcurrentInvestigations: 21 });
+    expect(refused.statusCode).toBe(400);
+    expect(refused.body).toContain("from 1 to 20");
+
+    const accepted = await patch({ maxConcurrentInvestigations: 5 });
+    expect(accepted.statusCode).toBe(200);
+    expect(
+      (JSON.parse(accepted.body) as AgentConfig).maxConcurrentInvestigations,
+    ).toBe(5);
+  });
+
   it("GET /config: returns 401 without a valid session cookie", async () => {
     const res = await nw.server.inject({ method: "GET", url: "/api/config" });
     expect(res.statusCode).toBe(401);

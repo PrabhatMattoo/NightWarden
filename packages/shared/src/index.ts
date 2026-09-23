@@ -4,7 +4,8 @@ export type {
   NormalizedAlert,
 } from "./alerts.js";
 export { ALERT_SOURCE_KINDS, isAlertSourceKind } from "./alerts.js";
-export type { AuthStatusResponse } from "./auth.js";
+export type { AuthStatusResponse, ThemePreference } from "./auth.js";
+export { THEME_PREFERENCES } from "./auth.js";
 export type {
   DockerServiceIdentity,
   KubernetesWorkloadIdentity,
@@ -200,6 +201,14 @@ export type {
   ProviderSettings,
   ProviderSettingsMap,
   ResolvedLLMConfig,
+  NumericSetting,
+  SettingRange,
+} from "./config.js";
+export {
+  LLM_PROVIDER_NAMES,
+  SANDBOX_HOST_PATTERN,
+  SANDBOX_NETWORKS,
+  SETTING_RANGES,
 } from "./config.js";
 export type {
   GitHubErrorCode,

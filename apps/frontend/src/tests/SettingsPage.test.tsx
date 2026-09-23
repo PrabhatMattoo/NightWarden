@@ -229,7 +229,9 @@ const openSelect = async (
 const openModelList = async (
   user: ReturnType<typeof userEvent.setup>,
 ): Promise<void> => {
-  await user.click(screen.getByLabelText(/^model$/i, { selector: "input" }));
+  await user.click(
+    await screen.findByLabelText(/^model$/i, { selector: "input" }),
+  );
 };
 
 // Typing only narrows the list; picking is what sets the id. Anything needing
@@ -238,7 +240,9 @@ const pickModel = async (
   user: ReturnType<typeof userEvent.setup>,
   id: string,
 ): Promise<void> => {
-  await user.click(screen.getByLabelText(/^model$/i, { selector: "input" }));
+  await user.click(
+    await screen.findByLabelText(/^model$/i, { selector: "input" }),
+  );
   await user.click(await screen.findByRole("option", { name: id }));
 };
 
@@ -837,13 +841,15 @@ describe("SettingsPage", () => {
       setup();
       await openSection(user, /provider/i);
 
-      expect(screen.getByRole("button", { name: /^save$/i })).toBeDisabled();
+      const save = await screen.findByRole("button", { name: /^save$/i });
+      expect(save).toBeDisabled();
 
       const keyInput = await screen.findByPlaceholderText(/paste api key/i);
       await user.type(keyInput, "sk-ant-newkey");
 
       // The key changes what the catalog is asked, so Save turns on when that
       // answer lands, not before: an unverified key is not saveable.
+      await waitFor(() => expect(save).toBeEnabled());
     });
 
     it("PATCHes /config/key on Save, before the config that depends on it", async () => {

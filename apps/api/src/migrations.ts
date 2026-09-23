@@ -150,7 +150,8 @@ CREATE TABLE user (
   role           TEXT,
   banned         INTEGER,
   ban_reason     TEXT,
-  ban_expires    DATE
+  ban_expires    DATE,
+  theme          TEXT     NOT NULL DEFAULT 'system'
 );
 
 CREATE TABLE auth_session (
