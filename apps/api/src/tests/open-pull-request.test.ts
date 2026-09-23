@@ -17,6 +17,7 @@ import { executeTool, findTool } from "../agent/tools/toolset.js";
 import { releaseContainers } from "../sandbox/workspace.js";
 import type { DispatchedToolResult } from "../agent/tools/types.js";
 import { parsedContent } from "./tool-result.js";
+import { requestBody } from "./wire-helper.js";
 
 const SESSION_ID = "ccccdddd-0000-4000-8000-000000000001";
 
@@ -160,12 +161,12 @@ function installGitHubMock(): void {
       if (url.includes("/pulls?state=open")) return json(prState.open);
       if (url.includes("/pulls/") && method === "PATCH") {
         prState.patchPayloads.push(
-          JSON.parse(String(init?.body)) as Record<string, unknown>,
+          JSON.parse(requestBody(init)) as Record<string, unknown>,
         );
         return json({});
       }
       if (url.endsWith("/pulls") && method === "POST") {
-        const payload = JSON.parse(String(init?.body)) as Record<
+        const payload = JSON.parse(requestBody(init)) as Record<
           string,
           unknown
         >;

@@ -8,6 +8,7 @@ import { registerWsRoutes } from "../fleet/server.js";
 import { getDb } from "../db.js";
 import { generateRunnerToken, touchLastUsed } from "../fleet/runners-store.js";
 import { createSession } from "../session/store.js";
+import { frameText } from "./wire-helper.js";
 
 function sha256hex(s: string): string {
   return createHash("sha256").update(s).digest("hex");
@@ -327,7 +328,7 @@ describe("Runner token lifecycle (issue 038)", () => {
           },
         });
         ws.on("message", (raw) => {
-          const msg = JSON.parse(String(raw)) as { type: string };
+          const msg = JSON.parse(frameText(raw)) as { type: string };
           if (msg.type === "connected") {
             ws.close();
             resolve();
@@ -413,20 +414,22 @@ describe("Runner token lifecycle (issue 038)", () => {
         id: string;
       };
 
-      const closeCode = await new Promise<number>((resolve) => {
+      const closeCode = await new Promise<number>((resolve, reject) => {
         const ws = new WebSocket(`ws://127.0.0.1:${port}/api/clients/connect`, {
           headers: {
             Authorization: `Bearer ${token}`,
           },
         });
-        ws.on("message", async (raw) => {
-          const msg = JSON.parse(String(raw)) as { type: string };
+        ws.on("message", (raw) => {
+          const msg = JSON.parse(frameText(raw)) as { type: string };
           if (msg.type === "connected") {
-            await nw.server.inject({
-              method: "DELETE",
-              url: `/api/tokens/${id}`,
-              headers: { cookie: `${SESSION}` },
-            });
+            nw.server
+              .inject({
+                method: "DELETE",
+                url: `/api/tokens/${id}`,
+                headers: { cookie: `${SESSION}` },
+              })
+              .catch(reject);
           }
         });
         ws.on("close", (c) => resolve(c));
@@ -455,7 +458,7 @@ describe("Runner token lifecycle (issue 038)", () => {
           },
         });
         ws.on("message", (raw) => {
-          const msg = JSON.parse(String(raw)) as { type: string };
+          const msg = JSON.parse(frameText(raw)) as { type: string };
           if (msg.type === "connected") {
             ws.send(
               JSON.stringify({
@@ -509,7 +512,7 @@ describe("Runner token lifecycle (issue 038)", () => {
           headers: { Authorization: `Bearer ${token}` },
         });
         ws.on("message", (raw) => {
-          const msg = JSON.parse(String(raw)) as { type: string };
+          const msg = JSON.parse(frameText(raw)) as { type: string };
           // No manifest is ever sent: the daemon it would enumerate is down.
           if (msg.type === "connected") {
             setTimeout(() => {

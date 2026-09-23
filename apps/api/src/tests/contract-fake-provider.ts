@@ -1,9 +1,11 @@
-import { vi } from "vitest";
+import { vi, type Mock } from "vitest";
 import type { MessagePart } from "@nightwarden/shared";
 import type {
   ChatResponse,
   LLMProvider,
+  OnDelta,
   ProviderMessage,
+  ToolSchema,
   ToolUse,
 } from "../llm/types.js";
 
@@ -157,7 +159,7 @@ function partsToNative(m: ProviderMessage): NativeMessage {
 }
 
 export type ContractFakeProvider = {
-  [K in keyof LLMProvider]: LLMProvider[K] & ReturnType<typeof vi.fn>;
+  [K in keyof LLMProvider]: Mock<LLMProvider[K]>;
 };
 
 // The whole conversation a run handed the model on one call, which is the only
@@ -166,7 +168,15 @@ export function messagesSentTo(
   provider: ContractFakeProvider,
   call = 0,
 ): ProviderMessage[] {
-  return (provider.chat.mock.calls[call]?.[0] ?? []) as ProviderMessage[];
+  return [...(provider.chat.mock.calls[call]?.[0] ?? [])];
+}
+
+// The tool names a run offered the model on one call, read from what the call was handed.
+export function toolsSentTo(
+  provider: ContractFakeProvider,
+  call = 0,
+): string[] {
+  return (provider.chat.mock.calls[call]?.[1] ?? []).map((tool) => tool.name);
 }
 
 const DEFAULT_TURN: ScriptedTurn = { toolUses: [], text: "Done." };
@@ -181,8 +191,8 @@ function makeProvider(
     chat: vi.fn(
       async (
         history: readonly ProviderMessage[],
-        _tools: unknown,
-        onDelta?: (d: { text: string; block: number }) => void,
+        _tools: ToolSchema[],
+        onDelta?: OnDelta,
         signal?: AbortSignal,
       ): Promise<ChatResponse> => {
         // Rebuilt from parts, which is all a real adapter is given.

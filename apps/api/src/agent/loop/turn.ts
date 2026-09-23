@@ -258,9 +258,10 @@ export async function processToolUses(params: {
 
   /* Filled by index, so a result keeps the position its call was emitted in and
      the evidence ids the loop stamps cannot move with the timing. */
-  const answers: Array<ToolResult | undefined> = new Array<
-    ToolResult | undefined
-  >(steps.length);
+  const answers: Array<ToolResult | undefined> = Array.from(
+    { length: steps.length },
+    () => undefined,
+  );
   let i = 0;
   while (i < steps.length) {
     const step = steps[i]!;

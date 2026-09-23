@@ -335,9 +335,7 @@ describe("multi-runner routing", () => {
     const sessionId = await runSession();
     runnerError = null;
 
-    const answer = await (
-      await getTranscriptRows(sessionId)
-    )
+    const answer = (await getTranscriptRows(sessionId))
       .flatMap((row) => row.parts)
       .find((p) => p.type === "tool_result" && p.toolCallId === "tu-missing");
     expect(answer).toMatchObject({ isError: true });

@@ -246,11 +246,11 @@ describe("mid-run alert injection (loop seam)", () => {
 
     // The user sees an alert marking where the ground moved, never prose they
     // appear to have written. The instruction to the model is drawn for nobody.
-    expect(
-      await (
-        await getSession(sessionId)
-      )?.alerts.map((a) => a.alert.sourceAlertId),
-    ).toEqual(["primary-mr", "injected-mr"]);
+    const session = await getSession(sessionId);
+    expect(session?.alerts.map((a) => a.alert.sourceAlertId)).toEqual([
+      "primary-mr",
+      "injected-mr",
+    ]);
 
     const transcript = await buildTranscript(sessionId);
     expect(JSON.stringify(transcript)).not.toContain(

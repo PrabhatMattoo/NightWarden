@@ -146,9 +146,7 @@ describe("recovering runs a restart interrupted", () => {
 
     // The replay runs in a different process, so how it went has to ride the row
     // it writes. No GitHub integration here, so the call answers with a class.
-    const answering = await (
-      await getTranscriptRows(sessionId)
-    )
+    const answering = (await getTranscriptRows(sessionId))
       .flatMap((row) => row.parts)
       .find((p) => p.type === "tool_result" && p.toolCallId === "tu-read");
     expect(answering).toBeDefined();

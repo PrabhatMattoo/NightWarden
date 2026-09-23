@@ -78,10 +78,17 @@ export async function registerWsRoutes(
         socket.ping();
       }, PING_INTERVAL_MS);
 
-      socket.on("message", async (raw: Buffer | ArrayBuffer | Buffer[]) => {
+      // A rejection inside a listener reaches nothing, so each message's failure is logged here.
+      const onMessage = async (
+        raw: Buffer | ArrayBuffer | Buffer[],
+      ): Promise<void> => {
         let parsed: Record<string, unknown>;
         try {
-          parsed = JSON.parse(String(raw)) as Record<string, unknown>;
+          parsed = JSON.parse(
+            new TextDecoder().decode(
+              Array.isArray(raw) ? Buffer.concat(raw) : raw,
+            ),
+          ) as Record<string, unknown>;
         } catch {
           return;
         }
@@ -117,6 +124,14 @@ export async function registerWsRoutes(
           const msg = parsed as unknown as RunnerResultMessage;
           resolveCommand(msg.payload);
         }
+      };
+      socket.on("message", (raw: Buffer | ArrayBuffer | Buffer[]) => {
+        onMessage(raw).catch((err: unknown) => {
+          fastify.log.error(
+            { err, runnerId: runnerId.slice(0, 8) },
+            "runner message failed",
+          );
+        });
       });
 
       socket.on("close", () => {

@@ -227,7 +227,11 @@ export function startWebSocketClient(options: TransportOptions): () => void {
     ws.on("message", (data) => {
       let parsed: Record<string, unknown>;
       try {
-        parsed = JSON.parse(String(data)) as Record<string, unknown>;
+        parsed = JSON.parse(
+          new TextDecoder().decode(
+            Array.isArray(data) ? Buffer.concat(data) : data,
+          ),
+        ) as Record<string, unknown>;
       } catch {
         return;
       }

@@ -59,7 +59,7 @@ export function computeDiffHunks(
 // Keeps a few unchanged lines around each change for orientation. Two whose
 // windows touch merge into one hunk, with nothing left to drop between them.
 function windowHunks(flat: DiffLine[]): DiffHunk[] {
-  const keep = new Array<boolean>(flat.length).fill(false);
+  const keep = Array.from({ length: flat.length }, () => false);
   for (let i = 0; i < flat.length; i++) {
     if (flat[i].type === "unchanged") continue;
     const from = Math.max(0, i - CONTEXT_LINES);

@@ -7,7 +7,7 @@ import {
   type Platform,
   type RunnerCommandMessage,
 } from "@nightwarden/shared";
-import type { LLMProvider, ToolSchema } from "../llm/types.js";
+import type { LLMProvider } from "../llm/types.js";
 
 vi.mock("../llm/factory.js", () => import("./llm-factory-mock.js"));
 
@@ -16,6 +16,7 @@ import { mockCreateProvider } from "./llm-factory-mock.js";
 import {
   createScriptRunner,
   messagesSentTo,
+  toolsSentTo,
   type ContractFakeProvider,
   type ScriptedTurn,
 } from "./contract-fake-provider.js";
@@ -474,13 +475,11 @@ describe("toolset assembly by fleet capabilities", () => {
       // successive turns.
       const provider = mockCreateProvider.mock.results[0]
         ?.value as ContractFakeProvider;
-      const namesOnTurn = (turn: number): string[] =>
-        (provider.chat.mock.calls[turn]?.[0] as ToolSchema[]).map(
-          (s) => s.name,
-        );
-
-      expect(namesOnTurn(0)).not.toContain("RecordFinding");
-      expect(namesOnTurn(1)).not.toContain("RecordFinding");
+      // Paging is offered on every turn, so its presence proves the list is the toolset.
+      expect(toolsSentTo(provider, 0)).toContain("ReadToolResult");
+      expect(toolsSentTo(provider, 0)).not.toContain("RecordFinding");
+      expect(toolsSentTo(provider, 1)).toContain("ReadToolResult");
+      expect(toolsSentTo(provider, 1)).not.toContain("RecordFinding");
 
       // And across runs: a follow-up on the same chat is still a chat.
       mockCreateProvider.mockClear();
@@ -507,10 +506,8 @@ describe("toolset assembly by fleet capabilities", () => {
 
       const resumed = mockCreateProvider.mock.results[0]
         ?.value as ContractFakeProvider;
-      const resumedNames = (
-        resumed.chat.mock.calls[0]?.[0] as ToolSchema[]
-      ).map((s) => s.name);
-      expect(resumedNames).not.toContain("RecordFinding");
+      expect(toolsSentTo(resumed, 0)).toContain("ReadToolResult");
+      expect(toolsSentTo(resumed, 0)).not.toContain("RecordFinding");
     });
   });
 
@@ -565,8 +562,7 @@ describe("toolset assembly by fleet capabilities", () => {
       expect(told).toContain("QueryLogs");
 
       // And the tool is actually on the next request, not only announced.
-      const second = (provider.chat.mock.calls[1]?.[1] ?? []) as ToolSchema[];
-      expect(second.map((s) => s.name)).toContain("QueryLogs");
+      expect(toolsSentTo(provider, 1)).toContain("QueryLogs");
 
       await deleteLokiIntegration();
     });

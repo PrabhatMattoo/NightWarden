@@ -825,8 +825,8 @@ function strategyOf(parts: WorkloadParts): K8sConfigResult["strategy"] {
   };
 }
 
-function intOrString(value: unknown): string | null {
-  return value === undefined || value === null ? null : String(value);
+function intOrString(value: number | string | undefined): string | null {
+  return value === undefined ? null : String(value);
 }
 
 function containerSpec(

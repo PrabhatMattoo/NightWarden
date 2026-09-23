@@ -6,6 +6,13 @@ import type { DockerManifest } from "@nightwarden/shared";
 
 import { startWebSocketClient, type TransportOptions } from "../client.js";
 
+// What a frame says, however the socket chose to hand it over.
+function frameText(raw: Buffer | ArrayBuffer | Buffer[]): string {
+  return new TextDecoder().decode(
+    Array.isArray(raw) ? Buffer.concat(raw) : raw,
+  );
+}
+
 // Let real socket IO complete while timers are faked - setImmediate stays real.
 async function flushIo(turns = 50): Promise<void> {
   for (let i = 0; i < turns; i++) {
@@ -71,7 +78,7 @@ describe("runner WS client", () => {
       try {
         const serverSocket = await connected;
         const message = new Promise<string>((resolve) => {
-          serverSocket.on("message", (raw) => resolve(String(raw)));
+          serverSocket.on("message", (raw) => resolve(frameText(raw)));
         });
         sendIdentity(serverSocket);
         expect(JSON.parse(await message)).toMatchObject({
@@ -93,7 +100,7 @@ describe("runner WS client", () => {
       try {
         const serverSocket = await connected;
         const seen: string[] = [];
-        serverSocket.on("message", (raw) => seen.push(String(raw)));
+        serverSocket.on("message", (raw) => seen.push(frameText(raw)));
         await flushIo();
         expect(seen).toEqual([]);
 
@@ -167,7 +174,7 @@ describe("runner WS client", () => {
       try {
         const serverSocket = await connected;
         const replies: string[] = [];
-        serverSocket.on("message", (raw) => replies.push(String(raw)));
+        serverSocket.on("message", (raw) => replies.push(frameText(raw)));
         serverSocket.send(
           JSON.stringify({
             messageId: "m1",

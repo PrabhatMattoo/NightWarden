@@ -508,7 +508,9 @@ describe("durable approval interrupts", () => {
       }),
     ]);
 
-    const statuses = [approveRes.status, rejectRes.status].sort();
+    const statuses = [approveRes.status, rejectRes.status].sort(
+      (a, b) => a - b,
+    );
     expect(statuses).toEqual([200, 409]);
 
     // Tool must not run more than once regardless of which path wins

@@ -19,6 +19,7 @@ import { resolveCommand, sendCommand } from "../fleet/transport.js";
 import { logger } from "../logger.js";
 import { mountApi } from "./api-server.js";
 import { dockerService, manifest } from "./manifest-helper.js";
+import { frameText } from "./wire-helper.js";
 
 // The server name is the row's, assigned when the token is issued; the hostname is what the box
 // calls itself. Keys are prefixed with the first, never the second.
@@ -48,7 +49,7 @@ async function connectRunner(
   await new Promise<void>((resolve, reject) => {
     ws.on("error", reject);
     ws.on("message", (raw) => {
-      const msg = JSON.parse(raw.toString()) as { type: string };
+      const msg = JSON.parse(frameText(raw)) as { type: string };
       if (msg.type === "connected") resolve();
     });
   });
@@ -299,7 +300,7 @@ describe("flat runner registry", () => {
       // dies mid-command.
       let correlationId: string | undefined;
       ws.on("message", (raw) => {
-        const msg = JSON.parse(raw.toString()) as {
+        const msg = JSON.parse(frameText(raw)) as {
           type: string;
           payload?: { correlationId?: string };
         };
@@ -353,7 +354,7 @@ describe("flat runner registry", () => {
 
       let sawCommand = false;
       a.on("message", (raw) => {
-        const msg = JSON.parse(raw.toString()) as { type: string };
+        const msg = JSON.parse(frameText(raw)) as { type: string };
         if (msg.type === "command") sawCommand = true;
       });
 

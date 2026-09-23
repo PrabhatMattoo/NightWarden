@@ -11,6 +11,7 @@ import type {
   LogLabelsResult,
 } from "../agent/tools/loki.js";
 import type { Tool, ToolDispatchContext } from "../agent/tools/types.js";
+import { requestBody, requestUrl } from "./wire-helper.js";
 
 const FIRED_AT = "2026-07-16T12:00:00.000Z";
 
@@ -64,45 +65,52 @@ function json(body: unknown, status = 200): Response {
 function installLokiMock(mock: LokiMock): void {
   vi.stubGlobal(
     "fetch",
-    vi.fn(async (input: unknown, init?: RequestInit): Promise<Response> => {
-      const url = String(input);
-      const parsed = new URL(url);
-      const headers = (init?.headers ?? {}) as Record<string, string>;
-      const params = init?.body
-        ? new URLSearchParams(String(init.body))
-        : parsed.searchParams;
-      mock.requests.push({
-        path: parsed.pathname,
-        params,
-        authorization: headers["Authorization"],
-        orgId: headers["X-Scope-OrgID"],
-      });
-
-      if (url.includes("/loki/api/v1/query_range")) {
-        if (mock.status === "error") {
-          return new Response(mock.errorText ?? "parse error", { status: 400 });
-        }
-        if (mock.body !== undefined) return json(mock.body);
-        // QueryLogs sends direction; QueryLogMetrics sends step.
-        const isLogs = params.get("direction") !== null;
-        return json({
-          status: "success",
-          data: isLogs
-            ? { resultType: "streams", result: mock.streams }
-            : { resultType: "matrix", result: mock.matrix },
+    vi.fn(
+      async (
+        input: string | URL | Request,
+        init?: RequestInit,
+      ): Promise<Response> => {
+        const url = requestUrl(input);
+        const parsed = new URL(url);
+        const headers = new Headers(init?.headers);
+        const params = init?.body
+          ? new URLSearchParams(requestBody(init))
+          : parsed.searchParams;
+        mock.requests.push({
+          path: parsed.pathname,
+          params,
+          authorization: headers.get("Authorization") ?? undefined,
+          orgId: headers.get("X-Scope-OrgID") ?? undefined,
         });
-      }
-      if (url.includes("/loki/api/v1/label/")) {
-        return json({ status: "success", data: mock.values });
-      }
-      if (url.includes("/loki/api/v1/labels")) {
-        return json({ status: "success", data: mock.labels });
-      }
-      if (url.includes("/loki/api/v1/series")) {
-        return json({ status: "success", data: mock.series });
-      }
-      throw new Error(`Unexpected Loki request in test: ${url}`);
-    }),
+
+        if (url.includes("/loki/api/v1/query_range")) {
+          if (mock.status === "error") {
+            return new Response(mock.errorText ?? "parse error", {
+              status: 400,
+            });
+          }
+          if (mock.body !== undefined) return json(mock.body);
+          // QueryLogs sends direction; QueryLogMetrics sends step.
+          const isLogs = params.get("direction") !== null;
+          return json({
+            status: "success",
+            data: isLogs
+              ? { resultType: "streams", result: mock.streams }
+              : { resultType: "matrix", result: mock.matrix },
+          });
+        }
+        if (url.includes("/loki/api/v1/label/")) {
+          return json({ status: "success", data: mock.values });
+        }
+        if (url.includes("/loki/api/v1/labels")) {
+          return json({ status: "success", data: mock.labels });
+        }
+        if (url.includes("/loki/api/v1/series")) {
+          return json({ status: "success", data: mock.series });
+        }
+        throw new Error(`Unexpected Loki request in test: ${url}`);
+      },
+    ),
   );
 }
 

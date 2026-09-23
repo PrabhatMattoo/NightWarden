@@ -226,7 +226,7 @@ describe("every tool schema is one a provider will accept", () => {
           if (!isAuthored(property[bound])) continue;
           expect(
             states(description, property[bound]),
-            `${path} bounds ${bound} at ${String(property[bound])} without saying so`,
+            `${path} bounds ${bound} at ${JSON.stringify(property[bound])} without saying so`,
           ).toBe(true);
         }
         // minLength 1 is exempt: `required` already says the field needs content.

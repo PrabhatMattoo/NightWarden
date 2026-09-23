@@ -7,6 +7,7 @@ import { executeTool, findTool } from "../agent/tools/toolset.js";
 import { parsedContent } from "./tool-result.js";
 import type { MetricsRangeResult } from "../agent/tools/metrics.js";
 import type { Tool, ToolDispatchContext } from "../agent/tools/types.js";
+import { requestBody, requestUrl } from "./wire-helper.js";
 
 const FIRED_AT = "2026-07-16T12:00:00.000Z";
 
@@ -50,38 +51,43 @@ function json(body: unknown, status = 200): Response {
 function installPromMock(mock: PromMock): void {
   vi.stubGlobal(
     "fetch",
-    vi.fn(async (input: unknown, init?: RequestInit): Promise<Response> => {
-      const isRequest = input instanceof Request;
-      const url = isRequest ? (input as Request).url : String(input);
-      if (!url.includes("/api/v1/query")) {
-        throw new Error(`Unexpected Prometheus request in test: ${url}`);
-      }
-      const body = isRequest
-        ? await (input as Request).clone().text()
-        : String(init?.body ?? "");
-      const authorization = isRequest
-        ? ((input as Request).headers.get("Authorization") ?? undefined)
-        : (init?.headers as Record<string, string>)["Authorization"];
-      mock.requests.push({
-        path: url.slice(url.indexOf("/api/v1")),
-        params: new URLSearchParams(body),
-        authorization,
-      });
-      if (mock.status === "error") {
-        return json(
-          { status: "error", errorType: "bad_data", error: mock.error },
-          400,
-        );
-      }
-      if (mock.body !== undefined) return json(mock.body);
-      return json({
-        status: "success",
-        data: {
-          resultType: url.endsWith("query_range") ? "matrix" : "vector",
-          result: mock.result,
-        },
-      });
-    }),
+    vi.fn(
+      async (
+        input: string | URL | Request,
+        init?: RequestInit,
+      ): Promise<Response> => {
+        const url = requestUrl(input);
+        if (!url.includes("/api/v1/query")) {
+          throw new Error(`Unexpected Prometheus request in test: ${url}`);
+        }
+        const body =
+          input instanceof Request
+            ? await input.clone().text()
+            : requestBody(init);
+        const headers =
+          input instanceof Request ? input.headers : new Headers(init?.headers);
+        const authorization = headers.get("Authorization") ?? undefined;
+        mock.requests.push({
+          path: url.slice(url.indexOf("/api/v1")),
+          params: new URLSearchParams(body),
+          authorization,
+        });
+        if (mock.status === "error") {
+          return json(
+            { status: "error", errorType: "bad_data", error: mock.error },
+            400,
+          );
+        }
+        if (mock.body !== undefined) return json(mock.body);
+        return json({
+          status: "success",
+          data: {
+            resultType: url.endsWith("query_range") ? "matrix" : "vector",
+            result: mock.result,
+          },
+        });
+      },
+    ),
   );
 }
 

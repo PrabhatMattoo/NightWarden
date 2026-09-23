@@ -23,6 +23,7 @@ import { issueTestSession } from "./session-helper.js";
 import { getDb } from "../db.js";
 import { decrypt } from "../secrets.js";
 import { mountApi } from "./api-server.js";
+import { requestUrl, urlsCalled } from "./wire-helper.js";
 
 const TOKEN = "github_pat_test_plaintext";
 
@@ -60,7 +61,7 @@ function stubFetch(
   impl: (url: string, init?: RequestInit) => Response | Promise<Response>,
 ): FetchMock {
   const mock = vi.fn<typeof fetch>(async (input, init) =>
-    impl(String(input), init),
+    impl(requestUrl(input), init),
   );
   vi.stubGlobal("fetch", mock);
   return mock;
@@ -187,10 +188,9 @@ describe("GitHub integration routes", () => {
         hasMore: true,
       });
 
-      const [calledUrl, calledInit] = mock.mock.calls[0] ?? [];
-      expect(String(calledUrl)).toContain("/user/repos?per_page=100&page=1");
-      const headers = (calledInit?.headers ?? {}) as Record<string, string>;
-      expect(headers["Authorization"]).toBe(`Bearer ${TOKEN}`);
+      expect(urlsCalled(mock)[0]).toContain("/user/repos?per_page=100&page=1");
+      const headers = new Headers(mock.mock.calls[0]?.[1]?.headers);
+      expect(headers.get("Authorization")).toBe(`Bearer ${TOKEN}`);
     });
 
     it("maps 401 to the invalid_token ladder step", async () => {
@@ -503,7 +503,7 @@ describe("metrics source routes", () => {
   it("encodes a basic pair into one Authorization header and never stores the parts", async () => {
     let sawAuth: string | undefined;
     stubFetch((_url, init) => {
-      sawAuth = (init?.headers as Record<string, string>)["Authorization"];
+      sawAuth = new Headers(init?.headers).get("Authorization") ?? undefined;
       return jsonResponse(PROM_OK);
     });
 
@@ -895,7 +895,7 @@ describe("Loki integration routes", () => {
       validatedAt: expect.any(String),
     });
     // The probe URL must not carry the credential.
-    expect(String(mock.mock.calls[0]?.[0])).not.toContain("secret-123");
+    expect(urlsCalled(mock)[0]).not.toContain("secret-123");
 
     const row = (await getDb()
       .selectFrom("integrations")
@@ -1049,7 +1049,7 @@ describe("Sentry integration routes", () => {
       "/api/0/organizations/acme/issues/",
       "/api/0/organizations/acme/releases/",
     ]);
-    expect(String(mock.mock.calls[0]?.[0])).not.toContain("sntrys_secret");
+    expect(urlsCalled(mock)[0]).not.toContain("sntrys_secret");
 
     expect(await storedSecret("sentry", "token")).toBe("sntrys_secret");
     expect(await rawSecrets("sentry")).not.toContain("sntrys_secret");

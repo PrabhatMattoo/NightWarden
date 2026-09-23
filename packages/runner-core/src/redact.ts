@@ -53,7 +53,7 @@ const RULES: RedactionRule[] = [
     // delimiter: stopping at the first space leaked spaced secrets.
     name: "key-value",
     pattern:
-      /"?(password|passwd|token|secret|api_key|apikey|private_key|auth|credential|access_key|auth_token|access_token|client_secret)"?\s*[=:]\s*("[^"\n]*"|'[^'\n]*'|[^\s,\[\]\n]+)/gi,
+      /"?(password|passwd|token|secret|api_key|apikey|private_key|auth|credential|access_key|auth_token|access_token|client_secret)"?\s*[=:]\s*("[^"\n]*"|'[^'\n]*'|[^\s,[\]\n]+)/gi,
     preserve: "key",
   },
 ];

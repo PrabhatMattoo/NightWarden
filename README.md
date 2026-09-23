@@ -93,7 +93,7 @@ pnpm install
 pnpm dev
 ```
 
-That starts the API on port 3000 and the frontend on port 5173, both with live reload. Four checks gate every change and are exactly what CI runs: `pnpm typecheck`, `pnpm test`, `pnpm format:check`, `pnpm build`.
+That starts the API on port 3000 and the frontend on port 5173, both with live reload. Five checks gate every change and are exactly what CI runs: `pnpm typecheck`, `pnpm lint`, `pnpm test`, `pnpm format:check`, `pnpm build`.
 
 ## License
 

@@ -265,13 +265,20 @@ export async function getContainerEvents(
     .filter(Boolean)
     .map((line) => {
       const data = JSON.parse(line) as Record<string, unknown>;
-      const action = String(data["Action"] ?? "");
-      const actor = data["Actor"] as Record<string, unknown> | undefined;
+      const action = typeof data["Action"] === "string" ? data["Action"] : "";
+      const actor = data["Actor"];
+      const actorId =
+        typeof actor === "object" &&
+        actor !== null &&
+        "ID" in actor &&
+        typeof actor.ID === "string"
+          ? actor.ID
+          : "";
       return {
         timestamp: new Date(Number(data["time"]) * 1000).toISOString(),
         eventType: action,
         message: action,
-        actor: String(actor?.["ID"] ?? "").slice(0, 12),
+        actor: actorId.slice(0, 12),
       };
     });
 

@@ -35,7 +35,7 @@ interface Dispatcher {
   dispatch(input: RunSessionInput): Promise<boolean>;
   // Starts as many waiting alert groups as there are free seats. Called when a
   // seat frees, when a delivery is queued, and once at boot.
-  promoteQueued(): void;
+  promoteQueued(): Promise<void>;
   // guards the 409 on POST /sessions/:id/messages
   isSessionRunning(sessionId: string): Promise<boolean>;
   injectAlert(
@@ -43,7 +43,7 @@ interface Dispatcher {
     groupKey: string,
     alert: NormalizedAlert,
     delivery: DeliveryContext,
-  ): void;
+  ): Promise<void>;
   drainInbox(sessionId: string): NormalizedAlert[];
   // Aborts the in-flight LLM request for a running session. Returns false if
   // the session isn't currently running.
@@ -139,21 +139,33 @@ export function createDispatcher(opts: DispatcherOptions): Dispatcher {
     const controller = new AbortController();
     controllers.set(input.sessionId, controller);
 
-    void run({ ...input, signal: controller.signal, drainInbox })
-      .then(async (outcome) => await onRunEnded(input.sessionId, outcome))
-      .catch(async (err: unknown) => {
-        await recordFailure(input.sessionId, err);
-        await onRunEnded(input.sessionId, "failed");
-      })
-      .finally(async () => {
-        // Conditional on 'running', so a run that suspended keeps the seat it is
-        // waiting on a human with.
-        await releaseRun(input.sessionId);
-        controllers.delete(input.sessionId);
-        inbox.delete(input.sessionId);
-        await promoteQueued();
-      });
+    void supervise(input, controller);
     return true;
+  }
+
+  // One run from its start to its seat freeing, so a failure anywhere is recorded as the run's.
+  async function supervise(
+    input: RunSessionInput,
+    controller: AbortController,
+  ): Promise<void> {
+    try {
+      const outcome = await run({
+        ...input,
+        signal: controller.signal,
+        drainInbox,
+      });
+      await onRunEnded(input.sessionId, outcome);
+    } catch (err: unknown) {
+      await recordFailure(input.sessionId, err);
+      await onRunEnded(input.sessionId, "failed");
+    } finally {
+      // Conditional on 'running', so a run that suspended keeps the seat it is
+      // waiting on a human with.
+      await releaseRun(input.sessionId);
+      controllers.delete(input.sessionId);
+      inbox.delete(input.sessionId);
+      await promoteQueued();
+    }
   }
 
   // Here rather than in the pool, because starting a run is this module's job
