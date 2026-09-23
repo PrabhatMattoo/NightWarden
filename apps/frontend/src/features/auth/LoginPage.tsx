@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { AlertCircle } from "lucide-react";
 
-import { ICON_INLINE } from "@/shared/lib/iconProps";
+import { ICON_UI } from "@/shared/lib/iconProps";
 import { Button } from "@/shared/ui/button";
 import { Field, FieldError, FieldLabel } from "@/shared/ui/field";
 import { Input } from "@/shared/ui/input";
@@ -56,17 +56,13 @@ function FormHeading({
 }: {
   children: React.ReactNode;
 }): React.JSX.Element {
-  return (
-    <h1 className="m-0 text-2xl font-semibold tracking-title text-foreground">
-      {children}
-    </h1>
-  );
+  return <h1 className="m-0 type-title text-ink-base">{children}</h1>;
 }
 
 function ServerError({ message }: { message: string }): React.JSX.Element {
   return (
-    <p className="flex items-start gap-1 text-sm text-destructive" role="alert">
-      <AlertCircle {...ICON_INLINE} className="mt-px shrink-0" />
+    <p className="flex items-start gap-1 type-body text-fail" role="alert">
+      <AlertCircle {...ICON_UI} className="mt-px shrink-0" />
       <span>{message}</span>
     </p>
   );
@@ -232,11 +228,9 @@ export function LoginPage(): React.JSX.Element | null {
   if (phase.kind === "loading" || phase.kind === "authenticated") return null;
 
   return (
-    <div className="flex min-h-screen items-start justify-center p-6 pt-[clamp(96px,18vh,240px)]">
+    <div className="flex min-h-svh items-start justify-center p-6 pt-24 lg:pt-40">
       <div className="flex w-login flex-col gap-8">
-        <span className="text-lg font-semibold tracking-tight text-foreground">
-          NightWarden
-        </span>
+        <span className="type-heading text-ink-base">NightWarden</span>
         {phase.kind === "needs-setup" ? <SetupForm /> : <LoginForm />}
       </div>
     </div>

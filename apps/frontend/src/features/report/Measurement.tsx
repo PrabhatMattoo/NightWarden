@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { scaleLinear, scaleTime } from "d3-scale";
 import { max, min } from "d3-array";
+import { scaleLinear, scaleTime } from "d3-scale";
 import { line as d3Line } from "d3-shape";
 import { formatBytes } from "@/shared/lib/format";
+import { cn } from "@/shared/lib/utils";
 import type { Line, Point, Plot, PlotUnit } from "./plot.js";
 import { clock } from "@/shared/lib/time";
 import { compact } from "./format.js";
@@ -104,7 +105,7 @@ function LineChart({
           viewBox={`0 0 ${width} ${H}`}
           role="img"
           aria-label={lines.map((line) => line.label).join(", ")}
-          className="w-full rounded-md border border-border bg-background"
+          className="w-full rounded-control border-hairline border-edge bg-ground"
           onPointerMove={(e) => {
             const box = e.currentTarget.getBoundingClientRect();
             const mouseX = Math.max(
@@ -124,14 +125,14 @@ function LineChart({
                 x2={width - PAD_R}
                 y1={yScale(val)}
                 y2={yScale(val)}
-                className="stroke-border"
+                className="stroke-edge-input"
                 strokeWidth={1}
               />
               <text
                 x={PAD_L - 8}
                 y={yScale(val) + 4}
                 textAnchor="end"
-                className="fill-ink-subtle font-mono text-xs"
+                className="fill-ink-muted font-mono type-small"
               >
                 {read(val)}
               </text>
@@ -154,7 +155,7 @@ function LineChart({
                 x={xPos}
                 y={H - 10}
                 textAnchor={anchor}
-                className="fill-ink-subtle font-mono text-xs"
+                className="fill-ink-muted font-mono type-small"
               >
                 {clock(d.getTime())}
               </text>
@@ -177,7 +178,7 @@ function LineChart({
                 x={flipAlert ? alertX - 5 : alertX + 5}
                 y={PAD_T + 10}
                 textAnchor={flipAlert ? "end" : "start"}
-                className="fill-fail font-mono text-xs"
+                className="fill-fail font-mono type-small"
               >
                 alert {clock(alertAt!)}
               </text>
@@ -209,7 +210,7 @@ function LineChart({
                 x2={xScale(new Date(atHover[0].at))}
                 y1={PAD_T}
                 y2={H - PAD_B}
-                className="stroke-border-strong"
+                className="stroke-edge-strong"
                 strokeWidth={1}
                 strokeDasharray="3 3"
               />
@@ -221,7 +222,7 @@ function LineChart({
                     cy={yScale(point.value)}
                     r={3.5}
                     fill={strokeOf(at)}
-                    className="stroke-background"
+                    className="stroke-ground"
                     strokeWidth={2}
                   />
                 ),
@@ -233,28 +234,28 @@ function LineChart({
         {/* Hover Tooltip */}
         {hover !== null && atHover[0] != null && (
           <div
-            className="pointer-events-none absolute top-2 rounded-md border border-border-strong bg-card px-2 py-1 font-mono text-sm whitespace-nowrap shadow-raised"
+            className={cn(
+              "pointer-events-none absolute top-2 left-(--at) rounded-control border-hairline border-edge-strong bg-ground px-2 py-1 font-mono type-body whitespace-nowrap shadow-card",
+              // Flipped past the middle, so it never runs off the chart's far edge.
+              xScale(new Date(atHover[0].at)) > width / 2
+                ? "-ml-2 -translate-x-full"
+                : "ml-2",
+            )}
             style={{
-              left: `${(xScale(new Date(atHover[0].at)) / width) * 100}%`,
-              transform:
-                xScale(new Date(atHover[0].at)) > width / 2
-                  ? "translateX(-100%) translateX(-8px)"
-                  : "translateX(8px)",
+              "--at": `${(xScale(new Date(atHover[0].at)) / width) * 100}%`,
             }}
           >
-            <p className="m-0 text-ink-subtle">{clock(atHover[0].at)}</p>
+            <p className="m-0 text-ink-muted">{clock(atHover[0].at)}</p>
             {atHover.map((point, at) =>
               point === null ? null : (
                 <p key={at} className="m-0 flex items-center gap-2">
                   <span
                     aria-hidden
-                    className="size-2 rounded-full"
-                    style={{ background: strokeOf(at) }}
+                    className="size-2 rounded-full bg-(--swatch)"
+                    style={{ "--swatch": strokeOf(at) }}
                   />
                   {lines.length > 1 && (
-                    <span className="text-muted-foreground">
-                      {lines[at]!.label}
-                    </span>
+                    <span className="text-ink-muted">{lines[at]!.label}</span>
                   )}
                   <span className="tabular-nums">{read(point.value)}</span>
                 </p>
@@ -269,12 +270,12 @@ function LineChart({
           {lines.map((line, at) => (
             <li
               key={line.label}
-              className="flex items-center gap-2 text-sm text-muted-foreground"
+              className="flex items-center gap-2 type-body text-ink-muted"
             >
               <span
                 aria-hidden
-                className="h-0.5 w-4 rounded-full"
-                style={{ background: strokeOf(at) }}
+                className="h-0.5 w-4 rounded-full bg-(--swatch)"
+                style={{ "--swatch": strokeOf(at) }}
               />
               <span className="font-mono">{line.label}</span>
             </li>
@@ -298,20 +299,20 @@ function Bars({
     <ul className="m-0 flex list-none flex-col gap-2 p-0">
       {bars.map((bar, at) => (
         <li key={bar.label} className="flex items-center gap-3">
-          <span className="w-48 shrink-0 truncate font-mono text-sm text-muted-foreground">
+          <span className="w-48 shrink-0 truncate font-mono type-body text-ink-muted">
             {bar.label}
           </span>
           <span className="flex min-w-0 flex-1 items-center">
             <span
               aria-hidden
-              className="h-2 rounded-full"
+              className="h-2 w-(--share) rounded-full bg-(--swatch)"
               style={{
-                width: `${Math.max((bar.value / maxVal) * 100, 1)}%`,
-                background: strokeOf(at),
+                "--share": `${Math.max((bar.value / maxVal) * 100, 1)}%`,
+                "--swatch": strokeOf(at),
               }}
             />
           </span>
-          <span className="w-24 shrink-0 text-right font-mono text-sm tabular-nums">
+          <span className="w-24 shrink-0 text-right font-mono type-body tabular-nums">
             {read(bar.value)}
           </span>
         </li>
@@ -328,7 +329,7 @@ export function Measurement({ plot }: { plot: Plot }): React.JSX.Element {
   }
   if (plot.kind === "bars") return <Bars unit={plot.unit} bars={plot.bars} />;
   return (
-    <p className="m-0 font-mono text-xl tabular-nums">
+    <p className="m-0 font-mono type-display tabular-nums">
       {readingIn(plot.unit)(plot.value)}
     </p>
   );

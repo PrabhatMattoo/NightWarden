@@ -17,7 +17,6 @@ import {
   supersededIds,
 } from "@nightwarden/shared";
 import { cn } from "@/shared/lib/utils";
-import { SECTION_HEADING } from "@/shared/ui/Page";
 import { StatusText, type StatusTone } from "@/shared/ui/status";
 import { clock, elapsed, zoneName } from "@/shared/lib/time";
 import { CitationChip } from "./CitationChip.js";
@@ -26,15 +25,15 @@ import { Evidence } from "./Evidence.js";
 // Colour ranks a verdict: the root cause takes the accent, the other standing
 // verdicts full ink, and a dismissed one grey.
 const VERDICT_VIEW: Record<Verdict, { label: string; className: string }> = {
-  root_cause: { label: "Root cause", className: "text-primary-ink" },
-  trigger: { label: "Trigger", className: "text-foreground" },
+  root_cause: { label: "Root cause", className: "text-accent-ink" },
+  trigger: { label: "Trigger", className: "text-ink-base" },
   contributing_factor: {
     label: "Contributing factor",
-    className: "text-foreground",
+    className: "text-ink-base",
   },
-  symptom: { label: "Symptom", className: "text-foreground" },
-  disproven: { label: "Disproven", className: "text-ink-subtle" },
-  untestable: { label: "Untestable", className: "text-ink-subtle" },
+  symptom: { label: "Symptom", className: "text-ink-base" },
+  disproven: { label: "Disproven", className: "text-ink-muted" },
+  untestable: { label: "Untestable", className: "text-ink-muted" },
 };
 
 const TIMELINE_ID = "report-timeline";
@@ -44,11 +43,7 @@ function BandHeading({
 }: {
   children: React.ReactNode;
 }): React.JSX.Element {
-  return (
-    <h2 className="mb-3 text-lg leading-snug font-semibold tracking-heading">
-      {children}
-    </h2>
-  );
+  return <h2 className="mb-3 type-heading">{children}</h2>;
 }
 
 // Space and a heading set a section apart, not a rule; the heading carries the
@@ -89,7 +84,7 @@ function AlertBand({
 }): React.JSX.Element | null {
   if (alerts.length === 0) return null;
   return (
-    <section className="border-b border-border pb-4">
+    <section className="border-b-hairline border-edge pb-4">
       <ul className="m-0 flex list-none flex-col gap-2 p-0">
         {alerts.map(({ alert, clearedAt }) => (
           <li key={`${alert.sourceAlertId}-${alert.firedAt}`}>
@@ -97,21 +92,21 @@ function AlertBand({
               {/* The sender's own word, uncoloured. Ranking it here would show
                   a fleet labelling alerts P1 nothing at all. */}
               {alert.labels["severity"] !== undefined && (
-                <span className="text-sm text-ink-subtle">
+                <span className="type-body text-ink-muted">
                   {alert.labels["severity"]}
                 </span>
               )}
-              <span className="text-base font-medium">{alert.alertType}</span>
-              <span className="ml-auto flex shrink-0 items-baseline gap-2 text-sm">
+              <span className="type-heading">{alert.alertType}</span>
+              <span className="ml-auto flex shrink-0 items-baseline gap-2 type-body">
                 {clearedAt !== null && (
                   <span className="text-ok">Recovered</span>
                 )}
-                <span className="tabular-nums text-ink-subtle">
+                <span className="tabular-nums text-ink-muted">
                   {clock(clearedAt ?? alert.firedAt)}
                 </span>
               </span>
             </div>
-            <p className="m-0 mt-1 text-sm text-muted-foreground">
+            <p className="m-0 mt-1 type-body text-ink-muted">
               {Object.entries(alert.labels)
                 .map(([k, v]) => `${k}=${v}`)
                 .join(", ") || "no labels"}
@@ -175,7 +170,7 @@ function TimelineRow({ row }: { row: Row }): React.JSX.Element {
   return (
     <li className="group relative flex items-start gap-3">
       {/* Time column */}
-      <span className="w-14 shrink-0 pt-1 text-right tabular-nums text-xs text-ink-subtle">
+      <span className="w-14 shrink-0 pt-1 text-right tabular-nums type-small text-ink-muted">
         {clock(row.at)}
       </span>
 
@@ -184,44 +179,41 @@ function TimelineRow({ row }: { row: Row }): React.JSX.Element {
         {/* Spine line connecting across all items */}
         <span
           aria-hidden
-          className="absolute top-0 bottom-0 w-px bg-border-strong group-first:top-2.5 group-last:bottom-auto group-last:h-2.5"
+          className="absolute top-0 bottom-0 w-px bg-edge-strong group-first:top-2.5 group-last:bottom-auto group-last:h-2.5"
         />
         {/* Node dot */}
         <span
           aria-hidden
           className={cn(
-            "mt-1.5 shrink-0 rounded-full ring-4 ring-background",
+            "mt-1.5 shrink-0 rounded-full ring-4 ring-ground",
             isAlert
-              ? "h-2.5 w-2.5 bg-primary-ink"
+              ? "h-2.5 w-2.5 bg-accent-ink"
               : row.kind === "action"
-                ? "h-2 w-2 border border-background bg-primary-ink/70"
-                : "h-2 w-2 border border-background bg-border-strong",
+                ? "h-2 w-2 border-hairline border-ground bg-accent-ink/70"
+                : "h-2 w-2 border-hairline border-ground bg-edge-strong",
           )}
         />
       </div>
 
       {/* Content column */}
-      <div className="min-w-0 flex-1 pb-6 pt-1 text-sm leading-snug group-last:pb-0">
+      <div className="min-w-0 flex-1 pb-6 pt-1 type-body group-last:pb-0">
         {isAlert ? (
-          <span className="font-medium text-foreground">The alert fired</span>
+          <span className="emphasis text-ink-base">The alert fired</span>
         ) : row.kind === "event" ? (
-          <span className="text-foreground">{row.what}</span>
+          <span className="text-ink-base">{row.what}</span>
         ) : (
           <span className="flex min-w-0 flex-wrap items-baseline gap-2">
             <StatusText tone={decisionView(row.action).tone}>
               {decisionView(row.action).label}
             </StatusText>
-            <span className="font-mono text-sm">
+            <span className="font-mono type-body">
               {row.action.toolName}
               {row.action.target !== null && (
-                <span className="text-muted-foreground">
-                  {" "}
-                  {row.action.target}
-                </span>
+                <span className="text-ink-muted"> {row.action.target}</span>
               )}
             </span>
             {row.action.actor !== undefined && (
-              <span className="shrink-0 text-xs text-ink-subtle">
+              <span className="shrink-0 type-small text-ink-muted">
                 by {row.action.actor.name} ({row.action.actor.email})
               </span>
             )}
@@ -256,7 +248,7 @@ function Facts({
     clauses.push(
       <>
         Leading verdict{" "}
-        <b className="font-medium text-foreground">
+        <b className="emphasis text-ink-base">
           {VERDICT_VIEW[leading.verdict].label.toLowerCase()}
         </b>
       </>,
@@ -265,8 +257,8 @@ function Facts({
   if (record.findings.length > 0) {
     clauses.push(
       <>
-        <b className="font-medium text-foreground">{record.findings.length}</b>{" "}
-        tested, <b className="font-medium text-foreground">{ruledOut.length}</b>{" "}
+        <b className="emphasis text-ink-base">{record.findings.length}</b>{" "}
+        tested, <b className="emphasis text-ink-base">{ruledOut.length}</b>{" "}
         ruled out
       </>,
     );
@@ -274,15 +266,14 @@ function Facts({
   if (evidence.length > 0) {
     clauses.push(
       <>
-        <b className="font-medium text-foreground">{evidence.length}</b> calls
-        cited
+        <b className="emphasis text-ink-base">{evidence.length}</b> calls cited
       </>,
     );
   }
   if (approved.length > 0) {
     clauses.push(
       <>
-        <b className="font-medium text-foreground">{approved.length}</b>{" "}
+        <b className="emphasis text-ink-base">{approved.length}</b>{" "}
         {approved.length === 1 ? "write" : "writes"} you approved
       </>,
     );
@@ -290,14 +281,14 @@ function Facts({
   if (span !== null) {
     clauses.push(
       <>
-        <b className="font-medium text-foreground">{span}</b> end to end
+        <b className="emphasis text-ink-base">{span}</b> end to end
       </>,
     );
   }
   if (clauses.length === 0) return null;
 
   return (
-    <p className="m-0 mt-8 text-sm leading-loose text-muted-foreground">
+    <p className="m-0 mt-8 type-body text-ink-muted">
       {clauses.map((clause, at) => (
         <span key={at}>
           {at > 0 && " · "}
@@ -344,12 +335,10 @@ export function ReportPanel({
     (record.findings.length === 0 && record.report === null)
   ) {
     return (
-      <div className="mx-auto w-full max-w-report px-8 py-6">
+      <div className="mx-auto w-full max-w-narrow px-8 py-6">
         <AlertBand alerts={alerts} />
-        <h1 className="m-0 mt-8 text-2xl leading-snug font-semibold tracking-title">
-          Investigation
-        </h1>
-        <p className="m-0 mt-3 text-sm text-muted-foreground">
+        <h1 className="m-0 mt-8 type-title">Investigation</h1>
+        <p className="m-0 mt-3 type-body text-ink-muted">
           {weighing.length === 0
             ? "The agent has not recorded a finding yet."
             : "The agent is testing these explanations. Nothing is settled yet."}
@@ -359,9 +348,9 @@ export function ReportPanel({
             {weighing.map((candidate) => (
               <li
                 key={candidate.id}
-                className="grid grid-cols-[max-content_1fr] items-baseline gap-x-3 text-sm"
+                className="grid grid-cols-key items-baseline gap-x-3 type-body"
               >
-                <span className="font-mono text-xs text-ink-subtle">
+                <span className="font-mono type-small text-ink-muted">
                   {candidate.id}
                 </span>
                 <span>{candidate.statement}</span>
@@ -429,7 +418,7 @@ export function ReportPanel({
     if (cited.length === 0) return null;
     return (
       <div className="mt-4 flex flex-wrap items-baseline gap-x-4 gap-y-2">
-        <span className={SECTION_HEADING}>Sources</span>
+        <span className="type-small">Sources</span>
         {cited.map((entry) => (
           <CitationChip key={entry.toolCallId} evidence={entry} alert={alert} />
         ))}
@@ -443,58 +432,54 @@ export function ReportPanel({
     <li key={h.id}>
       <h4
         className={cn(
-          "m-0 text-base leading-snug font-semibold tracking-heading",
-          demoted ? "text-ink-subtle" : VERDICT_VIEW[h.verdict].className,
+          "m-0 type-prose   ",
+          demoted ? "text-ink-muted" : VERDICT_VIEW[h.verdict].className,
         )}
       >
         {VERDICT_VIEW[h.verdict].label}
       </h4>
       <p
         className={cn(
-          "m-0 mt-1.5 text-base leading-snug font-medium",
-          demoted && "text-muted-foreground",
+          "m-0 mt-1.5 type-prose  emphasis",
+          demoted && "text-ink-muted",
         )}
       >
         {claimOf(record.candidates, h)}
       </p>
-      {h.explanation && (
-        <p className="m-0 mt-2 text-sm leading-relaxed">{h.explanation}</p>
-      )}
+      {h.explanation && <p className="m-0 mt-2 type-body">{h.explanation}</p>}
       {!demoted && evidenceUnder(h.evidenceIds)}
       {sourcesUnder(h.evidenceIds)}
     </li>
   );
 
   return (
-    <div className="mx-auto w-full max-w-report px-8 py-6">
+    <div className="mx-auto w-full max-w-narrow px-8 py-6">
       <AlertBand alerts={alerts} />
 
       <header className="mt-8">
         {/* Headline then deck, which is what the two fields are for: the one
             sentence that is the answer, and the paragraph that expands it.
             Before any write-up, the leading claim stands in for the headline. */}
-        <h1 className="m-0 text-2xl leading-snug font-semibold tracking-title">
+        <h1 className="m-0 type-title">
           {submitted === null ? "Investigation" : submitted.headline}
         </h1>
         {submitted === null && findings[0] !== undefined && (
-          <p className="m-0 mt-3 text-lg font-medium">
+          <p className="m-0 mt-3 type-heading">
             {claimOf(record.candidates, findings[0])}
           </p>
         )}
         {submitted !== null && (
-          <p className="m-0 mt-3 text-base leading-relaxed">
-            {submitted.summary}
-          </p>
+          <p className="m-0 mt-3 type-prose">{submitted.summary}</p>
         )}
         {submitted !== null && (
-          <p className="m-0 mt-3 text-sm text-ink-subtle">
+          <p className="m-0 mt-3 type-body text-ink-muted">
             Affected: {submitted.affected}
           </p>
         )}
         {/* Stated once for the whole report rather than on each of its clocks.
             Every time below reads in the zone of whoever opened it, so a time
             quoted out of here means nothing without the zone beside it. */}
-        <p className="m-0 mt-3 text-sm text-ink-subtle">
+        <p className="m-0 mt-3 type-body text-ink-muted">
           Times in {zoneName()}
         </p>
       </header>
@@ -509,20 +494,18 @@ export function ReportPanel({
       {submitted !== null && submitted.impact.trim() !== "" && (
         <section className="mt-12">
           <BandHeading>Impact</BandHeading>
-          <p className="m-0 text-sm leading-relaxed">{submitted.impact}</p>
+          <p className="m-0 type-body">{submitted.impact}</p>
         </section>
       )}
 
       {submitted !== null && submitted.recommendation.trim() !== "" && (
         <Band heading="Recommendation">
           <div>
-            <p className="m-0 text-sm leading-relaxed">
-              {submitted.recommendation}
-            </p>
+            <p className="m-0 type-body">{submitted.recommendation}</p>
             {/* Named once, beside what to do, and pointing at the timeline
                 rather than repeating it. */}
             {approved.length > 0 && (
-              <p className="m-0 mt-3 text-sm text-muted-foreground">
+              <p className="m-0 mt-3 type-body text-ink-muted">
                 <span className="text-ok">
                   {approved.length === 1
                     ? "One write you approved"
@@ -531,7 +514,7 @@ export function ReportPanel({
                 ran during this investigation.{" "}
                 <a
                   href={`#${TIMELINE_ID}`}
-                  className="underline decoration-border underline-offset-2 hover:text-primary-ink hover:decoration-primary-ink"
+                  className="underline decoration-edge-strong underline-offset-2 hover:text-accent-ink hover:decoration-accent-ink"
                 >
                   See it on the timeline
                 </a>
@@ -568,14 +551,14 @@ export function ReportPanel({
           <ul className="m-0 flex list-none flex-col gap-6 p-0">
             {ruledOut.map((h) => (
               <li key={h.id}>
-                <h4 className="m-0 text-sm font-semibold tracking-heading text-ink-subtle">
+                <h4 className="m-0 type-item text-ink-muted">
                   {VERDICT_VIEW[h.verdict].label}
                 </h4>
-                <p className="m-0 mt-1 text-sm font-medium text-muted-foreground">
+                <p className="m-0 mt-1 type-item text-ink-muted">
                   {claimOf(record.candidates, h)}
                 </p>
                 {h.explanation && (
-                  <p className="m-0 mt-1.5 text-sm text-muted-foreground">
+                  <p className="m-0 mt-1.5 type-body text-ink-muted">
                     {h.explanation}
                   </p>
                 )}

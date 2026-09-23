@@ -12,12 +12,12 @@ type AlertVariant = "destructive" | "warning";
 /* One accent, not a flood: the icon carries the tone, the title and body stay
    neutral. A whole block in the status colour reads as louder than it is. */
 const alertVariants = cva(
-  "group/alert relative grid w-full grid-cols-[auto_1fr] gap-x-2 gap-y-1 rounded-lg border px-3 py-2 text-left text-sm text-foreground *:[svg]:row-span-2 *:[svg]:translate-y-0.5",
+  "group/alert relative flex w-full gap-2 rounded-card border-hairline border-edge px-3 py-2.5 text-left type-body *:[svg]:mt-0.5 *:[svg]:shrink-0",
   {
     variants: {
       variant: {
-        destructive: "bg-destructive-tint *:[svg]:text-destructive",
-        warning: "bg-warning-tint *:[svg]:text-warning",
+        destructive: "bg-fail-tint *:[svg]:text-fail",
+        warning: "bg-warn-tint *:[svg]:text-warn",
       },
     },
   },
@@ -45,7 +45,7 @@ function Alert({
       {...props}
     >
       <Icon {...ICON_UI} />
-      {children}
+      <div className="flex min-w-0 flex-col gap-1">{children}</div>
     </div>
   );
 }
@@ -54,10 +54,7 @@ function AlertTitle({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="alert-title"
-      className={cn(
-        "col-start-2 font-medium [&_a]:underline [&_a]:underline-offset-3 [&_a]:hover:text-foreground",
-        className,
-      )}
+      className={cn("type-item", className)}
       {...props}
     />
   );
@@ -71,7 +68,7 @@ function AlertDescription({
     <div
       data-slot="alert-description"
       className={cn(
-        "col-start-2 text-sm text-balance text-muted-foreground md:text-pretty [&_a]:underline [&_a]:underline-offset-3 [&_a]:hover:text-foreground [&_p:not(:last-child)]:mb-4",
+        "type-body text-pretty text-ink-muted [&_a]:text-ink-title [&_p:not(:last-child)]:mb-4",
         className,
       )}
       {...props}

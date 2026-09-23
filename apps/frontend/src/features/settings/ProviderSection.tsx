@@ -27,7 +27,6 @@ import {
 import { ICON_UI } from "@/shared/lib/iconProps";
 import { Spinner } from "@/shared/ui/spinner";
 import { SettingsGroup, SettingsRow } from "./SettingsRow";
-import { CONTROL } from "./layout";
 
 // "input-clear" is absent on purpose: that is Base UI wiping the box when the
 // list closes on no match, and honouring it threw away what was typed.
@@ -89,17 +88,12 @@ export function ProviderSection({
   // model actually selected.
   const reasoning =
     models.find((m) => m.id === block?.model)?.reasoning ?? null;
-  const providerItems: Record<string, string> = {
-    "": "Select a provider",
-    ...Object.fromEntries(
-      providers.map((provider) => [provider.name, provider.label]),
-    ),
-  };
-  const levelItems: Record<string, string> = {
-    ...Object.fromEntries(
-      (reasoning?.levels ?? []).map((l) => [l.value, l.label]),
-    ),
-  };
+  const providerItems: Record<string, string> = Object.fromEntries(
+    providers.map((provider) => [provider.name, provider.label]),
+  );
+  const levelItems: Record<string, string> = Object.fromEntries(
+    (reasoning?.levels ?? []).map((l) => [l.value, l.label]),
+  );
 
   return (
     <div className="flex flex-col gap-3">
@@ -111,13 +105,15 @@ export function ProviderSection({
         >
           <Select
             items={providerItems}
-            value={form.provider ?? ""}
+            value={form.provider}
             onValueChange={(value) =>
-              onProviderChange((value || null) as AgentConfig["provider"])
+              onProviderChange(
+                providers.find((p) => p.name === value)?.name ?? null,
+              )
             }
           >
             <SelectTrigger id="settings-provider">
-              <SelectValue />
+              <SelectValue placeholder="Select a provider" />
             </SelectTrigger>
             <SelectContent>
               {Object.entries(providerItems).map(([value, label]) => (
@@ -166,7 +162,7 @@ export function ProviderSection({
             />
           ) : (
             <div className="flex items-center gap-2">
-              <span className="font-mono text-sm text-muted-foreground">
+              <span className="font-mono type-body text-ink-muted">
                 {savedApiKeyMasked}
               </span>
               <Button
@@ -203,7 +199,7 @@ export function ProviderSection({
             <ComboboxInput
               id="settings-model"
               aria-label="Model"
-              className={CONTROL.text}
+              className="w-full sm:w-control"
               onKeyDownCapture={(e) => {
                 if (e.key !== "Enter") return;
                 if (document.querySelector('[role="option"][data-highlighted]'))

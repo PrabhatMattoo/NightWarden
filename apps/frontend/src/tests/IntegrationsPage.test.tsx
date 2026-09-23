@@ -336,7 +336,7 @@ describe("IntegrationsPage", () => {
     it("reports delivery state, not credential existence: waiting is muted, receiving is green", async () => {
       const { view } = setup({ ingestConfigured: true });
       const waiting = await screen.findByText("Waiting for first alert");
-      expect(waiting).toHaveClass("text-muted-foreground");
+      expect(waiting).toHaveClass("text-ink-muted");
       view.unmount();
       vi.unstubAllGlobals();
 

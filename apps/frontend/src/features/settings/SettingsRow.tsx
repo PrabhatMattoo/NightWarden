@@ -1,6 +1,6 @@
 import { Card } from "@/shared/ui/card";
 import { FieldLabel, FieldTitle } from "@/shared/ui/field";
-import { SectionHeading } from "@/shared/ui/Page";
+import { Section } from "@/shared/ui/Page";
 import { cn } from "@/shared/lib/utils";
 
 interface SettingsRowProps {
@@ -30,8 +30,9 @@ export function SettingsRow({
   return (
     <div
       className={cn(
-        "flex p-4",
-        !joined && "not-last:border-b not-last:border-border",
+        "relative flex p-4",
+        !joined &&
+          "not-last:after:absolute not-last:after:inset-x-4 not-last:after:bottom-0 not-last:after:border-b-hairline not-last:after:border-edge",
         stacked ? "flex-col gap-2" : "items-center justify-between gap-6",
       )}
     >
@@ -42,7 +43,7 @@ export function SettingsRow({
           <FieldLabel htmlFor={controlId}>{title}</FieldLabel>
         )}
         {description !== undefined && (
-          <p className="text-sm text-muted-foreground">{description}</p>
+          <p className="type-small">{description}</p>
         )}
       </div>
       <div className={cn(stacked ? "w-full" : "shrink-0")}>{children}</div>
@@ -58,9 +59,8 @@ export function SettingsGroup({
   children: React.ReactNode;
 }): React.JSX.Element {
   return (
-    <section className="flex flex-col gap-3">
-      {title !== undefined && <SectionHeading>{title}</SectionHeading>}
-      <Card className="gap-0 py-0">{children}</Card>
-    </section>
+    <Section {...(title !== undefined && { title })}>
+      <Card>{children}</Card>
+    </Section>
   );
 }

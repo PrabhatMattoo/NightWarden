@@ -38,17 +38,17 @@ function Readings({ groups }: { groups: ReadingGroup[] }): React.JSX.Element {
       {groups.map((group, at) => (
         <div key={group.server ?? at}>
           {group.server !== null && (
-            <p className="m-0 mb-1 font-mono text-sm text-ink-subtle">
+            <p className="m-0 mb-1 font-mono type-body text-ink-muted">
               {group.server}
             </p>
           )}
           <dl className="m-0 flex flex-col gap-1">
             {group.rows.map((row) => (
               <div key={row.key} className="flex gap-3">
-                <dt className="w-40 shrink-0 text-sm text-ink-subtle">
+                <dt className="w-40 shrink-0 type-body text-ink-muted">
                   {row.label}
                 </dt>
-                <dd className="m-0 min-w-0 font-mono text-sm tabular-nums break-words">
+                <dd className="m-0 min-w-0 font-mono type-body tabular-nums break-words">
                   {row.value}
                 </dd>
               </div>
@@ -63,11 +63,11 @@ function Readings({ groups }: { groups: ReadingGroup[] }): React.JSX.Element {
 function LogBody({ excerpt }: { excerpt: LogExcerpt }): React.JSX.Element {
   return (
     <div>
-      <pre className="m-0 font-mono text-sm leading-relaxed text-muted-foreground break-words whitespace-pre-wrap">
+      <pre className="m-0 font-mono type-body text-ink-muted break-words whitespace-pre-wrap">
         {excerpt.worstAbove !== null && (
           <>
             <span className="block">{excerpt.worstAbove}</span>
-            <span className="text-ink-subtle">{"⋮"}</span>
+            <span className="text-ink-muted">{"⋮"}</span>
             {"\n"}
           </>
         )}
@@ -83,7 +83,7 @@ function LogBody({ excerpt }: { excerpt: LogExcerpt }): React.JSX.Element {
 
 function DiffBody({ lines }: { lines: DiffLine[] }): React.JSX.Element {
   return (
-    <pre className="m-0 font-mono text-sm leading-relaxed break-words whitespace-pre-wrap">
+    <pre className="m-0 font-mono type-body break-words whitespace-pre-wrap">
       {lines.map((line, at) => (
         <span
           key={at}
@@ -91,7 +91,7 @@ function DiffBody({ lines }: { lines: DiffLine[] }): React.JSX.Element {
             "block",
             line.type === "added" && "text-ok",
             line.type === "removed" && "text-fail",
-            line.type === "unchanged" && "text-muted-foreground",
+            line.type === "unchanged" && "text-ink-muted",
           )}
         >
           {line.type === "added" ? "+" : line.type === "removed" ? "-" : " "}
@@ -108,16 +108,16 @@ function OpenedPullRequest({
   pr: { url: string; number: number; draft: boolean };
 }): React.JSX.Element {
   return (
-    <p className="m-0 text-sm">
+    <p className="m-0 type-body">
       <a
         href={pr.url}
         target="_blank"
         rel="noreferrer"
-        className="font-medium text-ring no-underline hover:underline"
+        className="emphasis text-accent-ink no-underline hover:underline"
       >
         #{pr.number}
       </a>
-      <span className="ml-2 text-muted-foreground">
+      <span className="ml-2 text-ink-muted">
         {pr.draft ? "draft pull request" : "pull request"}
       </span>
     </p>
@@ -275,9 +275,7 @@ export function Evidence({
   if (drawing === null) {
     const absence = absenceIn(entry);
     return absence === null ? null : (
-      <p className="m-0 mt-4 font-mono text-sm text-muted-foreground">
-        {absence}
-      </p>
+      <p className="m-0 mt-4 font-mono type-body text-ink-muted">{absence}</p>
     );
   }
 
@@ -285,7 +283,7 @@ export function Evidence({
     <figure className="m-0 mt-8">
       {drawing.body}
       {(drawing.of !== "" || drawing.scope !== "") && (
-        <figcaption className="mt-2 flex flex-wrap justify-between gap-3 text-xs text-muted-foreground">
+        <figcaption className="mt-2 flex flex-wrap justify-between gap-3 type-small text-ink-muted">
           <span className="min-w-0 font-mono">{drawing.of}</span>
           <span className="shrink-0">{drawing.scope}</span>
         </figcaption>

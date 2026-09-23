@@ -8,7 +8,7 @@ import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import { Field, FieldLabel, FieldDescription } from "@/shared/ui/field";
 import { Spinner } from "@/shared/ui/spinner";
-import { DetailPage } from "@/shared/ui/Page";
+import { Page } from "@/shared/ui/Page";
 import { ConfirmDialog } from "@/shared/ui/ConfirmDialog";
 import { ConnectedState, type Fact } from "@/features/integrations/FactGrid";
 import { toast } from "@/shared/lib/toast";
@@ -83,14 +83,17 @@ export function SentryPage(): React.JSX.Element {
       : [];
 
   return (
-    <DetailPage back={{ to: "/integrations", label: "Integrations" }}>
+    <Page
+      back={{ to: "/integrations", label: "Integrations" }}
+      measure="narrow"
+    >
       <div className="flex flex-col gap-8">
         <IntegrationHeader identity={INTEGRATION_CATALOG.sentry} />
 
         {isLoading && (
           <div className="flex items-center gap-2">
             <Spinner />
-            <p className="text-sm text-muted-foreground">Loading...</p>
+            <p className="type-body text-ink-muted">Loading...</p>
           </div>
         )}
 
@@ -188,6 +191,6 @@ export function SentryPage(): React.JSX.Element {
         destructive
         onConfirm={() => disconnect.mutate()}
       />
-    </DetailPage>
+    </Page>
   );
 }

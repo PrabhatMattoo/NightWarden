@@ -14,6 +14,7 @@ import type { GitHubIntegrationStatus } from "@nightwarden/shared";
 import { TestProviders } from "./renderWithProviders.js";
 import { GitHubConnectPage } from "@/features/integrations/github/GitHubConnectPage";
 import { toast } from "@/shared/lib/toast";
+import { sentBody } from "./sentBody";
 
 const NOT_CONFIGURED: GitHubIntegrationStatus = {
   configured: false,
@@ -67,7 +68,7 @@ function makeFetchMock(state: MockState) {
       }
       if (url === "/api/integrations/github") {
         if (init?.method === "POST") {
-          const body = JSON.parse(String(init.body)) as {
+          const body = sentBody(init) as {
             token: string;
             repo: string;
           };
@@ -81,7 +82,7 @@ function makeFetchMock(state: MockState) {
           });
         }
         if (init?.method === "PATCH") {
-          const body = JSON.parse(String(init.body)) as { repo: string };
+          const body = sentBody(init) as { repo: string };
           if (state.patch.status < 400) {
             state.status = { ...state.status, repo: body.repo };
           }
@@ -245,7 +246,7 @@ describe("GitHubConnectPage - onboarding (not yet connected)", () => {
         url === "/api/integrations/github" && init?.method === "POST",
     );
     expect(bindCall).toBeDefined();
-    expect(JSON.parse(String(bindCall?.[1]?.body))).toEqual({
+    expect(sentBody(bindCall?.[1])).toEqual({
       token: "github_pat_test",
       repo: "acme/api",
     });
@@ -348,7 +349,7 @@ describe("GitHubConnectPage - management (already connected)", () => {
       url.includes("/api/integrations/github/repos"),
     );
     expect(reposCall).toBeDefined();
-    expect(JSON.parse(String(reposCall?.[1]?.body))).toEqual({ page: 1 });
+    expect(sentBody(reposCall?.[1])).toEqual({ page: 1 });
     expect(
       screen.getByRole("button", { name: "Update repository" }),
     ).toBeDisabled();
@@ -385,7 +386,7 @@ describe("GitHubConnectPage - management (already connected)", () => {
       url.includes("/api/integrations/github/repos"),
     );
     expect(reposCall).toBeDefined();
-    expect(JSON.parse(String(reposCall?.[1]?.body))).toEqual({ page: 1 });
+    expect(sentBody(reposCall?.[1])).toEqual({ page: 1 });
 
     const updateButton = screen.getByRole("button", {
       name: "Update repository",
@@ -404,7 +405,7 @@ describe("GitHubConnectPage - management (already connected)", () => {
       expect(call).toBeDefined();
       return call;
     });
-    expect(JSON.parse(String(patchCall?.[1]?.body))).toEqual({
+    expect(sentBody(patchCall?.[1])).toEqual({
       repo: "prabhat/dotfiles",
     });
   });
@@ -431,7 +432,7 @@ describe("GitHubConnectPage - management (already connected)", () => {
       expect(call).toBeDefined();
       return call;
     });
-    expect(JSON.parse(String(bindCall?.[1]?.body))).toEqual({
+    expect(sentBody(bindCall?.[1])).toEqual({
       token: "github_pat_new",
       repo: "acme/api",
     });

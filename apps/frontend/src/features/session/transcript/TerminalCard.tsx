@@ -37,17 +37,17 @@ export function TerminalBody({
   return (
     <div className="flex flex-col gap-2">
       {argv !== null && argv !== "" && (
-        <pre className="m-0 font-mono text-sm leading-relaxed break-words whitespace-pre-wrap text-ink-subtle">
-          <span className="text-ink-subtle select-none">$ </span>
+        <pre className="m-0 font-mono type-body break-words whitespace-pre-wrap text-ink-muted">
+          <span className="text-ink-muted select-none">$ </span>
           {argv}
         </pre>
       )}
       {run.output.trim() === "" ? (
-        <p className="m-0 font-mono text-sm text-ink-subtle">(no output)</p>
+        <p className="m-0 font-mono type-body text-ink-muted">(no output)</p>
       ) : (
         <pre
           className={cn(
-            "m-0 font-mono text-sm leading-relaxed break-words whitespace-pre-wrap text-ink-subtle",
+            "m-0 font-mono type-body  break-words whitespace-pre-wrap text-ink-muted",
             run.exitCode !== 0 && "text-fail",
           )}
         >

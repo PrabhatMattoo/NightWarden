@@ -7,7 +7,6 @@ import {
   InputGroupText,
 } from "@/shared/ui/input-group";
 import { SettingsRow } from "./SettingsRow";
-import { CONTROL, NO_SPINNERS } from "./layout";
 
 const UNIT_MS = { sec: 1_000, min: 60_000 } as const;
 
@@ -37,12 +36,12 @@ export function NumberRow({
     <SettingsRow controlId={id} title={title} description={description}>
       {/* The unit rides inside the box, so the bordered edge is what lines up
           with every other control rather than sitting short of it. */}
-      <InputGroup className={CONTROL.number}>
+      <InputGroup className="w-24">
         <InputGroupInput
           id={id}
-          type="number"
+          type="text"
+          inputMode="numeric"
           min={min}
-          className={NO_SPINNERS}
           value={draft ?? String(value)}
           onChange={(e) => setDraft(e.currentTarget.value)}
           onBlur={() => {

@@ -5,14 +5,13 @@ import { useState } from "react";
 import { Button } from "@/shared/ui/button";
 import { CodeBlock } from "@/shared/ui/code-block";
 import { Textarea } from "@/shared/ui/textarea";
-import { SECTION_HEADING } from "@/shared/ui/Page";
 import type { ToolCallItem } from "./types.js";
 import { COMMAND_TOOLS, commandLineOf, targetOf } from "./toolPresentation.js";
 import { isTool } from "@nightwarden/shared";
 import { GateCard } from "./GateCard.js";
 
 // Shared by both halves of the exchange so neither can be styled as the louder one.
-const EXCHANGE_LABEL_CLASS = "text-sm text-ink-subtle";
+const EXCHANGE_LABEL_CLASS = "type-body text-ink-muted";
 
 function inputString(
   input: Record<string, unknown>,
@@ -63,11 +62,9 @@ export function ApprovalCardPanel({
 
   return (
     <GateCard data-testid="approval-card">
-      <p className={SECTION_HEADING}>Needs your approval</p>
+      <p className="type-item">Needs your approval</p>
 
-      <p className="text-base font-semibold">
-        {actionLabel(item.toolName, input)}
-      </p>
+      <p className="type-prose">{actionLabel(item.toolName, input)}</p>
 
       {/* Labelled, and at full body weight, because this one sentence is what
           the decision turns on. Its label pairs with "Your reason" below, so a
@@ -75,13 +72,13 @@ export function ApprovalCardPanel({
       {why !== null && (
         <div className="flex flex-col gap-1">
           <p className={EXCHANGE_LABEL_CLASS}>Agent&rsquo;s reason</p>
-          <p className="text-sm leading-relaxed text-foreground">{why}</p>
+          <p className="type-body text-ink-base">{why}</p>
         </div>
       )}
 
       {command !== null && (
-        <CodeBlock className="m-0 px-3 py-2 break-words">
-          <span className="text-ink-subtle select-none">$ </span>
+        <CodeBlock>
+          <span className="text-ink-muted select-none">$ </span>
           {command}
         </CodeBlock>
       )}
@@ -90,12 +87,12 @@ export function ApprovalCardPanel({
           Repeating a fix is rarely fixing it, and 3am is exactly when that
           pattern is easiest to miss. */}
       {item.priorRuns !== undefined && (
-        <p className="text-sm text-warning">
+        <p className="type-body text-warn">
           {ordinal(item.priorRuns + 1)} time in this investigation.
         </p>
       )}
 
-      <div className="flex flex-wrap gap-4 text-sm text-ink-subtle">
+      <div className="flex flex-wrap gap-4 type-body text-ink-muted">
         <span className="font-mono">{item.toolName}</span>
         {service !== null && <span className="font-mono">{service}</span>}
       </div>

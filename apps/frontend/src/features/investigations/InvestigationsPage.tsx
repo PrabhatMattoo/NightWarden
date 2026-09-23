@@ -8,7 +8,7 @@ import type {
   SessionListRow,
 } from "@nightwarden/shared";
 
-import { SectionPage, SECTION_HEADING } from "@/shared/ui/Page";
+import { Page } from "@/shared/ui/Page";
 import { Button, buttonVariants } from "@/shared/ui/button";
 import { Card } from "@/shared/ui/card";
 import { Spinner } from "@/shared/ui/spinner";
@@ -35,10 +35,10 @@ import { cn } from "@/shared/lib/utils";
 /* Colour answers one question per hue: is a person holding this up, did the
    condition stop firing, did the run break. Everything else is ink. */
 function statusLineTone(row: SessionListRow): string {
-  if (row.awaitingHumanInput) return "text-wait";
+  if (row.awaitingHumanInput) return "text-warn";
   if (row.status === "resolved") return "text-ok";
   if (row.status === "failed") return "text-fail";
-  return "text-muted-foreground";
+  return "text-ink-muted";
 }
 
 // The severity word is the user's own and never matched against a list, so a
@@ -51,25 +51,23 @@ function InvestigationRow({
   running: boolean;
 }): React.JSX.Element {
   return (
-    <li className="not-last:border-b not-last:border-border">
+    <li className="not-last:border-b-hairline not-last:border-edge">
       <Link
         to="/investigations/$id"
         params={{ id: row.sessionId }}
         // Stitched into the group card, so hover moves the fill and nothing else.
-        className="flex flex-col gap-1 px-4 py-3 no-underline transition-colors hover:bg-card-hover"
+        className="flex flex-col gap-1 px-4 py-3 no-underline transition-colors hover:bg-hover"
       >
         <span className="flex items-baseline gap-3">
-          <span className="min-w-0 flex-1 truncate font-medium">
-            {row.title}
-          </span>
+          <span className="min-w-0 flex-1 truncate emphasis">{row.title}</span>
           {row.severityLabel !== null && (
-            <span className="min-w-0 shrink truncate text-sm text-ink-subtle">
+            <span className="min-w-0 shrink truncate type-body text-ink-muted">
               {row.severityLabel}
             </span>
           )}
           {/* When it last moved, not when it opened: on a run parked for your
               answer, that is how long it has been waiting. */}
-          <span className="w-9 shrink-0 text-right text-sm tabular-nums text-ink-subtle">
+          <span className="w-9 shrink-0 text-right type-body tabular-nums text-ink-muted">
             {timeAgo(row.lastActivityAt)}
           </span>
         </span>
@@ -87,7 +85,7 @@ function InvestigationRow({
               <Spinner
                 aria-hidden
                 role="none"
-                className="size-3.5 shrink-0 self-center text-run"
+                className="size-3.5 shrink-0 self-center text-accent-ink"
               />
             )}
           </span>
@@ -107,10 +105,10 @@ function QueueBand({
   if (queue === null || queue.waiting === 0) return null;
   const alerts = queue.waiting === 1 ? "1 alert" : `${queue.waiting} alerts`;
   return (
-    <p className="mb-6 flex items-center gap-2 text-sm">
-      <Spinner aria-hidden className="size-3.5 text-run" role="none" />
-      <span className="font-medium">{alerts} waiting</span>
-      <span className="text-muted-foreground">
+    <p className="mb-6 flex items-center gap-2 type-body">
+      <Spinner aria-hidden className="size-3.5 text-accent-ink" role="none" />
+      <span className="emphasis">{alerts} waiting</span>
+      <span className="text-ink-muted">
         {queue.running} of {queue.limit} investigations running
         {queue.oldestArrivedAt !== null &&
           ` · oldest waiting ${timeAgo(queue.oldestArrivedAt)}`}
@@ -125,7 +123,7 @@ function NothingYet(): React.JSX.Element {
   return (
     <Empty>
       <EmptyHeader>
-        <EmptyMedia variant="icon">
+        <EmptyMedia>
           <Telescope aria-hidden strokeWidth={1.5} />
         </EmptyMedia>
         <EmptyTitle>No investigations yet</EmptyTitle>
@@ -195,9 +193,9 @@ export function InvestigationsPage(): React.JSX.Element {
   );
 
   return (
-    <SectionPage
+    <Page
       title="Investigations"
-      description="Every investigation NightWarden has opened, grouped by what each one needs."
+      subtitle="Every investigation NightWarden has opened, grouped by what each one needs."
       toolbar={
         <Select
           items={FILTER_LABEL}
@@ -206,7 +204,7 @@ export function InvestigationsPage(): React.JSX.Element {
         >
           <SelectTrigger aria-label="Filter by status" className="w-44">
             <ListFilter
-              className="size-4 shrink-0 text-muted-foreground"
+              className="size-4 shrink-0 text-ink-muted"
               aria-hidden
             />
             <SelectValue />
@@ -223,7 +221,7 @@ export function InvestigationsPage(): React.JSX.Element {
     >
       {!isLoading && groups.length === 0 ? (
         status !== "all" ? (
-          <p className="py-8 text-sm text-muted-foreground">
+          <p className="py-8 type-body text-ink-muted">
             No investigations match.
           </p>
         ) : (
@@ -239,7 +237,7 @@ export function InvestigationsPage(): React.JSX.Element {
                 key={group.status}
                 aria-label={STATUS_LABEL[group.status]}
               >
-                <h2 className={cn("mb-2 px-1", SECTION_HEADING)}>
+                <h2 className="mb-3 type-heading">
                   {STATUS_LABEL[group.status]}
                 </h2>
                 <Card className="gap-0 py-0">
@@ -258,9 +256,9 @@ export function InvestigationsPage(): React.JSX.Element {
           </div>
           {hasMore && (
             <Button
-              variant="ghost"
+              variant="quiet"
               size="sm"
-              className="mt-6 self-start text-muted-foreground"
+              className="mt-6 self-start"
               disabled={isLoadingMore}
               onClick={loadMore}
             >
@@ -269,6 +267,6 @@ export function InvestigationsPage(): React.JSX.Element {
           )}
         </>
       )}
-    </SectionPage>
+    </Page>
   );
 }

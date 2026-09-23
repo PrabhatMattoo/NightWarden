@@ -1,5 +1,4 @@
 import { Progress } from "@/shared/ui/progress";
-import { SECTION_HEADING } from "@/shared/ui/Page";
 import { cn } from "@/shared/lib/utils";
 
 /* Step progress header for the add-server wizard: segments left of (and
@@ -15,12 +14,10 @@ export function WizardStepper({
 }): React.JSX.Element {
   return (
     <div className="mb-8">
-      <div className={cn("mb-1", SECTION_HEADING)}>
+      <div className="mb-1 type-small">
         Step {step + 1} of {total}
       </div>
-      <div className="mb-4 text-lg font-semibold tracking-tight text-foreground">
-        {title}
-      </div>
+      <div className="mb-4 type-heading text-ink-base">{title}</div>
       {/* Discrete segments rather than one filling bar, because the steps are
           countable. The root still owns every aria attribute. */}
       <Progress
@@ -35,8 +32,8 @@ export function WizardStepper({
             key={i}
             data-done={i <= step || undefined}
             className={cn(
-              "h-[3px] flex-1 rounded-full transition-colors",
-              i <= step ? "bg-primary" : "bg-border",
+              "h-0.75 flex-1 rounded-full transition-colors",
+              i <= step ? "bg-accent" : "bg-edge",
             )}
           />
         ))}
@@ -53,7 +50,7 @@ export function WizardActions({
   return (
     <div
       className={cn(
-        "mt-8 flex justify-between border-t border-border pt-4",
+        "mt-8 flex justify-between border-t-hairline border-edge pt-4",
         className,
       )}
       {...props}

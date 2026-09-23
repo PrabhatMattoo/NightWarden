@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useBlocker, useNavigate } from "@tanstack/react-router";
 import type { Platform, RunnerRecord } from "@nightwarden/shared";
@@ -17,14 +17,14 @@ import {
 } from "@/shared/ui/field";
 import { Input } from "@/shared/ui/input";
 import { Spinner } from "@/shared/ui/spinner";
-import { DetailPage } from "@/shared/ui/Page";
+import { Page } from "@/shared/ui/Page";
 import {
   WizardStepper,
   WizardActions,
 } from "@/features/integrations/runners/WizardStepper";
 import { ConfirmDialog } from "@/shared/ui/ConfirmDialog";
 import { CopyableSnippet } from "@/shared/ui/CopyableSnippet";
-import { ICON_INLINE } from "@/shared/lib/iconProps";
+import { ICON_UI } from "@/shared/lib/iconProps";
 import { ApiError, apiFetch } from "@/shared/api/client";
 import { PLATFORM_COPY } from "./RunnerListPage.js";
 
@@ -94,9 +94,8 @@ export function AddRunnerPage({
     (entry) => entry.target,
   );
 
-  useEffect(() => {
-    if (connectedRunner) setCommitted(true);
-  }, [connectedRunner]);
+  // Sticky once the runner has dialled in: its token is spent, so leaving is safe.
+  if (connectedRunner && !committed) setCommitted(true);
 
   const tokenPending = mintedToken !== null && !committed;
   const blocker = useBlocker({
@@ -155,7 +154,7 @@ export function AddRunnerPage({
   }
 
   return (
-    <DetailPage back={back}>
+    <Page back={back} measure="narrow">
       <WizardStepper step={step} total={3} title={STEP_TITLES[step]} />
 
       {step === 0 && (
@@ -183,7 +182,7 @@ export function AddRunnerPage({
             <div className="min-h-5">
               {shownError && (
                 <FieldError>
-                  <AlertCircle {...ICON_INLINE} />
+                  <AlertCircle {...ICON_UI} />
                   {shownError}
                 </FieldError>
               )}
@@ -192,7 +191,7 @@ export function AddRunnerPage({
 
           {installError !== null && (
             <FieldError>
-              <AlertCircle {...ICON_INLINE} />
+              <AlertCircle {...ICON_UI} />
               {installError}
             </FieldError>
           )}
@@ -214,7 +213,7 @@ export function AddRunnerPage({
           {minting && (
             <div className="flex items-center gap-2">
               <Spinner />
-              <p className="text-sm text-muted-foreground">
+              <p className="type-body text-ink-muted">
                 Generating a runner token...
               </p>
             </div>
@@ -222,7 +221,7 @@ export function AddRunnerPage({
 
           {installError !== null && (
             <FieldError>
-              <AlertCircle {...ICON_INLINE} />
+              <AlertCircle {...ICON_UI} />
               {installError}
             </FieldError>
           )}
@@ -230,7 +229,7 @@ export function AddRunnerPage({
           {installText !== null && (
             <div className="flex flex-col gap-4">
               <div className="flex flex-col gap-2">
-                <p className="text-sm">
+                <p className="type-body">
                   {platform === "docker"
                     ? "Run this on the host to install the runner:"
                     : "Apply this to the cluster to install the runner:"}
@@ -247,7 +246,7 @@ export function AddRunnerPage({
                 ) : (
                   <div className="flex items-center gap-2">
                     <Spinner />
-                    <p className="text-sm text-muted-foreground">
+                    <p className="type-body text-ink-muted">
                       Waiting for the runner to connect...
                     </p>
                   </div>
@@ -269,7 +268,7 @@ export function AddRunnerPage({
 
       {step === 2 && (
         <div className="flex flex-col gap-4">
-          <p className="text-sm">
+          <p className="type-body">
             What this runner advertises. An alert reaches a service by carrying
             labels that match one of these keys.
           </p>
@@ -310,6 +309,6 @@ export function AddRunnerPage({
         destructive
         onConfirm={confirmLeaveSetup}
       />
-    </DetailPage>
+    </Page>
   );
 }

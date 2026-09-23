@@ -398,7 +398,7 @@ describe("Shell", () => {
     });
   });
 
-  describe("the three width tiers", () => {
+  describe("the two width tiers", () => {
     it("at 1024 and up toggles between expanded and the icon rail, keeping the toggle in the sidebar", async () => {
       const user = userEvent.setup();
       setup({ width: 1280 });
@@ -422,7 +422,7 @@ describe("Shell", () => {
       await waitFor(() => expect(sidebarState()).toBe("expanded"));
     });
 
-    it("between 768 and 1023 hides the sidebar entirely and moves its toggle into the stage", async () => {
+    it("below 1024 hides the sidebar entirely and moves its toggle into the stage", async () => {
       const user = userEvent.setup();
       setup({ width: 900 });
 
@@ -445,11 +445,11 @@ describe("Shell", () => {
       ).toBeInTheDocument();
     });
 
-    it("below 768 says the frontend is built for desktop", async () => {
-      setup({ width: 500 });
+    it("at 640 still renders the app, its navigation behind the toggle", async () => {
+      setup({ width: 640 });
 
       expect(
-        await screen.findByRole("heading", { name: /built for desktop/i }),
+        await screen.findByRole("button", { name: /toggle sidebar/i }),
       ).toBeInTheDocument();
       expect(sidebarState()).toBeNull();
     });
@@ -601,13 +601,13 @@ describe("Shell", () => {
         name: /investigation report/i,
       });
 
-      // jsdom applies no CSS, so the width is only legible as the inline width
-      // the panel writes as the reader drags it.
-      expect(panel.style.width).toBe("480px");
+      // jsdom applies no CSS, so the width is only legible as the variable the
+      // panel writes as the reader drags it.
+      expect(panel.style.getPropertyValue("--rail-width")).toBe("480px");
 
       handle.focus();
       await user.keyboard("{ArrowLeft}{ArrowLeft}");
-      expect(panel.style.width).toBe("520px");
+      expect(panel.style.getPropertyValue("--rail-width")).toBe("520px");
       expect(window.localStorage.getItem("nightwarden.report.width")).toBe(
         "520",
       );
@@ -615,7 +615,7 @@ describe("Shell", () => {
       // Narrower than the floor is not a narrower panel, so the floor holds
       // however far the drag goes.
       await user.keyboard("{ArrowRight}{ArrowRight}{ArrowRight}{ArrowRight}");
-      expect(panel.style.width).toBe("480px");
+      expect(panel.style.getPropertyValue("--rail-width")).toBe("480px");
     });
 
     it("opens at the width it was left at, not at the default", async () => {
@@ -632,7 +632,7 @@ describe("Shell", () => {
       });
 
       // A width set once and lost every night is worse than one you cannot set.
-      expect(panel.style.width).toBe("600px");
+      expect(panel.style.getPropertyValue("--rail-width")).toBe("600px");
     });
 
     it("maximizes to the full stage without unmounting the chat", async () => {

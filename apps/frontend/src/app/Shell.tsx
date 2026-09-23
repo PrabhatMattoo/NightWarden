@@ -29,12 +29,12 @@ import {
 } from "@/shared/ui/sidebar";
 import { useAuth } from "@/features/auth/AuthContext";
 import { cn } from "@/shared/lib/utils";
+import { cssNumber } from "@/shared/lib/cssNumber";
 import { ICON_NAV } from "@/shared/lib/iconProps";
-import { useViewportTier } from "@/shared/hooks/useViewportTier";
+import { useMediaQuery } from "@/shared/hooks/useMediaQuery";
 
-// Medium because a 400 stroke on the dark panel reads dimmer than its own ink
-// step. The collapse behaviour belongs to the label slot, not to here.
-const NAV_LABEL = "font-medium";
+// The rail keeps its own column from lg; narrower, it opens over the stage.
+const WIDE = `(width >= ${cssNumber("--breakpoint-lg", 1024)}px)`;
 
 // The whole of the sidebar's navigation. Lists and actions belong to the pages.
 const NAV_ITEMS = [
@@ -58,7 +58,7 @@ export function Shell({
   children: React.ReactNode;
 }): React.JSX.Element {
   return (
-    <SidebarProvider overlay={useViewportTier() === "tablet"}>
+    <SidebarProvider overlay={!useMediaQuery(WIDE)}>
       <ShellContent>{children}</ShellContent>
     </SidebarProvider>
   );
@@ -89,26 +89,22 @@ function ShellContent({
     <>
       <a
         href="#main-content"
-        className="absolute left-2 top-[-40px] z-(--z-skip-link) rounded-sm bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground no-underline focus:top-2"
+        className="absolute -top-10 left-2 z-(--z-skip-link) rounded-control bg-accent px-3 py-2 type-item text-on-accent no-underline focus:top-2"
       >
         Skip to content
       </a>
 
-      <Sidebar collapsible="icon" variant="inset">
-        <SidebarHeader className="h-12 flex-row items-center justify-between gap-2 overflow-hidden px-2 lg:mt-3 group-data-[collapsible=icon]:gap-0">
+      <Sidebar>
+        <SidebarHeader className="h-12 flex-row items-center justify-between gap-2 overflow-hidden px-3 group-data-[collapsible=icon]:gap-0">
           <span
             className={cn(
-              "nav-label-motion min-w-0 flex-1 truncate whitespace-nowrap text-lg font-semibold tracking-tight text-foreground",
+              "nav-label-motion min-w-0 flex-1 truncate ps-2 whitespace-nowrap type-heading",
               "group-data-[collapsible=icon]:opacity-0 group-data-[collapsible=icon]:delay-0",
             )}
           >
             NightWarden
           </span>
-          <SidebarTrigger
-            size="icon"
-            aria-label="Toggle sidebar"
-            className="shrink-0 group-data-[collapsible=icon]:size-9"
-          />
+          {!isOverlay && <SidebarTrigger className="shrink-0" />}
         </SidebarHeader>
 
         <SidebarContent>
@@ -125,9 +121,7 @@ function ShellContent({
                       render={<Link to="/investigations" />}
                     >
                       <ArrowLeft {...ICON_NAV} />
-                      <SidebarMenuLabel className={NAV_LABEL}>
-                        Settings
-                      </SidebarMenuLabel>
+                      <SidebarMenuLabel>Settings</SidebarMenuLabel>
                     </SidebarMenuButton>
                   </SidebarMenuItem>
                   {SETTINGS_NAV.map(({ section, label, icon: Icon }) => (
@@ -142,9 +136,7 @@ function ShellContent({
                         }
                       >
                         <Icon {...ICON_NAV} />
-                        <SidebarMenuLabel className={NAV_LABEL}>
-                          {label}
-                        </SidebarMenuLabel>
+                        <SidebarMenuLabel>{label}</SidebarMenuLabel>
                       </SidebarMenuButton>
                     </SidebarMenuItem>
                   ))}
@@ -160,9 +152,7 @@ function ShellContent({
                       render={<Link to={to} />}
                     >
                       <Icon {...ICON_NAV} />
-                      <SidebarMenuLabel className={NAV_LABEL}>
-                        {label}
-                      </SidebarMenuLabel>
+                      <SidebarMenuLabel>{label}</SidebarMenuLabel>
                     </SidebarMenuButton>
                   </SidebarMenuItem>
                 ))
@@ -182,14 +172,12 @@ function ShellContent({
                   render={<Link to="/settings" />}
                 >
                   <Settings {...ICON_NAV} />
-                  <SidebarMenuLabel className={NAV_LABEL}>
-                    Settings
-                  </SidebarMenuLabel>
+                  <SidebarMenuLabel>Settings</SidebarMenuLabel>
                   {/* A hint that this opens a panel rather than a page. */}
                   <ChevronRight
                     aria-hidden
                     strokeWidth={1.5}
-                    className="ml-auto size-4 text-muted-foreground group-data-[collapsible=icon]:hidden"
+                    className="ml-auto size-4 text-ink-faint group-data-[collapsible=icon]:hidden"
                   />
                 </SidebarMenuButton>
               </SidebarMenuItem>
@@ -204,9 +192,7 @@ function ShellContent({
                 }}
               >
                 <LogOut {...ICON_NAV} />
-                <SidebarMenuLabel className={NAV_LABEL}>
-                  Log out
-                </SidebarMenuLabel>
+                <SidebarMenuLabel>Log out</SidebarMenuLabel>
               </SidebarMenuButton>
             </SidebarMenuItem>
           </SidebarMenu>
@@ -216,7 +202,7 @@ function ShellContent({
       <SidebarInset
         id="main-content"
         tabIndex={-1}
-        className="h-svh min-h-0 overflow-hidden lg:h-[calc(100svh-theme(spacing.6))]"
+        className="h-svh min-h-0 overflow-hidden"
       >
         {/* Scrolling is the page's to decide: a column of content scrolls here,
             and a report beside a rail scrolls inside its own column. */}

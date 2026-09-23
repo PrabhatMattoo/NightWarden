@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useBlocker, useParams } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
@@ -9,7 +9,7 @@ import type {
   ProviderSettings,
 } from "@nightwarden/shared";
 
-import { SectionPage } from "@/shared/ui/Page";
+import { Page } from "@/shared/ui/Page";
 import { toast } from "@/shared/lib/toast";
 import { apiFetch } from "@/shared/api/client";
 import { ConfirmDialog } from "@/shared/ui/ConfirmDialog";
@@ -90,9 +90,7 @@ export function SettingsPage(): React.JSX.Element {
   // background refetch would otherwise replace what is being typed.
   const [form, setForm] = useState<AgentConfig | null>(null);
   const [newApiKey, setNewApiKey] = useState("");
-  useEffect(() => {
-    setForm((prev) => prev ?? config ?? null);
-  }, [config]);
+  if (form === null && config !== undefined) setForm(config);
 
   const availableProviders = config?.providerOptions ?? [];
 
@@ -270,7 +268,7 @@ export function SettingsPage(): React.JSX.Element {
     SECTIONS.find((s) => s.id === active)?.label ?? "Settings";
 
   return (
-    <SectionPage title={activeLabel} measure="wide">
+    <Page title={activeLabel} measure="wide">
       {config && form && active === "provider" && (
         <ProviderSection
           form={form}
@@ -314,6 +312,6 @@ export function SettingsPage(): React.JSX.Element {
           if (blocker.status === "blocked") blocker.proceed();
         }}
       />
-    </SectionPage>
+    </Page>
   );
 }

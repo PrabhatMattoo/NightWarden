@@ -2,7 +2,6 @@ import { ExternalLink } from "lucide-react";
 
 import { MetaText, StatusText } from "@/shared/ui/status";
 import { Card, CardContent } from "@/shared/ui/card";
-import { TOOL_CARD_CLASS } from "./cardChrome.js";
 import { ICON_UI } from "@/shared/lib/iconProps";
 import { asRecord } from "@/shared/lib/toolResult";
 
@@ -40,12 +39,10 @@ export function parsePullRequestResult(
 export function PRCard({ pr }: { pr: PullRequestResult }): React.JSX.Element {
   return (
     <div data-testid="pr-card">
-      <p className="mb-2 font-mono text-base font-medium">OpenPullRequest</p>
-      <Card size="sm" className={TOOL_CARD_CLASS}>
+      <p className="mb-2 font-mono type-heading">OpenPullRequest</p>
+      <Card className="gap-3 py-3">
         <CardContent className="flex flex-wrap items-center gap-2 px-4">
-          <span className="text-base font-medium">
-            Pull request #{pr.number}
-          </span>
+          <span className="type-heading">Pull request #{pr.number}</span>
           <StatusText tone={pr.draft ? "muted" : "ok"}>
             {pr.draft ? "Draft" : "Open"}
           </StatusText>
@@ -54,15 +51,15 @@ export function PRCard({ pr }: { pr: PullRequestResult }): React.JSX.Element {
             href={pr.url}
             target="_blank"
             rel="noreferrer"
-            className="ml-auto inline-flex items-center gap-1 text-base font-medium text-primary no-underline hover:underline"
+            className="ml-auto inline-flex items-center gap-1 type-heading text-accent-ink no-underline hover:underline"
           >
             View on GitHub
             <ExternalLink {...ICON_UI} />
           </a>
         </CardContent>
         {pr.message !== undefined && (
-          <CardContent className="px-4 text-base text-muted-foreground">
-            <p className="m-0">{pr.message}</p>
+          <CardContent className="px-4">
+            <p className="type-prose text-ink-muted">{pr.message}</p>
           </CardContent>
         )}
       </Card>

@@ -7,10 +7,14 @@ import { cn } from "@/shared/lib/utils";
 // promises room a tenant or a region can never use.
 const MEASURE = {
   column: "w-full",
-  beside: "w-control",
+  beside: "w-full sm:w-control",
   short: "w-full max-w-control-sm",
   field: "w-full max-w-field",
 } as const;
+
+// A typed-in box is its edge: no fill, so it never reads as a dropdown.
+const FIELD =
+  "h-8 min-w-0 rounded-control border-hairline border-edge-input bg-transparent px-3 type-input highlight-motion placeholder:text-ink-faint hover:border-edge-input-hover disabled:pointer-events-none disabled:text-ink-muted aria-invalid:border-fail file:inline-flex file:h-6 file:border-0 file:bg-transparent file:type-item";
 
 function Input({
   className,
@@ -22,11 +26,7 @@ function Input({
     <InputPrimitive
       type={type}
       data-slot="input"
-      className={cn(
-        "h-8 min-w-0 rounded-md border-[0.5px] border-input bg-transparent hover:border-input-hover px-3 py-1 text-base transition-colors file:inline-flex file:h-6 file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground placeholder:text-muted-foreground disabled:pointer-events-none disabled:cursor-not-allowed disabled:border-border disabled:text-disabled-foreground aria-invalid:border-destructive md:text-sm",
-        MEASURE[measure],
-        className,
-      )}
+      className={cn(FIELD, MEASURE[measure], className)}
       {...props}
     />
   );

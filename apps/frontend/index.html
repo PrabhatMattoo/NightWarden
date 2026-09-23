@@ -6,6 +6,20 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
     <title>NightWarden</title>
+    <script>
+      // Before first paint, so the page never flashes the theme it is leaving.
+      (function () {
+        var choice = "system";
+        try {
+          choice = localStorage.getItem("nightwarden.theme") || "system";
+        } catch (e) {}
+        var light =
+          choice === "light" ||
+          (choice === "system" &&
+            matchMedia("(prefers-color-scheme: light)").matches);
+        document.documentElement.dataset.theme = light ? "light" : "dark";
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

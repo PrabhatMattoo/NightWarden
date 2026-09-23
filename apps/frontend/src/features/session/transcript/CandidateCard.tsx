@@ -15,13 +15,13 @@ const STATE: Record<
   CandidateRow["state"],
   { label: string; className: string; struck?: boolean }
 > = {
-  open: { label: "open", className: "text-wait" },
-  root_cause: { label: "root cause", className: "text-primary-ink" },
-  trigger: { label: "trigger", className: "text-foreground" },
-  symptom: { label: "symptom", className: "text-foreground" },
-  contributing_factor: { label: "contributing", className: "text-foreground" },
-  disproven: { label: "ruled out", className: "text-ink-subtle", struck: true },
-  untestable: { label: "untestable", className: "text-ink-subtle" },
+  open: { label: "open", className: "text-warn" },
+  root_cause: { label: "root cause", className: "text-accent-ink" },
+  trigger: { label: "trigger", className: "text-ink-base" },
+  symptom: { label: "symptom", className: "text-ink-base" },
+  contributing_factor: { label: "contributing", className: "text-ink-base" },
+  disproven: { label: "ruled out", className: "text-ink-muted", struck: true },
+  untestable: { label: "untestable", className: "text-ink-muted" },
 };
 
 // Counts before statements: docked above the input, the one line has to answer
@@ -42,14 +42,14 @@ export function CandidateCard({
   const [open, setOpen] = useState(false);
 
   return (
-    <div className="overflow-hidden rounded-lg border border-border bg-card">
+    <div className="overflow-hidden rounded-card border-hairline border-edge bg-ground">
       <Collapsible open={open} onOpenChange={setOpen}>
         <CollapsibleTrigger
           nativeButton
-          className="group flex w-full items-center gap-2 px-4 py-3 text-left text-sm"
+          className="group flex w-full items-center gap-2 px-4 py-3 text-left type-body"
         >
-          <span className="font-medium">Candidates</span>
-          <span className="text-sm text-muted-foreground">{summary(rows)}</span>
+          <span className="emphasis">Candidates</span>
+          <span className="type-body text-ink-muted">{summary(rows)}</span>
           <DisclosureChevron />
         </CollapsibleTrigger>
         <CollapsibleContent>
@@ -59,27 +59,30 @@ export function CandidateCard({
               return (
                 <li
                   key={row.id}
-                  className="grid grid-cols-[max-content_1fr_max-content] items-baseline gap-x-3 gap-y-1 border-t border-border px-4 py-3"
+                  className="grid grid-cols-key-end items-baseline gap-x-3 gap-y-1 border-t-hairline border-edge px-4 py-3"
                 >
-                  <span className="font-mono text-sm text-ink-subtle">
+                  <span className="font-mono type-body text-ink-muted">
                     {row.id}
                   </span>
                   <span
                     className={cn(
-                      "text-sm font-medium",
+                      "type-item",
                       view.struck &&
-                        "font-normal text-muted-foreground line-through decoration-muted-foreground/50",
+                        "text-ink-muted line-through decoration-edge-strong",
                     )}
                   >
                     {row.statement}
                   </span>
                   <span
-                    className={cn("text-sm whitespace-nowrap", view.className)}
+                    className={cn(
+                      "type-body whitespace-nowrap",
+                      view.className,
+                    )}
                   >
                     {view.label}
                   </span>
                   {row.note !== undefined && (
-                    <span className="col-start-2 col-end-4 text-sm leading-relaxed text-muted-foreground">
+                    <span className="col-start-2 col-end-4 type-body text-ink-muted">
                       {row.note}
                     </span>
                   )}

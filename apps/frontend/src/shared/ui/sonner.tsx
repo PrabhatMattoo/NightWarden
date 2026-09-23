@@ -8,12 +8,11 @@ import {
   Loader2Icon,
 } from "lucide-react";
 
+// Themed from the page's own roles, so it follows whichever theme is chosen.
 const Toaster = ({ ...props }: ToasterProps) => {
   return (
     <Sonner
-      theme="dark"
       position="bottom-right"
-      className="toaster group"
       icons={{
         success: <CircleCheckIcon className="size-4" />,
         info: <InfoIcon className="size-4" />,
@@ -23,10 +22,10 @@ const Toaster = ({ ...props }: ToasterProps) => {
       }}
       style={
         {
-          "--normal-bg": "var(--color-popover)",
-          "--normal-text": "var(--color-popover-foreground)",
-          "--normal-border": "var(--color-border)",
-          "--border-radius": "var(--radius-lg)",
+          "--normal-bg": "var(--control)",
+          "--normal-text": "var(--ink-title)",
+          "--normal-border": "var(--edge)",
+          "--border-radius": "var(--radius-overlay)",
         } as React.CSSProperties
       }
       toastOptions={{

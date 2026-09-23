@@ -1,6 +1,7 @@
 // Provider-neutral contract. The investigation domain talks to LLMs only
 // through these shapes, never to a vendor SDK directly.
 
+import type { JSONSchema7Definition } from "@ai-sdk/provider";
 import type { MessagePart, ToolName } from "@nightwarden/shared";
 
 export interface ToolSchema {
@@ -10,7 +11,7 @@ export interface ToolSchema {
   description: string;
   input_schema: {
     type: "object";
-    properties: Record<string, unknown>;
+    properties: Record<string, JSONSchema7Definition>;
     required?: string[];
     additionalProperties?: boolean;
   };

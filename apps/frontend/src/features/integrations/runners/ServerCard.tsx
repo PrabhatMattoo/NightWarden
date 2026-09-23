@@ -8,7 +8,6 @@ import {
   CollapsibleTrigger,
 } from "@/shared/ui/collapsible";
 import { timeAgo } from "@/shared/lib/time";
-import { cn } from "@/shared/lib/utils";
 
 // A summary line, not the whole advertised list: the count says the shape and
 // the disclosure holds the keys for whoever needs one.
@@ -30,12 +29,12 @@ export function ServerCard({
     <Card
       data-testid="server-card"
       data-offline={!runner.online || undefined}
-      className={cn("gap-3 px-4 py-4", !runner.online && "opacity-60")}
+      className="gap-3 p-4"
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-sm font-medium">{runner.serverName}</p>
-          <p className="mt-1 text-sm text-muted-foreground">
+          <p className="type-item">{runner.serverName}</p>
+          <p className="mt-1 type-body text-ink-muted">
             {runner.hostname !== null && runner.hostname !== runner.serverName
               ? `host ${runner.hostname} · `
               : null}
@@ -46,16 +45,14 @@ export function ServerCard({
           <StatusText tone={online ? "ok" : "muted"}>
             {online ? "Online" : "Offline"}
           </StatusText>
-          <span className="text-sm tabular-nums text-muted-foreground">
+          <span className="type-body tabular-nums text-ink-muted">
             {timeAgo(runner.lastSeen)}
           </span>
         </div>
       </div>
 
       {keys.length === 0 ? (
-        <p className="text-sm text-muted-foreground">
-          No services advertised yet.
-        </p>
+        <p className="type-body text-ink-muted">No services advertised yet.</p>
       ) : (
         <Collapsible
           defaultOpen={defaultServicesOpen}
@@ -70,7 +67,7 @@ export function ServerCard({
             {keys.map((key) => (
               <span
                 key={key}
-                className="font-mono text-sm break-all text-muted-foreground"
+                className="font-mono type-body break-all text-ink-muted"
               >
                 {key}
               </span>

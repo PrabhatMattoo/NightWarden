@@ -21,6 +21,7 @@ import {
 import { AuthProvider } from "@/features/auth/AuthContext";
 import { SettingsPage } from "@/features/settings/SettingsPage";
 import { toast } from "@/shared/lib/toast";
+import { sentBody } from "./sentBody";
 
 const OWNER_EMAIL = "admin@example.com";
 const AUTH_STATUS_RESPONSE = {
@@ -129,7 +130,9 @@ function makeFetchMock(
     }
     if (url.includes("/config")) {
       if (init?.method === "PATCH") {
-        const patched = { ...config, ...JSON.parse(init.body as string) };
+        const patch = sentBody(init);
+        const patched =
+          typeof patch === "object" ? { ...config, ...patch } : config;
         return Promise.resolve({
           ok: true,
           json: () => Promise.resolve(patched),
@@ -672,7 +675,7 @@ describe("SettingsPage", () => {
         within(list)
           .getAllByRole("option")
           .map((o) => o.textContent),
-      ).toEqual(["Select a provider", "Anthropic", "OpenRouter"]);
+      ).toEqual(["Anthropic", "OpenRouter"]);
     });
 
     /* A real value, not ghost text: as a placeholder it read as filled while the
@@ -729,7 +732,7 @@ describe("SettingsPage", () => {
             (init as RequestInit | undefined)?.method === "POST",
         );
         expect(call).toBeDefined();
-        const body = JSON.parse((call?.[1] as RequestInit).body as string) as {
+        const body = sentBody(call?.[1]) as {
           apiKey?: string;
           provider: string;
         };
@@ -747,9 +750,9 @@ describe("SettingsPage", () => {
       await openSection(user, /agent/i);
 
       // 1800000 ms is thirty minutes; nobody should have to do that division.
-      expect(await screen.findByLabelText(/check in after/i)).toHaveValue(30);
-      expect(screen.getByLabelText(/^maximum$/i)).toHaveValue(10);
-      expect(screen.getByLabelText(/^timeout$/i)).toHaveValue(120);
+      expect(await screen.findByLabelText(/check in after/i)).toHaveValue("30");
+      expect(screen.getByLabelText(/^maximum$/i)).toHaveValue("10");
+      expect(screen.getByLabelText(/^timeout$/i)).toHaveValue("120");
     });
 
     /* A limit is valid on its own, so leaving the field writes it - but only
@@ -776,7 +779,7 @@ describe("SettingsPage", () => {
           ([, init]) => (init as RequestInit | undefined)?.method === "PATCH",
         );
         expect(patch).toBeDefined();
-        const body = JSON.parse((patch?.[1] as RequestInit).body as string) as {
+        const body = sentBody(patch?.[1]) as {
           checkInAfterMs: number;
         };
         expect(body.checkInAfterMs).toBe(2_700_000);
@@ -799,9 +802,7 @@ describe("SettingsPage", () => {
           const withKey = fetchMock.mock.calls.filter(
             ([url, init]) =>
               (url as string).includes("/config/models") &&
-              String((init as RequestInit | undefined)?.body).includes(
-                "sk-ant-newkey",
-              ),
+              JSON.stringify(init ?? null).includes("sk-ant-newkey"),
           );
           expect(withKey.length).toBe(1);
         },
@@ -861,9 +862,10 @@ describe("SettingsPage", () => {
             (init as RequestInit | undefined)?.method === "PATCH",
         );
         expect(keyCall).toBeGreaterThan(-1);
-        const body = JSON.parse(
-          (fetchMock.mock.calls[keyCall]?.[1] as RequestInit).body as string,
-        ) as { apiKey: string; provider: string };
+        const body = sentBody(fetchMock.mock.calls[keyCall]?.[1]) as {
+          apiKey: string;
+          provider: string;
+        };
         expect(body.apiKey).toBe("sk-ant-newkey");
         expect(body.provider).toBe("anthropic");
       });
@@ -894,7 +896,7 @@ describe("SettingsPage", () => {
             (call[1] as RequestInit | undefined)?.method === "PATCH",
         );
         expect(patch).toBeDefined();
-        const body = JSON.parse(String((patch![1] as RequestInit).body)) as {
+        const body = sentBody(patch?.[1]) as {
           sandboxNetwork?: string;
         };
         expect(body.sandboxNetwork).toBe("open");
@@ -931,7 +933,7 @@ describe("SettingsPage", () => {
           .map(
             (call) =>
               (
-                JSON.parse(String((call[1] as RequestInit).body)) as {
+                sentBody(call[1]) as {
                   sandboxAllowlistHosts?: string[];
                 }
               ).sandboxAllowlistHosts,

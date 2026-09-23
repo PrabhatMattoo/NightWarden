@@ -195,9 +195,9 @@ function Devices(): React.JSX.Element {
           key={session.token}
           className="flex items-center justify-between gap-6"
         >
-          <span className="text-sm text-foreground">
+          <span className="type-body text-ink-base">
             {describeDevice(session.userAgent)}
-            <span className="text-muted-foreground">
+            <span className="text-ink-muted">
               {" "}
               signed in {timeAgo(session.createdAt)}
             </span>
@@ -240,7 +240,7 @@ export function AccountSection({
         >
           <span
             aria-labelledby="settings-identity-label"
-            className="text-sm text-foreground"
+            className="type-body text-ink-base"
           >
             {identity}
           </span>

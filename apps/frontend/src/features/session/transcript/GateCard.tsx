@@ -7,7 +7,5 @@ export function GateCard({
   className,
   ...props
 }: React.ComponentProps<typeof Card>): React.JSX.Element {
-  return (
-    <Card className={cn("gap-3 px-4 py-4 ring-0", className)} {...props} />
-  );
+  return <Card className={cn("gap-3 p-4", className)} {...props} />;
 }

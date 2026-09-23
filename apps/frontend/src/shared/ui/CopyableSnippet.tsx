@@ -36,7 +36,7 @@ export function CopyableSnippet({
     <div className={cn("relative", className)}>
       <CodeBlock
         className={cn(
-          "max-h-60 border-[0.5px] border-input bg-transparent pr-12",
+          "max-h-60 border-hairline border-edge-input bg-transparent pr-12",
           // A single line is a field's value, so it stands in a field's box.
           text.includes("\n") ? "p-3" : "flex h-7.5 items-center px-3 py-0",
         )}
@@ -60,7 +60,7 @@ export function CopyableSnippet({
             onClick={copy}
           >
             {copied ? (
-              <Check {...ICON_UI} className="text-success" />
+              <Check {...ICON_UI} className="text-ok" />
             ) : (
               <Copy {...ICON_UI} />
             )}

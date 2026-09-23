@@ -15,12 +15,12 @@ export function ContinueCardPanel({
 
   return (
     <GateCard data-testid="continue-card">
-      <p className="text-sm">
+      <p className="type-body">
         Time budget reached. Resume with a fresh budget or end the
         investigation.
       </p>
       {state.phase === "resolved" ? (
-        <p className="text-sm" data-testid="continue-resolution">
+        <p className="type-body" data-testid="continue-resolution">
           {state.decision === "continued" ? "Continued" : "Cancelled"}
         </p>
       ) : (

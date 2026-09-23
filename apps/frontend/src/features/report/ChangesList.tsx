@@ -91,11 +91,11 @@ export function ChangesList({
             href={pr.url}
             target="_blank"
             rel="noreferrer"
-            className="min-w-0 truncate text-sm font-medium text-ring no-underline hover:underline"
+            className="min-w-0 truncate type-item text-accent-ink no-underline hover:underline"
           >
             #{pr.number} {pr.title}
           </a>
-          <span className="shrink-0 text-sm text-muted-foreground">
+          <span className="shrink-0 type-body text-ink-muted">
             {pr.author}
             {mergedLabel(pr.mergedAt)}
           </span>
@@ -105,13 +105,13 @@ export function ChangesList({
           and one that arrived through a PR is already named above. */}
       {commits.map((commit) => (
         <li key={commit.sha} className="flex min-w-0 items-baseline gap-2">
-          <code className="shrink-0 text-sm text-muted-foreground">
+          <code className="shrink-0 type-body text-ink-muted">
             {commit.sha.slice(0, 7)}
           </code>
-          <span className="min-w-0 flex-1 text-sm text-foreground">
+          <span className="min-w-0 flex-1 type-body text-ink-base">
             {commit.message}
           </span>
-          <span className="shrink-0 text-sm text-muted-foreground">
+          <span className="shrink-0 type-body text-ink-muted">
             {commit.author}
             {committedLabel(commit.committedAt)}
           </span>

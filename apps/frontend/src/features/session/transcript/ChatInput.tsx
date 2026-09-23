@@ -117,14 +117,11 @@ export function ChatInput({
       <Label htmlFor="chat-textarea" className="sr-only">
         Message
       </Label>
-      {/* A rung above the sidebar on the surface ladder, which is what reads as
-          a control without a border. Held through every state: focus is the
-          only thing that colours the edge. */}
-      <InputGroup className="edge-lit w-full rounded-2xl border border-transparent bg-surface shadow-edge has-disabled:bg-surface has-disabled:opacity-100">
+      <InputGroup variant="composer" className="w-full">
         <InputGroupTextarea
           ref={textareaRef}
           id="chat-textarea"
-          className="max-h-[200px] px-4 py-3 placeholder:text-ink-subtle md:text-base"
+          className="max-h-50"
           placeholder={isRunning ? "Agent is running…" : "Ask NightWarden…"}
           value={text}
           onChange={(e) => setText(e.target.value)}
@@ -147,25 +144,23 @@ export function ChatInput({
             <InputGroupButton
               type="button"
               variant="default"
-              size="icon"
-              className="rounded-full"
+              size="send"
               aria-label="Stop generating"
               onClick={() => sessionId !== null && stop.mutate()}
               disabled={stop.isPending}
             >
-              <Square size={16} strokeWidth={2.25} aria-hidden />
+              <Square strokeWidth={2.25} aria-hidden />
             </InputGroupButton>
           ) : (
             <InputGroupButton
               type="button"
               variant="default"
-              size="icon"
-              className="rounded-full"
+              size="send"
               aria-label="Send message"
               onClick={handleSubmit}
               disabled={!canSend}
             >
-              <ArrowUp size={16} strokeWidth={2.25} aria-hidden />
+              <ArrowUp strokeWidth={2.25} aria-hidden />
             </InputGroupButton>
           )}
         </InputGroupAddon>

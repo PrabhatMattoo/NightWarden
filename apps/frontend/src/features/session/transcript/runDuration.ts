@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 
 // Compact elapsed time, dropping a zero tail: 45s, 1m 12s, 2h, 3d 4h.
 export function formatDuration(totalSeconds: number): string {
@@ -23,7 +23,7 @@ export interface RunSpan {
 export function useRunSeconds({ live, startedAt, endedAt }: RunSpan): number {
   // A live run has no server stamp yet, its items still being in flight, so the
   // clock starts when the group first appears.
-  const mountedAt = useRef(Date.now());
+  const [mountedAt] = useState(Date.now);
   const [now, setNow] = useState(Date.now);
 
   useEffect(() => {
@@ -32,8 +32,7 @@ export function useRunSeconds({ live, startedAt, endedAt }: RunSpan): number {
     return () => window.clearInterval(id);
   }, [live]);
 
-  const start =
-    startedAt === undefined ? mountedAt.current : Date.parse(startedAt);
+  const start = startedAt === undefined ? mountedAt : Date.parse(startedAt);
   const end = !live && endedAt !== undefined ? Date.parse(endedAt) : now;
   return Math.max(0, Math.round((end - start) / 1000));
 }

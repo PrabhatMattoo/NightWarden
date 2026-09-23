@@ -1,0 +1,385 @@
+/* Every colour role for each ground, in the dark and the light theme. */
+
+:root:not([data-theme="light"]) {
+  --accent: lch(47.918 59.303 288.421);
+  --accent-hover: lch(52.418 61.103 288.421);
+  --accent-ink: lch(57.028 70 288.421);
+  --on-accent: lch(100 5 288.421);
+  --focus: lch(47.918 59.303 288.421);
+  --edge: lch(100 0 0 / 0.083);
+  --scrim: lch(0 0 0 / 0.4);
+  --shade: lch(7.32 0.85 272);
+  --stage-fall: linear-gradient(lch(5.52 0.4 272) 0%, lch(2.595 0.4 272) 100%);
+  --edge-lit: linear-gradient(lch(16.793 1.93 272), lch(13.08 1.48 272));
+  --shadow-lift: 0 0.5px 1px 1px lch(0 0 0 / 0.3);
+  --ok-text: lch(80 80 141.95);
+  --warn-text: lch(80 80 85);
+  --fail-text: lch(80 80 29);
+  --fail-fill: lch(58 73 29);
+  --fail-fill-hover: lch(62.5 73 29);
+  --series-1: lch(72 45 300);
+  --series-2: lch(72 45 340);
+  --series-3: lch(72 45 260);
+  --series-4: lch(72 45 320);
+  --series-5: lch(72 45 280);
+  --series-6: lch(72 45 240);
+  --ground: lch(5.52 0.4 272);
+  --ink-title: lch(100 0 272);
+  --ink-base: lch(90.451 1.2 272);
+  --ink-muted: lch(61.803 1.2 272);
+  --ink-faint: lch(36.975 1.2 272);
+  --hover: lch(9.345 0.85 272);
+  --highlight: lch(14.777 1.075 272);
+  --selected: lch(16.77 1.3 272);
+  --control: lch(10.149 0.689 272);
+  --control-hover: lch(14.777 1.075 272);
+  --ghost-hover: lch(14.006 0.593 272);
+  --edge-input: lch(27.12 1.48 272);
+  --edge-input-hover: lch(24.32 6.48 272);
+  --edge-strong: lch(48.72 1.48 272);
+  --edge-modal: transparent;
+  --switch-off: lch(43.839 0.463 272);
+  --selection: lch(12.141 17.792 286.444);
+  --ok-tint: lch(12.198 12.395 145.838);
+  --warn-tint: lch(16.956 17.184 83.272);
+  --fail-tint: lch(11.767 15.869 22.59);
+  --shadow-control: 0 0 0 var(--hairline) lch(100 0 0 / 0.137), 0 0.5px 1px 1px lch(0 0 0 / 0.3);
+  --shadow-control-hover: 0 0 0 var(--hairline) lch(100 0 0 / 0.229), 0 0.5px 1px 1px lch(0 0 0 / 0.3);
+  --shadow-card: 0 0 0 var(--hairline) lch(100 0 0 / 0.083), 0 0.5px 1px 1px lch(0 0 0 / 0.3);
+  --shadow-overlay: 0 0 0 var(--hairline) lch(27.12 1.48 272), 0 3px 8px lch(0 0 0 / 0.125), 0 2px 5px lch(0 0 0 / 0.125), 0 1px 1px lch(0 0 0 / 0.125);
+  --shadow-modal: 0 4px 40px lch(0 0 0 / 0.1), 0 3px 20px lch(0 0 0 / 0.125), 0 3px 12px lch(0 0 0 / 0.125), 0 2px 8px lch(0 0 0 / 0.125), 0 1px 1px lch(0 0 0 / 0.125);
+}
+
+:root:not([data-theme="light"]) { color-scheme: dark; }
+
+:root:not([data-theme="light"]) [data-ground="stage"] {
+  --ground: lch(5.52 0.4 272);
+  --ink-title: lch(100 0 272);
+  --ink-base: lch(90.451 1.2 272);
+  --ink-muted: lch(61.803 1.2 272);
+  --ink-faint: lch(36.975 1.2 272);
+  --hover: lch(9.345 0.85 272);
+  --highlight: lch(14.777 1.075 272);
+  --selected: lch(16.77 1.3 272);
+  --control: lch(10.149 0.689 272);
+  --control-hover: lch(14.777 1.075 272);
+  --ghost-hover: lch(14.006 0.593 272);
+  --edge-input: lch(27.12 1.48 272);
+  --edge-input-hover: lch(24.32 6.48 272);
+  --edge-strong: lch(48.72 1.48 272);
+  --edge-modal: transparent;
+  --switch-off: lch(43.839 0.463 272);
+  --selection: lch(12.141 17.792 286.444);
+  --ok-tint: lch(12.198 12.395 145.838);
+  --warn-tint: lch(16.956 17.184 83.272);
+  --fail-tint: lch(11.767 15.869 22.59);
+  --shadow-control: 0 0 0 var(--hairline) lch(100 0 0 / 0.137), 0 0.5px 1px 1px lch(0 0 0 / 0.3);
+  --shadow-control-hover: 0 0 0 var(--hairline) lch(100 0 0 / 0.229), 0 0.5px 1px 1px lch(0 0 0 / 0.3);
+  --shadow-card: 0 0 0 var(--hairline) lch(100 0 0 / 0.083), 0 0.5px 1px 1px lch(0 0 0 / 0.3);
+  --shadow-overlay: 0 0 0 var(--hairline) lch(27.12 1.48 272), 0 3px 8px lch(0 0 0 / 0.125), 0 2px 5px lch(0 0 0 / 0.125), 0 1px 1px lch(0 0 0 / 0.125);
+  --shadow-modal: 0 4px 40px lch(0 0 0 / 0.1), 0 3px 20px lch(0 0 0 / 0.125), 0 3px 12px lch(0 0 0 / 0.125), 0 2px 8px lch(0 0 0 / 0.125), 0 1px 1px lch(0 0 0 / 0.125);
+}
+
+:root:not([data-theme="light"]) [data-ground="sidebar"] {
+  --ground: lch(2.595 0.4 272);
+  --ink-title: lch(100 0 272);
+  --ink-base: lch(90.155 1.2 272);
+  --ink-muted: lch(60.621 1.2 272);
+  --ink-faint: lch(35.024 1.2 272);
+  --hover: lch(8.445 1.3 272);
+  --highlight: lch(14.777 1.075 272);
+  --selected: lch(13.845 1.3 272);
+  --control: lch(10.149 0.689 272);
+  --control-hover: lch(14.777 1.075 272);
+  --ghost-hover: lch(10.149 0.689 272);
+  --edge-input: lch(24.195 1.48 272);
+  --edge-input-hover: lch(21.395 6.48 272);
+  --edge-strong: lch(45.795 1.48 272);
+  --edge-modal: transparent;
+  --switch-off: lch(40.914 0.463 272);
+  --selection: lch(9.957 19.755 287.247);
+  --ok-tint: lch(9.972 14.663 146.88);
+  --warn-tint: lch(15.377 19.362 83.428);
+  --fail-tint: lch(9.461 18.303 22.515);
+  --shadow-control: 0 0 0 var(--hairline) lch(100 0 0 / 0.133), 0 0.5px 1px 1px lch(0 0 0 / 0.3);
+  --shadow-control-hover: 0 0 0 var(--hairline) lch(100 0 0 / 0.222), 0 0.5px 1px 1px lch(0 0 0 / 0.3);
+  --shadow-card: 0 0 0 var(--hairline) lch(100 0 0 / 0.083), 0 0.5px 1px 1px lch(0 0 0 / 0.3);
+  --shadow-overlay: 0 0 0 var(--hairline) lch(24.195 1.48 272), 0 3px 8px lch(0 0 0 / 0.125), 0 2px 5px lch(0 0 0 / 0.125), 0 1px 1px lch(0 0 0 / 0.125);
+  --shadow-modal: 0 4px 40px lch(0 0 0 / 0.1), 0 3px 20px lch(0 0 0 / 0.125), 0 3px 12px lch(0 0 0 / 0.125), 0 2px 8px lch(0 0 0 / 0.125), 0 1px 1px lch(0 0 0 / 0.125);
+}
+
+:root:not([data-theme="light"]) [data-ground="card"] {
+  --ground: lch(9.233 0.85 272);
+  --ink-title: lch(100 0 272);
+  --ink-base: lch(90.826 1.425 272);
+  --ink-muted: lch(63.304 1.425 272);
+  --ink-faint: lch(39.452 1.425 272);
+  --hover: lch(13.058 1.3 272);
+  --highlight: lch(18.49 1.525 272);
+  --selected: lch(20.483 1.75 272);
+  --control: lch(13.861 1.139 272);
+  --control-hover: lch(18.49 1.525 272);
+  --ghost-hover: lch(17.718 1.043 272);
+  --edge-input: lch(30.833 1.93 272);
+  --edge-input-hover: lch(28.033 6.93 272);
+  --edge-strong: lch(52.433 1.93 272);
+  --edge-modal: transparent;
+  --switch-off: lch(47.552 0.913 272);
+  --selection: lch(14.605 16.228 285.614);
+  --ok-tint: lch(14.635 10.002 148.209);
+  --warn-tint: lch(18.795 14.047 82.561);
+  --fail-tint: lch(14.272 13.438 19.784);
+  --shadow-control: 0 0 0 var(--hairline) lch(100 0 0 / 0.143), 0 0.5px 1px 1px lch(0 0 0 / 0.3);
+  --shadow-control-hover: 0 0 0 var(--hairline) lch(100 0 0 / 0.238), 0 0.5px 1px 1px lch(0 0 0 / 0.3);
+  --shadow-card: 0 0 0 var(--hairline) lch(100 0 0 / 0.083), 0 0.5px 1px 1px lch(0 0 0 / 0.3);
+  --shadow-overlay: 0 0 0 var(--hairline) lch(30.833 1.93 272), 0 3px 8px lch(0 0 0 / 0.125), 0 2px 5px lch(0 0 0 / 0.125), 0 1px 1px lch(0 0 0 / 0.125);
+  --shadow-modal: 0 4px 40px lch(0 0 0 / 0.1), 0 3px 20px lch(0 0 0 / 0.125), 0 3px 12px lch(0 0 0 / 0.125), 0 2px 8px lch(0 0 0 / 0.125), 0 1px 1px lch(0 0 0 / 0.125);
+}
+
+:root:not([data-theme="light"]) [data-ground="overlay"] {
+  --ground: lch(16.433 1.3 272);
+  --ink-title: lch(100 0 272);
+  --ink-base: lch(91.554 1.65 272);
+  --ink-muted: lch(66.215 1.65 272);
+  --ink-faint: lch(44.255 1.65 272);
+  --hover: lch(20.258 1.75 272);
+  --highlight: lch(25.69 1.975 272);
+  --selected: lch(27.683 2.2 272);
+  --control: lch(21.061 1.589 272);
+  --control-hover: lch(25.69 1.975 272);
+  --ghost-hover: lch(24.918 1.493 272);
+  --edge-input: lch(38.033 2.38 272);
+  --edge-input-hover: lch(35.233 7.38 272);
+  --edge-strong: lch(59.633 2.38 272);
+  --edge-modal: transparent;
+  --switch-off: lch(54.752 1.363 272);
+  --selection: lch(19.819 13.434 284.193);
+  --ok-tint: lch(19.898 6.704 153.703);
+  --warn-tint: lch(23.069 9.505 81.131);
+  --fail-tint: lch(19.634 9.778 14.537);
+  --shadow-control: 0 0 0 var(--hairline) lch(100 0 0 / 0.155), 0 0.5px 1px 1px lch(0 0 0 / 0.3);
+  --shadow-control-hover: 0 0 0 var(--hairline) lch(100 0 0 / 0.258), 0 0.5px 1px 1px lch(0 0 0 / 0.3);
+  --shadow-card: 0 0 0 var(--hairline) lch(100 0 0 / 0.083), 0 0.5px 1px 1px lch(0 0 0 / 0.3);
+  --shadow-overlay: 0 0 0 var(--hairline) lch(38.033 2.38 272), 0 3px 8px lch(0 0 0 / 0.125), 0 2px 5px lch(0 0 0 / 0.125), 0 1px 1px lch(0 0 0 / 0.125);
+  --shadow-modal: 0 4px 40px lch(0 0 0 / 0.1), 0 3px 20px lch(0 0 0 / 0.125), 0 3px 12px lch(0 0 0 / 0.125), 0 2px 8px lch(0 0 0 / 0.125), 0 1px 1px lch(0 0 0 / 0.125);
+}
+
+:root:not([data-theme="light"]) [data-ground="overlay-stage"] {
+  --ground: lch(12.72 0.85 272);
+  --ink-title: lch(100 0 272);
+  --ink-base: lch(91.178 1.425 272);
+  --ink-muted: lch(64.714 1.425 272);
+  --ink-faint: lch(41.778 1.425 272);
+  --hover: lch(16.545 1.3 272);
+  --highlight: lch(21.977 1.525 272);
+  --selected: lch(23.97 1.75 272);
+  --control: lch(17.349 1.139 272);
+  --control-hover: lch(21.977 1.525 272);
+  --ghost-hover: lch(21.206 1.043 272);
+  --edge-input: lch(34.32 1.93 272);
+  --edge-input-hover: lch(31.52 6.93 272);
+  --edge-strong: lch(55.92 1.93 272);
+  --edge-modal: transparent;
+  --switch-off: lch(51.039 0.913 272);
+  --selection: lch(16.988 14.654 284.983);
+  --ok-tint: lch(17.064 8.354 149.392);
+  --warn-tint: lch(20.722 11.872 82.063);
+  --fail-tint: lch(16.753 11.593 18.302);
+  --shadow-control: 0 0 0 var(--hairline) lch(100 0 0 / 0.148), 0 0.5px 1px 1px lch(0 0 0 / 0.3);
+  --shadow-control-hover: 0 0 0 var(--hairline) lch(100 0 0 / 0.247), 0 0.5px 1px 1px lch(0 0 0 / 0.3);
+  --shadow-card: 0 0 0 var(--hairline) lch(100 0 0 / 0.083), 0 0.5px 1px 1px lch(0 0 0 / 0.3);
+  --shadow-overlay: 0 0 0 var(--hairline) lch(34.32 1.93 272), 0 3px 8px lch(0 0 0 / 0.125), 0 2px 5px lch(0 0 0 / 0.125), 0 1px 1px lch(0 0 0 / 0.125);
+  --shadow-modal: 0 4px 40px lch(0 0 0 / 0.1), 0 3px 20px lch(0 0 0 / 0.125), 0 3px 12px lch(0 0 0 / 0.125), 0 2px 8px lch(0 0 0 / 0.125), 0 1px 1px lch(0 0 0 / 0.125);
+}
+
+:root[data-theme="light"] {
+  --accent: lch(53 52.26 286.91);
+  --accent-hover: lch(47 50.26 286.91);
+  --accent-ink: lch(44.073 70 286.91);
+  --on-accent: lch(100 5 286.91);
+  --focus: lch(53 52.26 286.91);
+  --edge: lch(0 0 0 / 0.088);
+  --scrim: lch(0 0 0 / 0.25);
+  --shade: lch(99.997 0.5 282);
+  --stage-fall: linear-gradient(lch(97.94 0.5 282) 0%, lch(94.44 0.5 282) 100%);
+  --edge-lit: linear-gradient(lch(91.9 0 282), lch(89.84 0 282));
+  --shadow-lift: 0 3px 6px -2px lch(0 0 0 / 0.02), 0 1px 1px lch(0 0 0 / 0.04);
+  --ok-text: lch(50 80 141.95);
+  --warn-text: lch(50 80 85);
+  --fail-text: lch(50 80 29);
+  --fail-fill: lch(58 73 29);
+  --fail-fill-hover: lch(53 73 29);
+  --series-1: lch(55 50 300);
+  --series-2: lch(55 50 340);
+  --series-3: lch(55 50 260);
+  --series-4: lch(55 50 320);
+  --series-5: lch(55 50 280);
+  --series-6: lch(55 50 240);
+  --ground: lch(97.94 0.5 282);
+  --ink-title: lch(9.794 0 282);
+  --ink-base: lch(19.588 1.25 282);
+  --ink-muted: lch(39.176 1.25 282);
+  --ink-faint: lch(64.64 1.25 282);
+  --hover: lch(94.44 0.5 282);
+  --highlight: lch(95.883 0.157 282);
+  --selected: lch(93.04 0.5 282);
+  --control: lch(99.997 0.5 282);
+  --control-hover: lch(95.883 0.157 282);
+  --ghost-hover: lch(94.854 0.5 282);
+  --edge-input: lch(84.44 0 282);
+  --edge-input-hover: lch(76.44 0 282);
+  --edge-strong: lch(52.04 0 282);
+  --edge-modal: lch(89.84 0 282);
+  --switch-off: lch(80.424 0.054 282);
+  --selection: lch(92.254 5.903 282.518);
+  --ok-tint: lch(93.193 6.051 148.602);
+  --warn-tint: lch(94.802 7.462 80.086);
+  --fail-tint: lch(92.134 7.526 15.947);
+  --shadow-control: 0 0 0 var(--hairline) lch(0 0 0 / 0.09), 0 3px 6px -2px lch(0 0 0 / 0.02), 0 1px 1px lch(0 0 0 / 0.04);
+  --shadow-control-hover: 0 0 0 var(--hairline) lch(0 0 0 / 0.15), 0 3px 6px -2px lch(0 0 0 / 0.02), 0 1px 1px lch(0 0 0 / 0.04);
+  --shadow-card: 0 0 0 var(--hairline) lch(0 0 0 / 0.088), 0 3px 6px -2px lch(0 0 0 / 0.02), 0 1px 1px lch(0 0 0 / 0.04);
+  --shadow-overlay: 0 0 0 var(--hairline) lch(84.44 0 282), 0 6px 18px lch(0 0 0 / 0.02), 0 3px 9px lch(0 0 0 / 0.04), 0 1px 1px lch(0 0 0 / 0.04);
+  --shadow-modal: 0 9px 48px lch(0 0 0 / 0.08), 0 6px 24px lch(0 0 0 / 0.1), 0 1px 1px lch(0 0 0 / 0.04);
+}
+
+:root[data-theme="light"] { color-scheme: light; }
+
+:root[data-theme="light"] [data-ground="stage"] {
+  --ground: lch(97.94 0.5 282);
+  --ink-title: lch(9.794 0 282);
+  --ink-base: lch(19.588 1.25 282);
+  --ink-muted: lch(39.176 1.25 282);
+  --ink-faint: lch(64.64 1.25 282);
+  --hover: lch(94.44 0.5 282);
+  --highlight: lch(95.883 0.157 282);
+  --selected: lch(93.04 0.5 282);
+  --control: lch(99.997 0.5 282);
+  --control-hover: lch(95.883 0.157 282);
+  --ghost-hover: lch(94.854 0.5 282);
+  --edge-input: lch(84.44 0 282);
+  --edge-input-hover: lch(76.44 0 282);
+  --edge-strong: lch(52.04 0 282);
+  --edge-modal: lch(89.84 0 282);
+  --switch-off: lch(80.424 0.054 282);
+  --selection: lch(92.254 5.903 282.518);
+  --ok-tint: lch(93.193 6.051 148.602);
+  --warn-tint: lch(94.802 7.462 80.086);
+  --fail-tint: lch(92.134 7.526 15.947);
+  --shadow-control: 0 0 0 var(--hairline) lch(0 0 0 / 0.09), 0 3px 6px -2px lch(0 0 0 / 0.02), 0 1px 1px lch(0 0 0 / 0.04);
+  --shadow-control-hover: 0 0 0 var(--hairline) lch(0 0 0 / 0.15), 0 3px 6px -2px lch(0 0 0 / 0.02), 0 1px 1px lch(0 0 0 / 0.04);
+  --shadow-card: 0 0 0 var(--hairline) lch(0 0 0 / 0.088), 0 3px 6px -2px lch(0 0 0 / 0.02), 0 1px 1px lch(0 0 0 / 0.04);
+  --shadow-overlay: 0 0 0 var(--hairline) lch(84.44 0 282), 0 6px 18px lch(0 0 0 / 0.02), 0 3px 9px lch(0 0 0 / 0.04), 0 1px 1px lch(0 0 0 / 0.04);
+  --shadow-modal: 0 9px 48px lch(0 0 0 / 0.08), 0 6px 24px lch(0 0 0 / 0.1), 0 1px 1px lch(0 0 0 / 0.04);
+}
+
+:root[data-theme="light"] [data-ground="sidebar"] {
+  --ground: lch(94.44 0.5 282);
+  --ink-title: lch(9.444 0 282);
+  --ink-base: lch(18.888 1.25 282);
+  --ink-muted: lch(37.776 1.25 282);
+  --ink-faint: lch(62.33 1.25 282);
+  --hover: lch(91.64 0.5 282);
+  --highlight: lch(94.44 0.5 282);
+  --selected: lch(89.54 0.5 282);
+  --control: lch(97.94 0.5 282);
+  --control-hover: lch(94.44 0.5 282);
+  --ghost-hover: lch(0 0 0 / 0.06);
+  --edge-input: lch(80.94 0 282);
+  --edge-input-hover: lch(88.94 5 282);
+  --edge-strong: lch(48.54 0 282);
+  --edge-modal: lch(86.34 0 282);
+  --switch-off: lch(76.924 0.054 282);
+  --selection: lch(89.091 6.22 282.548);
+  --ok-tint: lch(90.153 6.429 148.401);
+  --warn-tint: lch(91.853 7.929 80.197);
+  --fail-tint: lch(89.032 7.97 16.192);
+  --shadow-control: 0 0 0 var(--hairline) lch(0 0 0 / 0.093), 0 3px 6px -2px lch(0 0 0 / 0.02), 0 1px 1px lch(0 0 0 / 0.04);
+  --shadow-control-hover: 0 0 0 var(--hairline) lch(0 0 0 / 0.156), 0 3px 6px -2px lch(0 0 0 / 0.02), 0 1px 1px lch(0 0 0 / 0.04);
+  --shadow-card: 0 0 0 var(--hairline) lch(0 0 0 / 0.088), 0 3px 6px -2px lch(0 0 0 / 0.02), 0 1px 1px lch(0 0 0 / 0.04);
+  --shadow-overlay: 0 0 0 var(--hairline) lch(80.94 0 282), 0 6px 18px lch(0 0 0 / 0.02), 0 3px 9px lch(0 0 0 / 0.04), 0 1px 1px lch(0 0 0 / 0.04);
+  --shadow-modal: 0 9px 48px lch(0 0 0 / 0.08), 0 6px 24px lch(0 0 0 / 0.1), 0 1px 1px lch(0 0 0 / 0.04);
+}
+
+:root[data-theme="light"] [data-ground="card"] {
+  --ground: lch(100 0 282);
+  --ink-title: lch(10 0 282);
+  --ink-base: lch(20 1 282);
+  --ink-muted: lch(40 1 282);
+  --ink-faint: lch(66 1 282);
+  --hover: lch(96.5 0 282);
+  --highlight: lch(95.886 0 282);
+  --selected: lch(95.1 0 282);
+  --control: lch(100 0 282);
+  --control-hover: lch(95.886 0 282);
+  --ghost-hover: lch(96.914 0 282);
+  --edge-input: lch(86.5 0 282);
+  --edge-input-hover: lch(78.5 0 282);
+  --edge-strong: lch(54.1 0 282);
+  --edge-modal: lch(91.9 0 282);
+  --switch-off: lch(82.484 0.054 282);
+  --selection: lch(94.222 5.203 282.49);
+  --ok-tint: lch(94.99 6.16 145.645);
+  --warn-tint: lch(96.548 7.634 81.257);
+  --fail-tint: lch(93.966 7.33 19.355);
+  --shadow-control: 0 0 0 var(--hairline) lch(0 0 0 / 0.088), 0 3px 6px -2px lch(0 0 0 / 0.02), 0 1px 1px lch(0 0 0 / 0.04);
+  --shadow-control-hover: 0 0 0 var(--hairline) lch(0 0 0 / 0.147), 0 3px 6px -2px lch(0 0 0 / 0.02), 0 1px 1px lch(0 0 0 / 0.04);
+  --shadow-card: 0 0 0 var(--hairline) lch(0 0 0 / 0.088), 0 3px 6px -2px lch(0 0 0 / 0.02), 0 1px 1px lch(0 0 0 / 0.04);
+  --shadow-overlay: 0 0 0 var(--hairline) lch(86.5 0 282), 0 6px 18px lch(0 0 0 / 0.02), 0 3px 9px lch(0 0 0 / 0.04), 0 1px 1px lch(0 0 0 / 0.04);
+  --shadow-modal: 0 9px 48px lch(0 0 0 / 0.08), 0 6px 24px lch(0 0 0 / 0.1), 0 1px 1px lch(0 0 0 / 0.04);
+}
+
+:root[data-theme="light"] [data-ground="overlay"] {
+  --ground: lch(100 0 282);
+  --ink-title: lch(10 0 282);
+  --ink-base: lch(20 1 282);
+  --ink-muted: lch(40 1 282);
+  --ink-faint: lch(66 1 282);
+  --hover: lch(96.5 0 282);
+  --highlight: lch(95.886 0 282);
+  --selected: lch(95.1 0 282);
+  --control: lch(100 0 282);
+  --control-hover: lch(95.886 0 282);
+  --ghost-hover: lch(96.914 0 282);
+  --edge-input: lch(86.5 0 282);
+  --edge-input-hover: lch(78.5 0 282);
+  --edge-strong: lch(54.1 0 282);
+  --edge-modal: lch(91.9 0 282);
+  --switch-off: lch(82.484 0.054 282);
+  --selection: lch(94.222 5.203 282.49);
+  --ok-tint: lch(94.99 6.16 145.645);
+  --warn-tint: lch(96.548 7.634 81.257);
+  --fail-tint: lch(93.966 7.33 19.355);
+  --shadow-control: 0 0 0 var(--hairline) lch(0 0 0 / 0.088), 0 3px 6px -2px lch(0 0 0 / 0.02), 0 1px 1px lch(0 0 0 / 0.04);
+  --shadow-control-hover: 0 0 0 var(--hairline) lch(0 0 0 / 0.147), 0 3px 6px -2px lch(0 0 0 / 0.02), 0 1px 1px lch(0 0 0 / 0.04);
+  --shadow-card: 0 0 0 var(--hairline) lch(0 0 0 / 0.088), 0 3px 6px -2px lch(0 0 0 / 0.02), 0 1px 1px lch(0 0 0 / 0.04);
+  --shadow-overlay: 0 0 0 var(--hairline) lch(86.5 0 282), 0 6px 18px lch(0 0 0 / 0.02), 0 3px 9px lch(0 0 0 / 0.04), 0 1px 1px lch(0 0 0 / 0.04);
+  --shadow-modal: 0 9px 48px lch(0 0 0 / 0.08), 0 6px 24px lch(0 0 0 / 0.1), 0 1px 1px lch(0 0 0 / 0.04);
+}
+
+:root[data-theme="light"] [data-ground="overlay-stage"] {
+  --ground: lch(100 0 282);
+  --ink-title: lch(10 0 282);
+  --ink-base: lch(20 1 282);
+  --ink-muted: lch(40 1 282);
+  --ink-faint: lch(66 1 282);
+  --hover: lch(96.5 0 282);
+  --highlight: lch(95.886 0 282);
+  --selected: lch(95.1 0 282);
+  --control: lch(100 0 282);
+  --control-hover: lch(95.886 0 282);
+  --ghost-hover: lch(96.914 0 282);
+  --edge-input: lch(86.5 0 282);
+  --edge-input-hover: lch(78.5 0 282);
+  --edge-strong: lch(54.1 0 282);
+  --edge-modal: lch(91.9 0 282);
+  --switch-off: lch(82.484 0.054 282);
+  --selection: lch(94.222 5.203 282.49);
+  --ok-tint: lch(94.99 6.16 145.645);
+  --warn-tint: lch(96.548 7.634 81.257);
+  --fail-tint: lch(93.966 7.33 19.355);
+  --shadow-control: 0 0 0 var(--hairline) lch(0 0 0 / 0.088), 0 3px 6px -2px lch(0 0 0 / 0.02), 0 1px 1px lch(0 0 0 / 0.04);
+  --shadow-control-hover: 0 0 0 var(--hairline) lch(0 0 0 / 0.147), 0 3px 6px -2px lch(0 0 0 / 0.02), 0 1px 1px lch(0 0 0 / 0.04);
+  --shadow-card: 0 0 0 var(--hairline) lch(0 0 0 / 0.088), 0 3px 6px -2px lch(0 0 0 / 0.02), 0 1px 1px lch(0 0 0 / 0.04);
+  --shadow-overlay: 0 0 0 var(--hairline) lch(86.5 0 282), 0 6px 18px lch(0 0 0 / 0.02), 0 3px 9px lch(0 0 0 / 0.04), 0 1px 1px lch(0 0 0 / 0.04);
+  --shadow-modal: 0 9px 48px lch(0 0 0 / 0.08), 0 6px 24px lch(0 0 0 / 0.1), 0 1px 1px lch(0 0 0 / 0.04);
+}

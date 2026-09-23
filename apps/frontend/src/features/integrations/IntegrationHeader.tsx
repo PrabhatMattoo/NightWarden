@@ -13,7 +13,7 @@ export function IntegrationLogo({
   return (
     <span
       className={cn(
-        "flex size-9 shrink-0 items-center justify-center rounded-md bg-white text-background",
+        "flex size-9 shrink-0 items-center justify-center rounded-control bg-logo-tile text-ground",
         className,
       )}
     >
@@ -32,12 +32,8 @@ export function IntegrationHeader({
     <div data-testid="integration-header" className="flex items-start gap-3">
       <IntegrationLogo logo={identity.logo} />
       <span className="flex min-w-0 flex-col gap-1">
-        <span className="text-base leading-tight font-medium">
-          {identity.label}
-        </span>
-        <span className="text-sm text-muted-foreground">
-          {identity.description}
-        </span>
+        <span className="type-prose emphasis">{identity.label}</span>
+        <span className="type-body text-ink-muted">{identity.description}</span>
       </span>
     </div>
   );

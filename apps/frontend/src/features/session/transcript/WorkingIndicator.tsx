@@ -14,11 +14,11 @@ export function WorkingIndicator({
 }): React.JSX.Element {
   return (
     <div
-      className="animate-in fade-in text-base duration-(--duration-slow)"
+      className="animate-in fade-in type-prose duration-(--duration-slow)"
       role="status"
       data-testid="working-indicator"
     >
-      <span className={cn(waiting ? "breathe text-muted-foreground" : "live")}>
+      <span className={cn(waiting ? "breathe text-ink-muted" : "live")}>
         {label}
       </span>
     </div>

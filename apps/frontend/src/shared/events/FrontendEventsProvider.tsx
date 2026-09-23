@@ -1,4 +1,11 @@
-import { createContext, useContext, useEffect, useRef } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useEffectEvent,
+  useRef,
+} from "react";
 import type { ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import type { FrontendEvent } from "@nightwarden/shared";
@@ -81,12 +88,12 @@ export function FrontendEventsProvider({
     };
   }, [queryClient]);
 
-  const subscribe = useRef<Subscribe>((fn) => {
+  const subscribe = useCallback<Subscribe>((fn) => {
     subscribers.current.add(fn);
     return () => {
       subscribers.current.delete(fn);
     };
-  }).current;
+  }, []);
 
   return (
     <FrontendEventsContext.Provider value={subscribe}>
@@ -99,11 +106,11 @@ export function FrontendEventsProvider({
 // a no-op before a provider mounts (e.g. pre-auth), so callers need no guard.
 export function useFrontendEvents(onMessage: Subscriber): void {
   const subscribe = useContext(FrontendEventsContext);
-  const handlerRef = useRef(onMessage);
-  handlerRef.current = onMessage;
+  // Always the caller's latest handler, without resubscribing when it changes.
+  const onEvent = useEffectEvent(onMessage);
 
   useEffect(() => {
     if (!subscribe) return;
-    return subscribe((envelope) => handlerRef.current(envelope));
+    return subscribe((envelope) => onEvent(envelope));
   }, [subscribe]);
 }

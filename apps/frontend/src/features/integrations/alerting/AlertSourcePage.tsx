@@ -7,7 +7,7 @@ import { Button } from "@/shared/ui/button";
 import { FieldDescription, FieldTitle } from "@/shared/ui/field";
 import { StatusText } from "@/shared/ui/status";
 import { Spinner } from "@/shared/ui/spinner";
-import { DESCRIPTION, DetailPage } from "@/shared/ui/Page";
+import { Page } from "@/shared/ui/Page";
 import { ConfirmDialog } from "@/shared/ui/ConfirmDialog";
 import { CopyableSnippet } from "@/shared/ui/CopyableSnippet";
 import { IntegrationHeader } from "@/features/integrations/IntegrationHeader";
@@ -98,11 +98,12 @@ export function AlertSourcePage({
   const configured = status?.configured === true;
 
   return (
-    <DetailPage
+    <Page
+      measure="narrow"
       back={{ to: "/integrations", label: "Integrations" }}
       /* Withheld while a freshly minted secret is on screen: that moment is a
          step to finish, not a delivery report to read. */
-      actions={
+      controls={
         configured && !unsaved && status ? (
           <StatusText tone={status.lastReceivedAt !== null ? "ok" : "muted"}>
             {status.lastReceivedAt !== null
@@ -118,13 +119,13 @@ export function AlertSourcePage({
         {isLoading && (
           <div className="flex items-center gap-2">
             <Spinner />
-            <p className="text-sm text-muted-foreground">Loading...</p>
+            <p className="type-body text-ink-muted">Loading...</p>
           </div>
         )}
 
         {status && (
           <>
-            <p className={`m-0 ${DESCRIPTION}`}>{content.where}</p>
+            <p className="type-body text-ink-muted">{content.where}</p>
 
             {/* Three rows in a fixed order that never reflows. Only the secret
                 row changes state, so nothing moves under whoever is copying. */}
@@ -228,6 +229,6 @@ export function AlertSourcePage({
           if (blocker.status === "blocked") blocker.proceed();
         }}
       />
-    </DetailPage>
+    </Page>
   );
 }

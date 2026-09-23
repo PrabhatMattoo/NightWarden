@@ -56,9 +56,9 @@ export function Exception({
     <ul className="m-0 flex list-none flex-col gap-3 p-0">
       {rows.map((row, at) => (
         <li key={`${row.title}-${at}`}>
-          <p className="m-0 text-sm font-medium">{row.title}</p>
+          <p className="m-0 type-item">{row.title}</p>
           {(row.culprit !== "" || row.scope !== "") && (
-            <p className="m-0 mt-1 font-mono text-xs text-muted-foreground">
+            <p className="m-0 mt-1 font-mono type-small text-ink-muted">
               {[row.culprit, row.scope].filter(Boolean).join(" · ")}
             </p>
           )}

@@ -7,7 +7,7 @@ export class ApiError extends Error {
     message: string,
     // The whole parsed body, not only the text lifted out of it: a caller that
     // must branch on a code needs the fields beside `error`.
-    public readonly body: unknown = undefined,
+    public readonly body?: unknown,
   ) {
     super(message);
     this.name = "ApiError";

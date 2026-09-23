@@ -23,7 +23,7 @@ import {
   SelectValue,
 } from "@/shared/ui/select";
 import { Spinner } from "@/shared/ui/spinner";
-import { DetailPage, SectionHeading } from "@/shared/ui/Page";
+import { Page, Section } from "@/shared/ui/Page";
 import { ConfirmDialog } from "@/shared/ui/ConfirmDialog";
 import { IntegrationHeader } from "@/features/integrations/IntegrationHeader";
 import { ConnectedState, type Fact } from "@/features/integrations/FactGrid";
@@ -318,8 +318,7 @@ function ConnectForm({ kind }: { kind: MetricsSourceKind }): React.JSX.Element {
 
   return (
     <div className="flex flex-col gap-6">
-      <section className="flex flex-col gap-4">
-        <SectionHeading lead={QUERY_LEAD}>Querying</SectionHeading>
+      <Section title="Querying" lead={QUERY_LEAD} className="gap-4">
         <Field>
           <FieldLabel htmlFor="metrics-query-url">Query URL</FieldLabel>
           {content.queryHelp !== "" && (
@@ -361,10 +360,9 @@ function ConnectForm({ kind }: { kind: MetricsSourceKind }): React.JSX.Element {
             />
           </Field>
         )}
-      </section>
+      </Section>
 
-      <section className="flex flex-col gap-4">
-        <SectionHeading lead={RULES_LEAD}>Recovery</SectionHeading>
+      <Section title="Recovery" lead={RULES_LEAD} className="gap-4">
         <Field>
           <FieldLabel htmlFor="metrics-rules-url">Rules URL</FieldLabel>
           <FieldDescription>{content.rulesHelp}</FieldDescription>
@@ -408,7 +406,7 @@ function ConnectForm({ kind }: { kind: MetricsSourceKind }): React.JSX.Element {
             )}
           </>
         )}
-      </section>
+      </Section>
 
       <IntegrationWarnings warnings={content.warnings} />
 
@@ -458,7 +456,7 @@ function ConnectedSource({
         source.rules === null ? (
           /* Said here rather than discovered at 3am: this is the difference
              between an investigation that can close itself and one that cannot. */
-          <p className="flex items-start gap-2 text-sm text-warning">
+          <p className="flex items-start gap-2 type-body text-warn">
             <TriangleAlert {...ICON_UI} className="shrink-0" />
             <span>
               No rules endpoint. This source reaches Resolved only when your
@@ -501,14 +499,17 @@ export function MetricsSourcePage({
   });
 
   return (
-    <DetailPage back={{ to: "/integrations", label: "Integrations" }}>
+    <Page
+      back={{ to: "/integrations", label: "Integrations" }}
+      measure="narrow"
+    >
       <div className="flex flex-col gap-8">
         <IntegrationHeader identity={identity} />
 
         {isLoading && (
           <div className="flex items-center gap-2">
             <Spinner />
-            <p className="text-sm text-muted-foreground">Loading...</p>
+            <p className="type-body text-ink-muted">Loading...</p>
           </div>
         )}
 
@@ -543,6 +544,6 @@ export function MetricsSourcePage({
         destructive
         onConfirm={() => disconnect.mutate()}
       />
-    </DetailPage>
+    </Page>
   );
 }

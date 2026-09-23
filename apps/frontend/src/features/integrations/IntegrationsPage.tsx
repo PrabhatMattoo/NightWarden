@@ -10,7 +10,7 @@ import type {
 } from "@nightwarden/shared";
 import { METRICS_SOURCE_KINDS } from "@nightwarden/shared";
 
-import { SectionPage } from "@/shared/ui/Page";
+import { Page } from "@/shared/ui/Page";
 import { StatusText } from "@/shared/ui/status";
 import { IntegrationLogo } from "@/features/integrations/IntegrationHeader";
 import { apiFetch } from "@/shared/api/client";
@@ -51,9 +51,7 @@ function CatalogCard({ row }: { row: IntegrationRow }): React.JSX.Element {
       <span className="flex items-center gap-3">
         <IntegrationLogo logo={row.logo} className="size-8" />
         <span className="flex min-w-0 flex-1 flex-col">
-          <span className="text-sm leading-tight font-normal text-foreground">
-            {row.title}
-          </span>
+          <span className="type-body text-ink-base">{row.title}</span>
           {row.status !== null && (
             <StatusText tone={row.statusVariant === "muted" ? "muted" : "ok"}>
               {row.status}
@@ -62,13 +60,11 @@ function CatalogCard({ row }: { row: IntegrationRow }): React.JSX.Element {
         </span>
       </span>
       {/* Description, aligned with the logo's left edge. */}
-      <span className="text-sm font-light text-foreground">
-        {row.description}
-      </span>
+      <span className="type-body text-ink-base">{row.description}</span>
     </>
   );
   const shape =
-    "flex flex-col gap-1.5 rounded-lg border border-border px-4 py-3 transition-colors";
+    "flex flex-col gap-1.5 rounded-card border-hairline border-edge px-4 py-3 transition-colors";
   return row.unavailable === true ? (
     <div aria-label={row.title} className={`${shape} opacity-55`}>
       {body}
@@ -77,7 +73,7 @@ function CatalogCard({ row }: { row: IntegrationRow }): React.JSX.Element {
     <Link
       to={row.to}
       aria-label={row.title}
-      className={`group/card ${shape} no-underline hover:bg-card-hover`}
+      className={`group/card ${shape} no-underline hover:bg-hover`}
     >
       {body}
     </Link>
@@ -243,15 +239,15 @@ export function IntegrationsPage(): React.JSX.Element {
   );
 
   return (
-    <SectionPage
+    <Page
       title="Integrations"
-      description="Connect your monitoring, error tracking, and developer platforms to NightWarden."
+      subtitle="Connect your monitoring, error tracking, and developer platforms to NightWarden."
     >
       <div className="grid grid-cols-3 gap-3">
         {shown.map((row) => (
           <CatalogCard key={row.title} row={row} />
         ))}
       </div>
-    </SectionPage>
+    </Page>
   );
 }

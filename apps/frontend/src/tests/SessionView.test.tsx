@@ -21,6 +21,7 @@ import { SessionView } from "../features/session/SessionView.js";
 import { FrontendEventsProvider } from "@/shared/events/FrontendEventsProvider";
 import { routeTree } from "@/app/router";
 import { MockEventSource } from "./mockEventSource.js";
+import { sentBody } from "./sentBody";
 
 // What the API accepts as a client message id.
 const UUID_V4 =
@@ -152,7 +153,7 @@ function setupPage({
   vi.stubGlobal("innerWidth", 1280);
 
   const writeText = vi.fn().mockResolvedValue(undefined);
-  vi.stubGlobal("navigator", { ...navigator, clipboard: { writeText } });
+  vi.stubGlobal("navigator", { clipboard: { writeText } });
 
   const fetchMock = vi.fn().mockImplementation((url: string, init?: object) => {
     if (url.includes("/auth-status")) {
@@ -763,7 +764,7 @@ describe("SessionView", () => {
           (call[1] as RequestInit | undefined)?.method === "POST",
       );
       const init = posts[posts.length - 1]?.[1] as RequestInit;
-      const body = JSON.parse(String(init.body)) as {
+      const body = sentBody(init) as {
         clientMessageId: string;
       };
       return body.clientMessageId;

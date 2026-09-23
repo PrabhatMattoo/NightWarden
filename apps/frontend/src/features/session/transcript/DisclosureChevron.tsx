@@ -1,6 +1,6 @@
 import { ChevronRight } from "lucide-react";
 
-import { ICON_INLINE } from "@/shared/lib/iconProps";
+import { ICON_UI } from "@/shared/lib/iconProps";
 import { cn } from "@/shared/lib/utils";
 
 /* The mark on a row that opens. Hidden by colour rather than opacity: Safari
@@ -13,11 +13,11 @@ export function DisclosureChevron({
 }): React.JSX.Element {
   return (
     <ChevronRight
-      {...ICON_INLINE}
+      {...ICON_UI}
       className={cn(
-        "shrink-0 self-center text-transparent transition-[color,rotate] duration-(--duration-slow)",
+        "shrink-0 self-center text-transparent transition duration-(--duration-slow)",
         openable &&
-          "group-hover:text-foreground group-aria-expanded:rotate-90 group-aria-expanded:text-foreground",
+          "group-hover:text-ink-base group-aria-expanded:rotate-90 group-aria-expanded:text-ink-base",
       )}
     />
   );

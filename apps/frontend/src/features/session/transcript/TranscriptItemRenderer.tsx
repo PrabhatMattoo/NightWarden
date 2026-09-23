@@ -21,10 +21,8 @@ function UserTurn({ text }: { text: string }): React.JSX.Element {
       className="animate-in fade-in duration-(--duration-fast)"
       data-testid="user-turn"
     >
-      <Bubble variant="card">
-        <BubbleContent className="text-base whitespace-pre-wrap">
-          {text}
-        </BubbleContent>
+      <Bubble>
+        <BubbleContent className="whitespace-pre-wrap">{text}</BubbleContent>
       </Bubble>
     </Message>
   );
@@ -45,7 +43,7 @@ function ErrorNotice({ text }: { text: string }): React.JSX.Element {
     <div
       role="status"
       data-testid="error-notice"
-      className="animate-in fade-in flex items-start gap-2 text-base text-muted-foreground duration-(--duration-slow)"
+      className="animate-in fade-in flex items-start gap-2 type-prose text-ink-muted duration-(--duration-slow)"
     >
       <CircleAlert aria-hidden className="size-4 shrink-0" />
       <p className="m-0 whitespace-pre-wrap">{text}</p>
@@ -61,23 +59,23 @@ function AlertArrived({ item }: { item: AlertArrivedItem }): React.JSX.Element {
   return (
     <div
       role="status"
-      className="animate-in fade-in flex items-center gap-3 py-1 text-sm duration-(--duration-slow)"
+      className="animate-in fade-in flex items-center gap-3 py-1 type-body duration-(--duration-slow)"
     >
-      <span aria-hidden className="h-px w-6 shrink-0 bg-border" />
+      <span aria-hidden className="h-px w-6 shrink-0 bg-edge" />
       {/* A word, and an uncoloured one. Severity is whatever the sender called
           it, so a tone here would be our reading of their vocabulary. */}
-      <span className="flex shrink-0 items-center gap-2 whitespace-nowrap text-muted-foreground">
+      <span className="flex shrink-0 items-center gap-2 whitespace-nowrap text-ink-muted">
         {item.severityLabel !== null && (
           <MetaText>{item.severityLabel}</MetaText>
         )}
-        <span className="font-medium text-foreground">{item.alertType}</span>
+        <span className="emphasis text-ink-base">{item.alertType}</span>
         <span>
           {item.opening === true
             ? "opened this investigation"
             : "fired during this run"}
         </span>
       </span>
-      <span aria-hidden className="h-px min-w-0 flex-1 bg-border" />
+      <span aria-hidden className="h-px min-w-0 flex-1 bg-edge" />
     </div>
   );
 }
@@ -88,14 +86,14 @@ function Compaction(): React.JSX.Element {
   return (
     <div
       role="status"
-      className="animate-in fade-in flex items-center gap-3 py-1 text-sm duration-(--duration-slow)"
+      className="animate-in fade-in flex items-center gap-3 py-1 type-body duration-(--duration-slow)"
     >
-      <span aria-hidden className="h-px w-6 shrink-0 bg-border" />
-      <span className="flex shrink-0 items-center gap-2 whitespace-nowrap text-muted-foreground">
-        <span className="font-medium text-foreground">Context summarised</span>
+      <span aria-hidden className="h-px w-6 shrink-0 bg-edge" />
+      <span className="flex shrink-0 items-center gap-2 whitespace-nowrap text-ink-muted">
+        <span className="emphasis text-ink-base">Context summarised</span>
         <span>to fit the model; everything above stays in the record</span>
       </span>
-      <span aria-hidden className="h-px min-w-0 flex-1 bg-border" />
+      <span aria-hidden className="h-px min-w-0 flex-1 bg-edge" />
     </div>
   );
 }

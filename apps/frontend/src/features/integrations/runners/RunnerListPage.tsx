@@ -15,8 +15,8 @@ import {
 import { ServerCard } from "@/features/integrations/runners/ServerCard";
 import { Button } from "@/shared/ui/button";
 import { Spinner } from "@/shared/ui/spinner";
-import { DetailPage } from "@/shared/ui/Page";
-import { ICON_INLINE } from "@/shared/lib/iconProps";
+import { Page } from "@/shared/ui/Page";
+import { ICON_UI } from "@/shared/lib/iconProps";
 import { apiFetch } from "@/shared/api/client";
 import { INTEGRATION_CATALOG } from "../catalog";
 import { IntegrationHeader } from "@/features/integrations/IntegrationHeader";
@@ -152,11 +152,12 @@ export function RunnerListPage({
   }
 
   return (
-    <DetailPage
+    <Page
+      measure="narrow"
       back={{ to: "/integrations", label: "Integrations" }}
       /* The empty state carries this action itself, so offering it twice on
          the one screen where it is the only thing to do reads as a mistake. */
-      actions={
+      controls={
         connected.length > 0 ? (
           <Button
             size="sm"
@@ -164,7 +165,7 @@ export function RunnerListPage({
               void navigate({ to: `/integrations/${platform}/add` })
             }
           >
-            <Plus {...ICON_INLINE} />
+            <Plus {...ICON_UI} />
             Add a {copy.singular.toLowerCase()}
           </Button>
         ) : undefined
@@ -248,6 +249,6 @@ export function RunnerListPage({
           ))}
         </div>
       )}
-    </DetailPage>
+    </Page>
   );
 }

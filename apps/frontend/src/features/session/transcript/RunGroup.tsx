@@ -81,11 +81,11 @@ export function RunGroup({
               type="button"
               aria-expanded={open}
               onClick={() => setOpen((prev) => !prev)}
-              className="group flex w-full items-center gap-1.5 py-1 text-left text-base"
+              className="group flex w-full items-center gap-1.5 py-1 text-left type-prose"
             >
               <span
                 data-testid="run-group-label"
-                className="text-ink-subtle tabular-nums transition-colors group-hover:text-foreground"
+                className="text-ink-muted tabular-nums transition-colors group-hover:text-ink-base"
               >
                 {label}
               </span>
@@ -94,7 +94,7 @@ export function RunGroup({
           ) : (
             <p
               data-testid="run-group-label"
-              className="m-0 py-1 text-base text-ink-subtle tabular-nums"
+              className="m-0 py-1 type-prose text-ink-muted tabular-nums"
             >
               {label}
             </p>

@@ -16,15 +16,13 @@ export function CitationChip({
     <button
       type="button"
       onClick={() => revealToolCall(evidence.toolCallId)}
-      className="group inline-flex items-baseline gap-1 text-sm font-medium text-primary-ink"
+      className="group inline-flex items-baseline gap-1 type-item text-accent-ink"
     >
       <span className="underline-offset-2 group-hover:underline">
         {evidence.toolName}
       </span>
       {target !== null && (
-        <span className="text-xs font-normal text-muted-foreground">
-          ({target})
-        </span>
+        <span className="type-small text-ink-muted">({target})</span>
       )}
     </button>
   );

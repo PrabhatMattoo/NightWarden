@@ -2,18 +2,15 @@ import * as React from "react";
 
 import { cn } from "@/shared/lib/utils";
 
-function Card({
-  className,
-  size = "default",
-  ...props
-}: React.ComponentProps<"div"> & { size?: "default" | "sm" }) {
+/* A panel resting on the stage: its own ground, an alpha ring and a drop rather
+   than a border, so it reads the same on any ground beneath it. */
+function Card({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="card"
-      data-size={size}
       data-ground="card"
       className={cn(
-        "group/card flex flex-col gap-(--card-spacing) overflow-hidden rounded-lg bg-card py-(--card-spacing) text-sm text-card-foreground ring-1 ring-border [--card-spacing:--spacing(4)] has-data-[slot=card-footer]:pb-0 has-[>img:first-child]:pt-0 data-[size=sm]:[--card-spacing:--spacing(3)] data-[size=sm]:has-data-[slot=card-footer]:pb-0 *:[img:first-child]:rounded-t-lg *:[img:last-child]:rounded-b-lg",
+        "flex flex-col overflow-hidden rounded-card bg-ground text-ink-base shadow-card",
         className,
       )}
       {...props}
@@ -23,11 +20,7 @@ function Card({
 
 function CardContent({ className, ...props }: React.ComponentProps<"div">) {
   return (
-    <div
-      data-slot="card-content"
-      className={cn("px-(--card-spacing)", className)}
-      {...props}
-    />
+    <div data-slot="card-content" className={cn("p-4", className)} {...props} />
   );
 }
 

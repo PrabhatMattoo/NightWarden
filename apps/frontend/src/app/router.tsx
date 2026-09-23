@@ -5,7 +5,6 @@ import {
   Outlet,
   redirect,
 } from "@tanstack/react-router";
-import { useViewportTier } from "../shared/hooks/useViewportTier.js";
 import { AuthProvider } from "../features/auth/AuthContext.js";
 import { AuthGate } from "./AuthGate.js";
 import { LoginPage } from "../features/auth/LoginPage.js";
@@ -43,22 +42,7 @@ const LAZY = {
   SettingsPage,
 } as const;
 
-// Above sign-in, not just above the frontend: finishing a sign-up on a phone
-// only to meet this message would be worse than meeting it first.
 function RootLayout(): React.JSX.Element {
-  const tier = useViewportTier();
-  if (tier === "phone") {
-    return (
-      <div className="flex h-svh flex-col items-center justify-center gap-2 p-6 text-center">
-        <h1 className="m-0 text-xl font-semibold">
-          NightWarden is built for desktop
-        </h1>
-        <p className="m-0 text-sm text-muted-foreground">
-          It needs a screen at least 768px wide.
-        </p>
-      </div>
-    );
-  }
   return (
     <AuthProvider>
       <Outlet />
@@ -69,8 +53,8 @@ function RootLayout(): React.JSX.Element {
 function RootError({ error }: { error: unknown }): React.JSX.Element {
   return (
     <div className="flex h-svh flex-col items-center justify-center gap-2 p-6 text-center">
-      <h1 className="m-0 text-xl font-semibold">Something went wrong</h1>
-      <p className="m-0 text-sm text-muted-foreground">
+      <h1 className="type-display">Something went wrong</h1>
+      <p className="type-body text-ink-muted">
         {error instanceof Error
           ? error.message
           : "An unexpected error occurred."}

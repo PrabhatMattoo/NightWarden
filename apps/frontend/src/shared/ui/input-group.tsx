@@ -8,14 +8,37 @@ import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import { Textarea } from "@/shared/ui/textarea";
 
-function InputGroup({ className, ...props }: React.ComponentProps<"div">) {
+const FOCUS_RING =
+  "has-[[data-slot=input-group-control]:focus-visible]:outline-1 has-[[data-slot=input-group-control]:focus-visible]:outline-focus has-[[data-slot=input-group-control]:focus-visible]:-outline-offset-1";
+
+/* A field is its edge; a row is a chosen option opened into a field; the
+   composer is a recessed object with a lit rim that takes the focus outline too. */
+const inputGroupVariants = cva("", {
+  variants: {
+    variant: {
+      field: FOCUS_RING,
+      row: `h-auto border-transparent bg-control py-1 hover:border-transparent ${FOCUS_RING}`,
+      composer: `edge-lit h-auto rounded-card border-0 bg-shade shadow-lift p-1 ${FOCUS_RING} *:data-[slot=input-group-control]:px-2 *:data-[slot=input-group-control]:pt-2 *:data-[slot=input-group-control]:type-prose`,
+    },
+  },
+  defaultVariants: { variant: "field" },
+});
+
+function InputGroup({
+  className,
+  variant,
+  ...props
+}: React.ComponentProps<"div"> & VariantProps<typeof inputGroupVariants>) {
   return (
     <div
       data-slot="input-group"
+      // The composer's contents read on the card ground, over its own recessed fill.
+      data-ground={variant === "composer" ? "card" : undefined}
       role="group"
       className={cn(
-        // The group is the control, so it takes the edge for its input.
-        "group/input-group relative flex h-8 min-w-0 items-center rounded-md border-[0.5px] border-input transition-colors hover:border-input-hover has-[[data-slot=input-group-control]:focus-visible]:border-ring has-disabled:border-border has-[[data-slot][aria-invalid=true]]:border-destructive has-[>[data-align=block-end]]:h-auto has-[>[data-align=block-end]]:flex-col has-[>[data-align=block-start]]:h-auto has-[>[data-align=block-start]]:flex-col has-[>textarea]:h-auto has-[>[data-align=block-end]]:[&>input]:pt-3 has-[>[data-align=block-start]]:[&>input]:pb-3 has-[>[data-align=inline-end]]:[&>input]:pr-2 has-[>[data-align=inline-start]]:[&>input]:pl-2",
+        // The group is the field, so it takes the edge and the focus for its input.
+        "group/input-group relative flex h-8 min-w-0 items-center rounded-control border-hairline border-edge-input highlight-motion hover:border-edge-input-hover has-disabled:border-edge has-[[data-slot][aria-invalid=true]]:border-fail has-[>[data-align=block-end]]:h-auto has-[>[data-align=block-end]]:flex-col has-[>[data-align=block-start]]:h-auto has-[>[data-align=block-start]]:flex-col has-[>textarea]:h-auto has-[>[data-align=block-end]]:[&>input]:pt-3 has-[>[data-align=block-start]]:[&>input]:pb-3 has-[>[data-align=inline-end]]:[&>input]:pr-2 has-[>[data-align=inline-start]]:[&>input]:pl-2",
+        inputGroupVariants({ variant }),
         className,
       )}
       {...props}
@@ -24,16 +47,16 @@ function InputGroup({ className, ...props }: React.ComponentProps<"div">) {
 }
 
 const inputGroupAddonVariants = cva(
-  "flex h-auto cursor-text items-center justify-center gap-2 py-1 text-sm font-medium text-muted-foreground select-none group-data-[disabled=true]/input-group:text-disabled-foreground [&>kbd]:rounded-sm [&>svg:not([class*='size-'])]:size-4",
+  "flex h-auto cursor-text items-center justify-center gap-2 py-1 type-body text-ink-muted select-none group-data-[disabled=true]/input-group:opacity-50 [&>kbd]:rounded-control [&>svg:not([class*='size-'])]:size-4",
   {
     variants: {
       align: {
         "inline-start": "order-first pl-2 has-[>button]:-ml-1 has-[>kbd]:-ml-1",
         "inline-end": "order-last pr-2 has-[>button]:-mr-1 has-[>kbd]:-mr-1",
         "block-start":
-          "order-first w-full justify-start px-3 pt-2 group-has-[>input]/input-group:pt-2 [.border-b]:pb-2",
+          "order-first w-full justify-start px-3 pt-2 group-has-[>input]/input-group:pt-2 [.border-b-hairline]:pb-2",
         "block-end":
-          "order-last w-full justify-start px-3 pb-2 group-has-[>input]/input-group:pb-2 [.border-t]:pt-2",
+          "order-last w-full justify-start px-3 pb-2 group-has-[>input]/input-group:pb-2 [.border-t-hairline]:pt-2",
       },
     },
     defaultVariants: {
@@ -66,11 +89,13 @@ function InputGroupAddon({
 
 // The one place a 24px control is right, which is why Button does not carry
 // that rung: a control inside a 32px field cannot be 32px itself.
-const inputGroupButtonVariants = cva("flex items-center gap-2 text-sm", {
+const inputGroupButtonVariants = cva("flex items-center gap-2", {
   variants: {
     size: {
-      xs: "h-6 gap-1 rounded-md px-2 [&>svg:not([class*='size-'])]:size-3.5",
-      "icon-xs": "size-6 rounded-md p-0 has-[>svg]:p-0",
+      xs: "h-6 gap-1 px-2 [&>svg:not([class*='size-'])]:size-3.5",
+      "icon-xs": "size-6 p-0 has-[>svg]:p-0",
+      // Round, and a neutral fill until there is something to send.
+      send: "size-6 rounded-full p-0 has-[>svg]:p-0 disabled:bg-control disabled:text-ink-base [&_svg:not([class*='size-'])]:size-3.5",
       icon: "size-8 p-0 has-[>svg]:p-0",
       default: "",
     },
@@ -105,7 +130,7 @@ function InputGroupText({ className, ...props }: React.ComponentProps<"span">) {
   return (
     <span
       className={cn(
-        "flex items-center gap-2 text-sm text-muted-foreground [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4",
+        "flex items-center gap-2 type-body text-ink-muted [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4",
         className,
       )}
       {...props}
@@ -121,7 +146,7 @@ function InputGroupInput({
     <Input
       data-slot="input-group-control"
       className={cn(
-        "flex-1 rounded-none border-0 bg-transparent shadow-none",
+        "flex-1 rounded-none border-0 bg-transparent outline-none",
         className,
       )}
       {...props}
@@ -137,7 +162,7 @@ function InputGroupTextarea({
     <Textarea
       data-slot="input-group-control"
       className={cn(
-        "flex-1 resize-none rounded-none border-0 bg-transparent py-2 shadow-none",
+        "flex-1 resize-none rounded-none border-0 bg-transparent py-2 outline-none",
         className,
       )}
       {...props}

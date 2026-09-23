@@ -1,0 +1,166 @@
+{
+  "$schema": "../../node_modules/oxlint/configuration_schema.json",
+  "extends": ["../../.oxlintrc.json"],
+  "jsPlugins": ["@shadcn/lint"],
+  "rules": {
+    "shadcn/no-raw-colors": "error",
+    "shadcn/no-arbitrary-values": "error",
+    "shadcn/no-inline-styles": "error",
+    "shadcn/no-unknown-classes": "error",
+    "shadcn/require-static-classes": "error",
+    "shadcn/no-restyle": [
+      "error",
+      {
+        "allow": ["layout"],
+        "contracts": [
+          {
+            "pattern": "^[A-Z]",
+            "allow": [
+              "layout",
+              "w-*",
+              "max-w-*",
+              "min-w-*",
+              "sm:w-*",
+              "md:w-*",
+              "lg:w-*"
+            ]
+          },
+          {
+            "pattern": "^(Card|CardContent|Section|ItemGroup|Collapsible|CollapsibleContent|CollapsibleTrigger|PopoverContent|MessageScrollerContent|SidebarHeader|RadioGroup|Progress|InputGroupAddon|DialogContent)$",
+            "allow": [
+              "layout",
+              "spacing",
+              "type-*",
+              "font-mono",
+              "max-w-*",
+              "w-*",
+              "min-w-*",
+              "sm:w-*",
+              "md:w-*",
+              "lg:w-*"
+            ]
+          },
+          {
+            "pattern": "^(Skeleton)$",
+            "allow": [
+              "layout",
+              "spacing",
+              "shape",
+              "w-*",
+              "max-w-*",
+              "min-w-*",
+              "sm:w-*",
+              "md:w-*",
+              "lg:w-*"
+            ]
+          },
+          {
+            "pattern": "^(Spinner)$",
+            "allow": [
+              "layout",
+              "color",
+              "w-*",
+              "max-w-*",
+              "min-w-*",
+              "sm:w-*",
+              "md:w-*",
+              "lg:w-*"
+            ]
+          },
+          {
+            "pattern": "^(Message)$",
+            "allow": [
+              "layout",
+              "motion",
+              "animate-*",
+              "fade-*",
+              "duration-*",
+              "w-*",
+              "max-w-*",
+              "min-w-*",
+              "sm:w-*",
+              "md:w-*",
+              "lg:w-*"
+            ]
+          },
+          {
+            "pattern": "^(CodeBlock|Textarea)$",
+            "allow": [
+              "layout",
+              "font-mono",
+              "w-*",
+              "max-w-*",
+              "min-w-*",
+              "sm:w-*",
+              "md:w-*",
+              "lg:w-*"
+            ]
+          },
+          {
+            "pattern": "^(CollapsibleTrigger|PopoverTrigger|DropdownMenuTrigger)$",
+            "allow": [
+              "layout",
+              "spacing",
+              "typography",
+              "color",
+              "type-*",
+              "font-mono",
+              "w-*",
+              "max-w-*",
+              "min-w-*",
+              "sm:w-*",
+              "md:w-*",
+              "lg:w-*"
+            ]
+          },
+          {
+            "pattern": "^(Button|Skeleton)$",
+            "allow": [
+              "layout",
+              "max-w-*",
+              "w-*",
+              "min-w-*",
+              "sm:w-*",
+              "md:w-*",
+              "lg:w-*"
+            ]
+          }
+        ],
+        "message": {
+          "color": "<{{component}}> owns its colour. Use one of its variants, or add a variant in src/shared/ui.",
+          "shape": "<{{component}}> owns its shape. Use one of its variants, or add a variant in src/shared/ui."
+        }
+      }
+    ]
+  },
+  "overrides": [
+    {
+      "files": ["src/shared/ui/**"],
+      "rules": {
+        "shadcn/no-restyle": "off",
+        "shadcn/require-static-classes": "off"
+      }
+    },
+    {
+      "files": ["src/tests/**", "vitest.setup.ts"],
+      "rules": {
+        "shadcn/no-inline-styles": "off",
+        "shadcn/no-restyle": "off",
+        "shadcn/no-arbitrary-values": "off",
+        "shadcn/no-unknown-classes": "off",
+        "shadcn/no-raw-colors": "off",
+        "shadcn/require-static-classes": "off"
+      }
+    },
+    {
+      "files": [
+        "src/features/settings/AccountSection.tsx",
+        "src/features/session/SessionView.tsx",
+        "src/features/investigations/InvestigationWorkspace.tsx"
+      ],
+      "rules": {
+        "react/set-state-in-effect": "off"
+      }
+    }
+  ]
+}

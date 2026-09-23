@@ -4,6 +4,7 @@ import { Select as SelectPrimitive } from "@base-ui/react/select";
 import { CheckIcon, ChevronDownIcon, ChevronUpIcon } from "lucide-react";
 
 import { cn } from "@/shared/lib/utils";
+import { OVERLAY_OPTION, OVERLAY_SURFACE } from "@/shared/ui/overlay";
 
 const Select = SelectPrimitive.Root;
 
@@ -17,8 +18,7 @@ function SelectValue({ className, ...props }: SelectPrimitive.Value.Props) {
   );
 }
 
-// <label for> cannot label a button, so a trigger with an id adopts the
-// `${htmlFor}-label` FieldLabel publishes. It hugs the option it shows.
+// A pick-from box is its fill and a lit ring, the opposite of a typed-in one, and hugs its option.
 function SelectTrigger({
   className,
   size = "default",
@@ -40,7 +40,7 @@ function SelectTrigger({
           : undefined)
       }
       className={cn(
-        "flex w-fit max-w-full items-center justify-between gap-2 rounded-md border-[0.5px] border-transparent bg-control bg-clip-padding py-2 pr-2 pl-3 shadow-control text-sm whitespace-nowrap transition-colors select-none hover:bg-control-hover disabled:pointer-events-none disabled:cursor-not-allowed disabled:bg-disabled disabled:text-disabled-foreground disabled:shadow-none aria-invalid:border-destructive data-placeholder:text-muted-foreground data-[size=default]:h-7.5 data-[size=sm]:h-7 *:data-[slot=select-value]:line-clamp-1 *:data-[slot=select-value]:flex *:data-[slot=select-value]:items-center *:data-[slot=select-value]:gap-2 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+        "flex w-fit max-w-full items-center justify-between gap-2 rounded-control border-hairline border-transparent bg-control bg-clip-padding pr-2 pl-3 type-body text-ink-base shadow-control whitespace-nowrap select-none highlight-motion hover:bg-control-hover disabled:pointer-events-none disabled:text-ink-muted disabled:opacity-60 aria-invalid:border-fail data-placeholder:text-ink-faint data-[size=default]:h-7.5 data-[size=sm]:h-7 *:data-[slot=select-value]:line-clamp-1 *:data-[slot=select-value]:flex *:data-[slot=select-value]:items-center *:data-[slot=select-value]:gap-2 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
         className,
       )}
       {...props}
@@ -48,26 +48,26 @@ function SelectTrigger({
       {children}
       <SelectPrimitive.Icon
         render={
-          <ChevronDownIcon className="pointer-events-none size-4 text-muted-foreground" />
+          <ChevronDownIcon className="pointer-events-none size-4 text-ink-muted" />
         }
       />
     </SelectPrimitive.Trigger>
   );
 }
 
+// Lays the chosen row over its trigger; below it only where there is no room to.
 function SelectContent({
   className,
   children,
   side = "bottom",
   sideOffset = 4,
-  align = "center",
+  align = "start",
   alignOffset = 0,
-  alignItemWithTrigger = true,
   ...props
 }: SelectPrimitive.Popup.Props &
   Pick<
     SelectPrimitive.Positioner.Props,
-    "align" | "alignOffset" | "side" | "sideOffset" | "alignItemWithTrigger"
+    "align" | "alignOffset" | "side" | "sideOffset"
   >) {
   return (
     <SelectPrimitive.Portal>
@@ -76,22 +76,19 @@ function SelectContent({
         sideOffset={sideOffset}
         align={align}
         alignOffset={alignOffset}
-        alignItemWithTrigger={alignItemWithTrigger}
         className="isolate z-(--z-overlay)"
       >
         <SelectPrimitive.Popup
           data-slot="select-content"
-          data-ground="popover"
-          data-align-trigger={alignItemWithTrigger}
+          data-ground="overlay"
           className={cn(
-            "relative isolate z-(--z-overlay) max-h-(--available-height) w-auto min-w-(--anchor-width) origin-(--transform-origin) overflow-x-hidden overflow-y-auto rounded-xl bg-popover text-popover-foreground shadow-overlay ring-1 ring-border duration-(--duration-fast) data-[align-trigger=true]:animate-none data-[side=bottom]:slide-in-from-top-2 data-[side=top]:slide-in-from-bottom-2 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
+            OVERLAY_SURFACE,
+            "relative max-h-(--available-height) w-auto min-w-(--anchor-width) overflow-x-hidden overflow-y-auto p-0",
             className,
           )}
           {...props}
         >
           <SelectScrollUpButton />
-          {/* The inset every popup here carries, and what this one's separator
-              already cancels with -mx-1. */}
           <SelectPrimitive.List className="scroll-py-1 p-1">
             {children}
           </SelectPrimitive.List>
@@ -110,10 +107,7 @@ function SelectItem({
   return (
     <SelectPrimitive.Item
       data-slot="select-item"
-      className={cn(
-        "relative flex w-full cursor-default items-center gap-2 rounded-md py-1 pr-8 pl-2 text-sm select-none data-highlighted:bg-highlight data-highlighted:text-foreground data-disabled:pointer-events-none data-disabled:text-disabled-foreground [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
-        className,
-      )}
+      className={cn(OVERLAY_OPTION, "pr-8", className)}
       {...props}
     >
       <SelectPrimitive.ItemText className="flex flex-1 shrink-0 gap-2 whitespace-nowrap">
@@ -138,7 +132,7 @@ function SelectScrollUpButton({
     <SelectPrimitive.ScrollUpArrow
       data-slot="select-scroll-up-button"
       className={cn(
-        "top-0 z-(--z-within) flex w-full cursor-default items-center justify-center bg-popover py-1 [&_svg:not([class*='size-'])]:size-4",
+        "top-0 z-(--z-within) flex w-full cursor-default items-center justify-center bg-ground py-1 [&_svg:not([class*='size-'])]:size-4",
         className,
       )}
       {...props}
@@ -156,7 +150,7 @@ function SelectScrollDownButton({
     <SelectPrimitive.ScrollDownArrow
       data-slot="select-scroll-down-button"
       className={cn(
-        "bottom-0 z-(--z-within) flex w-full cursor-default items-center justify-center bg-popover py-1 [&_svg:not([class*='size-'])]:size-4",
+        "bottom-0 z-(--z-within) flex w-full cursor-default items-center justify-center bg-ground py-1 [&_svg:not([class*='size-'])]:size-4",
         className,
       )}
       {...props}

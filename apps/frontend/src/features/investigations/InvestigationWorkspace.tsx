@@ -29,7 +29,7 @@ import { useSessionDeletion } from "@/features/session/useSessionDeletion";
 import { useSessionReport } from "@/features/report/useSessionReport";
 import { useSessions } from "@/features/session/useSessions";
 import { investigationQueue } from "@/features/investigations/queue";
-import { ICON_INLINE, ICON_UI } from "@/shared/lib/iconProps";
+import { ICON_UI } from "@/shared/lib/iconProps";
 import { reportToMarkdown } from "@/features/report/reportMarkdown";
 import { toast } from "@/shared/lib/toast";
 import { readStoredNumber, writeStoredNumber } from "@/shared/lib/persisted";
@@ -75,7 +75,7 @@ function QueueStepper({
 
   return (
     <>
-      <span className="text-sm tabular-nums text-muted-foreground">
+      <span className="type-body tabular-nums text-ink-muted">
         {at + 1} / {investigationTotal}
       </span>
       <Button
@@ -216,17 +216,17 @@ export function InvestigationWorkspace(): React.JSX.Element {
     <Page
       crumbs={[{ label: title }]}
       back={{ to: "/investigations", label: "Investigations" }}
-      measure="none"
+      measure="full"
       beside={
         <>
           <DropdownMenu>
             <DropdownMenuTrigger
               render={
                 <Button
-                  variant="ghost"
-                  size="icon"
+                  variant="quiet"
+                  size="icon-sm"
                   aria-label="More actions"
-                  className="ml-1 shrink-0 rounded-full text-muted-foreground"
+                  className="ml-1 shrink-0"
                 >
                   <MoreHorizontal {...ICON_UI} />
                 </Button>
@@ -252,9 +252,8 @@ export function InvestigationWorkspace(): React.JSX.Element {
                 size="sm"
                 disabled={reopen.isPending}
                 onClick={() => reopen.mutate()}
-                className="gap-1.5"
               >
-                <RotateCcw {...ICON_INLINE} />
+                <RotateCcw {...ICON_UI} />
                 Reopen investigation
               </Button>
             )}
@@ -278,17 +277,12 @@ export function InvestigationWorkspace(): React.JSX.Element {
                 )}
               </Button>
             )}
-            {/* Ghost lights itself on aria-expanded, which here means the report
-                is open and resting, so the attribute stays and the fill does not. */}
             <Button
-              variant="ghost"
-              size="icon"
+              variant="quiet"
+              size="icon-sm"
               aria-label={reportOpen ? "Hide the report" : "Show the report"}
               aria-expanded={reportOpen}
-              className={cn(
-                "aria-expanded:bg-transparent hover:aria-expanded:bg-state-hover",
-                !reportOpen && "ml-3",
-              )}
+              className={cn(!reportOpen && "ml-3")}
               onClick={() => (reportOpen ? closeReport() : setReportOpen(true))}
             >
               <PanelRight {...ICON_UI} />
@@ -316,15 +310,16 @@ export function InvestigationWorkspace(): React.JSX.Element {
           aria-label="Investigation report"
           aria-hidden={!reportOpen}
           inert={!reportOpen}
-          style={reportOpen && !maximized ? { width: `${width}px` } : undefined}
+          // The dragged width travels as a variable, so the classes below still own the layout.
+          style={{ "--rail-width": `${width}px` }}
           className={cn(
-            "relative flex flex-col overflow-hidden border-l",
+            "relative flex flex-col overflow-hidden border-l-hairline",
             dragging
               ? "transition-none"
-              : "transition-[width,border-color] duration-(--duration-panel) ease-panel",
+              : "transition-layout duration-(--duration-panel) ease-panel",
             !reportOpen && "w-0 shrink-0 border-transparent",
-            reportOpen && !maximized && "shrink-0 border-border",
-            reportOpen && maximized && "flex-1 border-border",
+            reportOpen && !maximized && "w-(--rail-width) shrink-0 border-edge",
+            reportOpen && maximized && "flex-1 border-edge",
           )}
         >
           {reportOpen && !maximized && (
@@ -343,7 +338,7 @@ export function InvestigationWorkspace(): React.JSX.Element {
                 event.preventDefault();
                 nudge(event.key === "ArrowLeft" ? step : -step);
               }}
-              className="absolute inset-y-0 left-0 z-(--z-rail-grip) w-3 cursor-col-resize after:absolute after:inset-y-0 after:left-0 after:w-[2px] hover:after:bg-border-strong focus-visible:after:bg-border-strong"
+              className="absolute inset-y-0 left-0 z-(--z-rail-grip) w-3 cursor-col-resize after:absolute after:inset-y-0 after:left-0 after:w-0.5 hover:after:bg-edge-strong focus-visible:after:bg-edge-strong"
             />
           )}
           {/* The content holds its own width while the panel narrows past it, so
@@ -351,11 +346,11 @@ export function InvestigationWorkspace(): React.JSX.Element {
           <div
             className={cn(
               "flex min-h-0 flex-1 shrink-0 flex-col overflow-y-auto transition-opacity duration-(--duration-fast)",
+              maximized ? "w-full" : "w-(--rail-width)",
               reportOpen
                 ? "opacity-100 delay-(--duration-base)"
                 : "opacity-0 delay-0",
             )}
-            style={{ width: maximized ? "100%" : `${width}px` }}
           >
             <ReportPanel
               record={report?.record ?? null}

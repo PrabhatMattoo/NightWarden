@@ -1,16 +1,14 @@
 import * as React from "react";
-import { cva, type VariantProps } from "class-variance-authority";
 
 import { cn } from "@/shared/lib/utils";
 
-// Claims the space left below the header, so it re-centres when the sidebar
-// moves. No fill and no edge: there is nothing here worth bounding.
+// Aligned to the column it replaces, so an empty page keeps the page's left edge.
 function Empty({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="empty"
       className={cn(
-        "mx-auto flex w-full max-w-md min-w-0 flex-1 flex-col items-start justify-center gap-4",
+        "flex w-full max-w-md min-w-0 flex-col items-start gap-4 py-10",
         className,
       )}
       {...props}
@@ -22,37 +20,20 @@ function EmptyHeader({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="empty-header"
-      className={cn("flex w-full flex-col items-start gap-2", className)}
+      className={cn("flex flex-col items-start gap-1", className)}
       {...props}
     />
   );
 }
 
-const emptyMediaVariants = cva(
-  "mb-2 flex shrink-0 items-center justify-center [&_svg]:pointer-events-none [&_svg]:shrink-0",
-  {
-    variants: {
-      variant: {
-        default: "bg-transparent",
-        icon: "flex shrink-0 items-center justify-center text-foreground [&_svg:not([class*='size-'])]:size-8",
-      },
-    },
-    defaultVariants: {
-      variant: "default",
-    },
-  },
-);
-
-function EmptyMedia({
-  className,
-  variant = "default",
-  ...props
-}: React.ComponentProps<"div"> & VariantProps<typeof emptyMediaVariants>) {
+function EmptyMedia({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="empty-icon"
-      data-variant={variant}
-      className={cn(emptyMediaVariants({ variant, className }))}
+      className={cn(
+        "mb-2 flex text-ink-faint [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-6",
+        className,
+      )}
       {...props}
     />
   );
@@ -62,7 +43,7 @@ function EmptyTitle({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="empty-title"
-      className={cn("text-sm font-medium tracking-tight", className)}
+      className={cn("type-heading", className)}
       {...props}
     />
   );
@@ -75,10 +56,7 @@ function EmptyDescription({
   return (
     <div
       data-slot="empty-description"
-      className={cn(
-        "text-sm/relaxed text-muted-foreground [&>a]:underline [&>a]:underline-offset-4 [&>a:hover]:text-primary",
-        className,
-      )}
+      className={cn("type-body text-pretty text-ink-muted", className)}
       {...props}
     />
   );

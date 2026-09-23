@@ -2,6 +2,7 @@
 
 import { Menu as MenuPrimitive } from "@base-ui/react/menu";
 import { cn } from "@/shared/lib/utils";
+import { OVERLAY_OPTION, OVERLAY_SURFACE } from "@/shared/ui/overlay";
 
 const DropdownMenu = MenuPrimitive.Root;
 
@@ -11,8 +12,8 @@ function DropdownMenuTrigger({ ...props }: MenuPrimitive.Trigger.Props) {
 
 function DropdownMenuContent({
   className,
-  side = "top",
-  sideOffset = 6,
+  side = "bottom",
+  sideOffset = 4,
   align = "start",
   alignOffset = 0,
   children,
@@ -33,11 +34,8 @@ function DropdownMenuContent({
       >
         <MenuPrimitive.Popup
           data-slot="dropdown-menu-content"
-          data-ground="popover"
-          className={cn(
-            "origin-(--transform-origin) overflow-hidden rounded-xl bg-popover p-1 text-sm text-popover-foreground shadow-overlay ring-1 ring-border data-[side=bottom]:slide-in-from-top-2 data-[side=top]:slide-in-from-bottom-2 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
-            className,
-          )}
+          data-ground="overlay"
+          className={cn(OVERLAY_SURFACE, "min-w-40 overflow-hidden", className)}
           {...props}
         >
           {children}
@@ -59,9 +57,8 @@ function DropdownMenuItem({
       data-slot="dropdown-menu-item"
       data-variant={variant}
       className={cn(
-        // Even padding, and the width comes from the longest label: the old
-        // right pad reserved room for an indicator this item never carries.
-        "relative flex w-full cursor-default items-center gap-2 rounded-md px-2.5 py-1 text-sm whitespace-nowrap select-none data-highlighted:bg-highlight data-highlighted:text-foreground data-disabled:pointer-events-none data-disabled:text-disabled-foreground data-[variant=destructive]:text-destructive data-[variant=destructive]:data-highlighted:bg-destructive-tint data-[variant=destructive]:data-highlighted:text-destructive [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+        OVERLAY_OPTION,
+        "whitespace-nowrap data-[variant=destructive]:text-fail data-[variant=destructive]:data-highlighted:text-fail",
         className,
       )}
       {...props}
@@ -76,7 +73,7 @@ function DropdownMenuSeparator({
   return (
     <MenuPrimitive.Separator
       data-slot="dropdown-menu-separator"
-      className={cn("-mx-1 my-1 h-px bg-border", className)}
+      className={cn("-mx-1 my-1 border-t-hairline border-edge", className)}
       {...props}
     />
   );

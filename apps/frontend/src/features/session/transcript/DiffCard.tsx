@@ -1,5 +1,4 @@
 import { Card, CardContent } from "@/shared/ui/card";
-import { TOOL_CARD_CLASS } from "./cardChrome.js";
 import { cn } from "@/shared/lib/utils";
 import { asRecord } from "@/shared/lib/toolResult";
 
@@ -30,9 +29,9 @@ export function parseFileChange(result: unknown): FileChange | null {
 }
 
 function lineClass(type: DiffLineType): string {
-  if (type === "added") return "bg-success-tint text-success";
-  if (type === "removed") return "bg-destructive-tint text-destructive";
-  return "text-foreground";
+  if (type === "added") return "bg-ok-tint text-ok";
+  if (type === "removed") return "bg-fail-tint text-fail";
+  return "text-ink-base";
 }
 
 export function DiffCard({
@@ -48,14 +47,14 @@ export function DiffCard({
 
   return (
     <div data-testid="diff-card">
-      <p className="mb-2 font-mono text-base font-medium">
+      <p className="mb-2 font-mono type-heading">
         {toolName}
-        <span className="ml-2 text-muted-foreground">{change.path}</span>
-        <span className="ml-2 text-success">+{added}</span>
-        <span className="ml-1 text-destructive">-{removed}</span>
+        <span className="ml-2 text-ink-muted">{change.path}</span>
+        <span className="ml-2 text-ok">+{added}</span>
+        <span className="ml-1 text-fail">-{removed}</span>
       </p>
-      <Card size="sm" className={TOOL_CARD_CLASS}>
-        <CardContent className="max-h-[360px] overflow-hidden px-0 font-mono text-base leading-relaxed">
+      <Card className="gap-3 py-3">
+        <CardContent className="max-h-90 overflow-hidden px-0 font-mono type-prose">
           {change.hunks.map((hunk, hunkIndex) => (
             <div key={hunkIndex} className={hunkIndex > 0 ? "mt-3" : ""}>
               {hunk.lines.map((line, i) => (
@@ -66,10 +65,10 @@ export function DiffCard({
                     lineClass(line.type),
                   )}
                 >
-                  <span className="w-8 shrink-0 select-none text-right text-muted-foreground">
+                  <span className="w-8 shrink-0 select-none text-right text-ink-muted">
                     {line.oldLineNumber ?? ""}
                   </span>
-                  <span className="w-8 shrink-0 select-none text-right text-muted-foreground">
+                  <span className="w-8 shrink-0 select-none text-right text-ink-muted">
                     {line.newLineNumber ?? ""}
                   </span>
                   <span className="flex-1">

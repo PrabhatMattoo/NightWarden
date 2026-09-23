@@ -13,6 +13,7 @@ import { RouterProvider } from "@tanstack/react-router";
 import userEvent from "@testing-library/user-event";
 
 import { ChatInput } from "@/features/session/transcript/ChatInput";
+import { sentBody } from "./sentBody";
 
 // What the API accepts as a client message id.
 const UUID_V4 =
@@ -119,7 +120,7 @@ describe("ChatInput", () => {
         ([called]) => called === "/api/chat",
       ) as [string, RequestInit];
       expect(init.method).toBe("POST");
-      expect(JSON.parse(String(init.body))).toEqual({
+      expect(sentBody(init)).toEqual({
         message: "Is nginx down?",
         clientMessageId: expect.stringMatching(UUID_V4),
       });
@@ -151,7 +152,7 @@ describe("ChatInput", () => {
         ([called]) => called === "/api/sessions/s1/messages",
       ) as [string, RequestInit];
       expect(init.method).toBe("POST");
-      expect(JSON.parse(String(init.body))).toEqual({
+      expect(sentBody(init)).toEqual({
         message: "Why did that tool call fail?",
         clientMessageId: expect.stringMatching(UUID_V4),
       });

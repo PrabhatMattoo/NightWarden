@@ -1,6 +1,4 @@
 import { Fragment, type ReactNode } from "react";
-import { cn } from "@/shared/lib/utils";
-import { DESCRIPTION } from "@/shared/ui/Page";
 
 export interface Fact {
   label: string;
@@ -11,11 +9,11 @@ export interface Fact {
 // so no page styles its endpoint one way and its recency another.
 export function FactGrid({ facts }: { facts: Fact[] }): React.JSX.Element {
   return (
-    <dl className="m-0 grid grid-cols-[auto_1fr] items-baseline gap-x-6 gap-y-2.5">
+    <dl className="m-0 grid grid-cols-key items-baseline gap-x-6 gap-y-2.5">
       {facts.map((fact) => (
         <Fragment key={fact.label}>
-          <dt className={cn("m-0", DESCRIPTION)}>{fact.label}</dt>
-          <dd className="m-0 min-w-0 text-sm break-words">{fact.value}</dd>
+          <dt className="type-body text-ink-muted">{fact.label}</dt>
+          <dd className="m-0 min-w-0 type-body break-words">{fact.value}</dd>
         </Fragment>
       ))}
     </dl>

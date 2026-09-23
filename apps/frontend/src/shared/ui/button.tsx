@@ -3,39 +3,32 @@ import { cva, type VariantProps } from "class-variance-authority";
 
 import { cn } from "@/shared/lib/utils";
 
-/* Rest and hover, and hover moves the background only: a label or an icon that
-   changes colour under the pointer reads as a second, competing signal. */
+// Hover moves the fill and raises the ink one rung; disabled keeps the look at lower opacity.
 const buttonVariants = cva(
-  "group/button inline-flex shrink-0 items-center justify-center rounded-md border-[0.5px] border-transparent bg-clip-padding text-sm font-medium whitespace-nowrap transition-colors select-none disabled:pointer-events-none disabled:text-disabled-foreground disabled:shadow-none aria-invalid:border-destructive [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+  "group/button inline-flex shrink-0 items-center justify-center rounded-control border-hairline border-transparent bg-clip-padding type-item whitespace-nowrap select-none highlight-motion disabled:pointer-events-none disabled:opacity-60 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
   {
-    /* size is declared first so a variant can override it. Only link does: an
-       inline text action is the one button that must carry no box. */
     variants: {
       size: {
-        default: "h-8 gap-2 px-4",
-        sm: "h-7 gap-1.5 px-3 text-sm [&_svg:not([class*='size-'])]:size-3.5",
+        default: "h-8 gap-2 px-3",
+        sm: "h-7 gap-1.5 px-2.5 [&_svg:not([class*='size-'])]:size-3.5",
         icon: "size-8",
         "icon-sm": "size-7",
       },
       variant: {
-        default:
-          "bg-primary text-primary-foreground hover:bg-primary-hover disabled:bg-disabled",
-        /* Defined by its edge, so the surface shows through it. Both the edge
-           and the hover re-derive from the ground the button lands on. */
-        outline:
-          "border-border bg-transparent hover:bg-state-hover aria-expanded:bg-state-hover",
+        default: "bg-accent text-on-accent shadow-lift hover:bg-accent-hover",
         secondary:
-          "bg-secondary text-secondary-foreground shadow-control hover:bg-secondary-hover aria-expanded:bg-secondary disabled:bg-disabled",
-        ghost: "hover:bg-state-hover aria-expanded:bg-state-hover",
-        destructive:
-          "bg-destructive-fill text-primary-foreground hover:bg-destructive-fill-hover disabled:bg-disabled",
-        /* A neutral lift, not a red one: a fixed tint sinks on any ground
-           lighter than itself, which a menu is. The ink carries the meaning. */
-        "destructive-ghost":
-          "text-destructive hover:bg-state-hover hover:text-destructive",
-        /* Underlined at rest, not on hover: a link must read as one without
-           relying on hue. Cobalt is reserved for hover, per the colour rule. */
-        link: "h-auto gap-1 p-0 text-ink-subtle underline decoration-border underline-offset-2 hover:text-primary-ink hover:decoration-primary-ink",
+          "bg-control text-ink-base shadow-control hover:bg-control-hover hover:shadow-control-hover aria-expanded:bg-control-hover aria-expanded:text-ink-title aria-expanded:shadow-control-hover disabled:text-ink-muted",
+        outline:
+          "border-edge-input text-ink-base hover:bg-ghost-hover aria-expanded:bg-ghost-hover",
+        ghost:
+          "text-ink-base hover:bg-ghost-hover hover:text-ink-title aria-expanded:bg-ghost-hover aria-expanded:text-ink-title",
+        // Muted until pointed at: the icons in a page's bar.
+        quiet:
+          "text-ink-muted hover:bg-ghost-hover hover:text-ink-base aria-expanded:bg-ghost-hover aria-expanded:text-ink-base",
+        destructive: "bg-fail-fill text-on-accent hover:bg-fail-fill-hover",
+        // The irreversible action: red ink over its own faint red wash.
+        "destructive-ghost": "text-fail hover:bg-fail-tint",
+        link: "h-auto gap-1 p-0 type-body text-ink-title",
       },
     },
     defaultVariants: {

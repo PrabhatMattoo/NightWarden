@@ -39,11 +39,6 @@ export function questionOf(input: Record<string, unknown>): {
   };
 }
 
-/* The number is the affordance and the fill is the answer, so the row carries no
-   tick and no dot; selection rides the primitive's own data-checked. */
-const ROW =
-  "flex w-full items-baseline gap-3 rounded-md px-3 py-2 hover:bg-state-hover data-checked:bg-control data-checked:hover:bg-control-hover";
-
 function OptionBody({
   index,
   label,
@@ -57,13 +52,13 @@ function OptionBody({
 }): React.JSX.Element {
   return (
     <>
-      <span className="w-3 shrink-0 font-mono text-sm text-ink-subtle tabular-nums">
+      <span className="w-3 shrink-0 font-mono type-body text-ink-muted tabular-nums">
         {index + 1}
       </span>
       <span className="flex min-w-0 flex-col gap-1">
-        <span className="text-sm">{label}</span>
+        <span className="type-body">{label}</span>
         {description && (
-          <span id={describedBy} className="text-sm font-light">
+          <span id={describedBy} className="type-body">
             {description}
           </span>
         )}
@@ -101,7 +96,6 @@ function OptionRow({
   if (multiSelect) {
     return (
       <CheckboxOption
-        className={ROW}
         aria-label={label}
         aria-describedby={describedBy}
         checked={selected}
@@ -114,7 +108,6 @@ function OptionRow({
   }
   return (
     <RadioGroupOption
-      className={ROW}
       value={String(index)}
       aria-label={label}
       aria-describedby={describedBy}
@@ -214,12 +207,12 @@ export function ClarificationCardPanel({
   return (
     <GateCard data-testid="clarification-card">
       <div className="flex flex-col gap-1">
-        <p className="text-sm">{question}</p>
+        <p className="type-body">{question}</p>
         {/* Words rather than a glyph, so every row stays identical in both
             modes. Without it, one click is the only way to learn a second
             answer was ever available. */}
         {multiSelect && (
-          <p className="text-sm text-ink-subtle">Pick any that apply</p>
+          <p className="type-body text-ink-muted">Pick any that apply</p>
         )}
       </div>
 
@@ -243,8 +236,8 @@ export function ClarificationCardPanel({
                 nothing below moves, which matters for a card pinned above the
                 message box, and the answer stays where its number is. */}
             {otherOpen ? (
-              <InputGroup className="h-auto w-full border-transparent bg-control py-1">
-                <span className="w-3 shrink-0 pl-3 font-mono text-sm text-ink-subtle tabular-nums">
+              <InputGroup variant="row" className="w-full">
+                <span className="w-3 shrink-0 pl-3 font-mono type-body text-ink-muted tabular-nums">
                   {otherIndex + 1}
                 </span>
                 <InputGroupInput

@@ -18,7 +18,7 @@ export function ReportCardPanel({
 
   return (
     <GateCard data-testid="report-card" data-phase="failed">
-      <p className="text-sm">The run did not finish.</p>
+      <p className="type-body">The run did not finish.</p>
       <Button size="sm" disabled={retrying} onClick={() => onRetry?.()}>
         {retrying && <Spinner className="size-4" />}
         Try again

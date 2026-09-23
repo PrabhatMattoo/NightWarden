@@ -56,7 +56,7 @@ export function commandLineOf(input: Record<string, unknown>): string | null {
   return inputString(input, "command");
 }
 
-const MONO = "font-mono text-sm leading-relaxed text-ink-subtle";
+const MONO = "font-mono type-body  text-ink-muted";
 
 // Capped text with an explicit, counted opt-in. "Show all" reveals exactly what
 // the runner returned, already redacted and already size-capped upstream.
@@ -112,8 +112,8 @@ function ToolBody({
           ["You", answer],
         ].map(([label, value]) => (
           <div key={label} className="flex gap-3">
-            <dt className="w-16 shrink-0 text-sm text-ink-subtle">{label}</dt>
-            <dd className="m-0 min-w-0 text-sm wrap-break-word whitespace-pre-wrap text-ink-subtle">
+            <dt className="w-16 shrink-0 type-body text-ink-muted">{label}</dt>
+            <dd className="m-0 min-w-0 type-body wrap-break-word whitespace-pre-wrap text-ink-muted">
               {value}
             </dd>
           </div>
@@ -129,11 +129,11 @@ function ToolBody({
     return (
       <div className="flex flex-col gap-2">
         <pre className={cn(MONO, "m-0 whitespace-pre-wrap wrap-break-word")}>
-          <span className="text-ink-subtle select-none">$ </span>
+          <span className="text-ink-muted select-none">$ </span>
           {commandLineOf(input) ?? ""}
         </pre>
         {run.output.trim() === "" ? (
-          <p className={cn(MONO, "m-0 text-ink-subtle")}>(no output)</p>
+          <p className={cn(MONO, "m-0 text-ink-muted")}>(no output)</p>
         ) : (
           <CappedText text={run.output} />
         )}
@@ -210,34 +210,34 @@ function ToolRow({ item }: { item: ToolCallItem }): React.JSX.Element {
       id={`tool-${item.toolCallId}`}
       data-revealed={revealed || undefined}
       className={cn(
-        "-mx-2 scroll-mt-6 rounded-md px-2 transition-colors duration-(--duration-slow)",
-        revealed && "bg-surface-hover",
+        "-mx-2 scroll-mt-6 rounded-control px-2 transition-colors duration-(--duration-slow)",
+        revealed && "bg-hover",
       )}
     >
       <Collapsible open={open} onOpenChange={setOpen} disabled={unanswered}>
         <CollapsibleTrigger
           disabled={unanswered}
           nativeButton
-          className="group flex w-full items-baseline gap-1.5 py-1 text-left text-ink-subtle"
+          className="group flex w-full items-baseline gap-1.5 py-1 text-left text-ink-muted"
         >
           {/* The sweep is what says "still going", so the name carries it and
               the row needs no second word beside it. */}
           <span
             data-testid="tool-call-name"
             className={cn(
-              "shrink-0 font-mono text-base font-medium transition-colors group-hover:text-foreground",
+              "shrink-0 font-mono type-heading transition-colors group-hover:text-ink-base",
               working && "live",
             )}
           >
             {toolName}
           </span>
           {target !== null && (
-            <span className="shrink-0 font-mono text-base transition-colors group-hover:text-foreground">
+            <span className="shrink-0 font-mono type-prose transition-colors group-hover:text-ink-base">
               {target}
             </span>
           )}
           {actor !== null && decisionWord !== null && (
-            <span className="min-w-0 truncate text-base transition-colors group-hover:text-foreground">
+            <span className="min-w-0 truncate type-prose transition-colors group-hover:text-ink-base">
               {decisionWord} by {actor.name} ({actor.email})
             </span>
           )}

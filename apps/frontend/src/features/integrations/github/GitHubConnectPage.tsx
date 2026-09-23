@@ -24,7 +24,7 @@ import { Input } from "@/shared/ui/input";
 import { Skeleton } from "@/shared/ui/skeleton";
 import { Spinner } from "@/shared/ui/spinner";
 import { ConfirmDialog } from "@/shared/ui/ConfirmDialog";
-import { DetailPage } from "@/shared/ui/Page";
+import { Page } from "@/shared/ui/Page";
 import { expiryDaysFrom } from "@/features/integrations/github/useGitHubExpiryDays";
 import { ICON_UI } from "@/shared/lib/iconProps";
 import { toast } from "@/shared/lib/toast";
@@ -149,7 +149,7 @@ function LadderAlert({ error }: { error: unknown }): React.JSX.Element {
               href={FINE_GRAINED_TOKEN_URL}
               target="_blank"
               rel="noreferrer"
-              className="font-medium underline underline-offset-4"
+              className="emphasis underline underline-offset-4"
             >
               Regenerate token on GitHub
             </a>
@@ -159,7 +159,7 @@ function LadderAlert({ error }: { error: unknown }): React.JSX.Element {
               href={content.orgApprovalUrl}
               target="_blank"
               rel="noreferrer"
-              className="font-medium underline underline-offset-4"
+              className="emphasis underline underline-offset-4"
             >
               Review pending token requests
             </a>
@@ -421,7 +421,10 @@ export function GitHubConnectPage(): React.JSX.Element {
   const disconnecting = disconnect.isPending;
 
   return (
-    <DetailPage back={{ to: "/integrations", label: "Integrations" }}>
+    <Page
+      back={{ to: "/integrations", label: "Integrations" }}
+      measure="narrow"
+    >
       <div className="flex flex-col gap-8">
         <IntegrationHeader identity={INTEGRATION_CATALOG.github} />
         {preflightIssue !== null && <PreflightWarning issue={preflightIssue} />}
@@ -481,8 +484,8 @@ export function GitHubConnectPage(): React.JSX.Element {
               </div>
             </div>
           ) : (
-            <div className="flex items-center gap-2 text-sm">
-              <CircleCheckIcon {...ICON_UI} className="text-success" />
+            <div className="flex items-center gap-2 type-body">
+              <CircleCheckIcon {...ICON_UI} className="text-ok" />
               <span>{tokenSummaryText()}</span>
               <Button
                 size="sm"
@@ -556,11 +559,11 @@ export function GitHubConnectPage(): React.JSX.Element {
         {/* A destructive escape, not the task: it recedes below a divider so it
             never competes with reconnecting. */}
         {configured && (
-          <div className="border-t border-border pt-4">
+          <div className="border-t-hairline border-edge pt-4">
             <Button
               size="sm"
-              variant="ghost"
-              className="self-start text-muted-foreground hover:text-destructive"
+              variant="destructive-ghost"
+              className="self-start"
               disabled={disconnecting}
               onClick={() => setConfirmOpen(true)}
             >
@@ -580,6 +583,6 @@ export function GitHubConnectPage(): React.JSX.Element {
         destructive
         onConfirm={() => disconnect.mutate()}
       />
-    </DetailPage>
+    </Page>
   );
 }

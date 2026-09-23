@@ -7,7 +7,7 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/shared/lib/utils";
 import { Label } from "@/shared/ui/label";
 const fieldVariants = cva(
-  "group/field flex w-full gap-2 data-[invalid=true]:text-destructive",
+  "group/field flex w-full gap-2 data-[invalid=true]:text-fail",
   {
     variants: {
       orientation: {
@@ -54,7 +54,7 @@ function FieldLabel({
       htmlFor={htmlFor}
       id={id ?? (htmlFor === undefined ? undefined : `${htmlFor}-label`)}
       className={cn(
-        "group/field-label peer/field-label flex w-fit gap-2 leading-snug group-data-[disabled=true]/field:text-disabled-foreground has-data-checked:border-primary has-data-checked:bg-surface-hover has-[>[data-slot=field]]:rounded-lg has-[>[data-slot=field]]:border *:data-[slot=field]:p-3",
+        "group/field-label peer/field-label flex w-fit gap-2 type-item group-data-[disabled=true]/field:opacity-50 has-data-checked:border-accent has-data-checked:bg-hover has-[>[data-slot=field]]:rounded-card has-[>[data-slot=field]]:border-hairline *:data-[slot=field]:p-3",
         "has-[>[data-slot=field]]:w-full has-[>[data-slot=field]]:flex-col",
         className,
       )}
@@ -68,7 +68,7 @@ function FieldTitle({ className, ...props }: React.ComponentProps<"div">) {
     <div
       data-slot="field-label"
       className={cn(
-        "flex w-fit items-center gap-2 text-sm font-medium group-data-[disabled=true]/field:text-disabled-foreground",
+        "flex w-fit items-center gap-2 type-item group-data-[disabled=true]/field:opacity-50",
         className,
       )}
       {...props}
@@ -81,9 +81,9 @@ function FieldDescription({ className, ...props }: React.ComponentProps<"p">) {
     <p
       data-slot="field-description"
       className={cn(
-        "text-left text-sm leading-normal font-normal text-muted-foreground group-has-data-horizontal/field:text-balance [[data-variant=legend]+&]:-mt-1",
+        "text-left type-small text-pretty",
         "last:mt-0 nth-last-2:-mt-1",
-        "[&>a]:underline [&>a]:underline-offset-4 [&>a:hover]:text-primary",
+        "[&>a]:text-ink-title",
         className,
       )}
       {...props}
@@ -135,7 +135,7 @@ function FieldError({
       role="alert"
       data-slot="field-error"
       className={cn(
-        "flex items-start gap-1 text-sm font-normal text-destructive [&>svg]:mt-px [&>svg]:shrink-0",
+        "flex items-start gap-1 type-small text-fail [&>svg]:shrink-0",
         className,
       )}
       {...props}

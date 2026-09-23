@@ -42,21 +42,17 @@ function ChatHistory({ onLeave }: { onLeave: () => void }): React.JSX.Element {
   return (
     <>
       {!isLoading && groups.length === 0 && (
-        <p className="m-0 px-2.5 py-1 text-sm text-muted-foreground">
-          No history
-        </p>
+        <p className="m-0 px-2.5 py-1 type-body text-ink-muted">No history</p>
       )}
       {groups.map(({ group, rows }, index) => (
         <section key={group} aria-label={group} className="flex flex-col">
           {/* Every division in this panel is drawn the same way and spaced the
               same, so the New chat entry and one day against the next read as
               one rhythm rather than two. */}
-          {index > 0 && <Separator className="my-1 bg-border" />}
+          {index > 0 && <Separator className="my-1" />}
           {/* A day, written the way it is said. The uppercase mono label is for
               naming a system's own parts, which a Tuesday is not. */}
-          <h3 className="m-0 px-2.5 py-1 text-sm font-normal text-muted-foreground">
-            {group}
-          </h3>
+          <h3 className="m-0 px-2.5 py-1 type-body text-ink-muted">{group}</h3>
           <ul className="m-0 flex list-none flex-col p-0">
             {rows.map((row) => (
               <li key={row.sessionId}>
@@ -64,10 +60,10 @@ function ChatHistory({ onLeave }: { onLeave: () => void }): React.JSX.Element {
                   to="/agent/$id"
                   params={{ id: row.sessionId }}
                   onClick={onLeave}
-                  className="flex items-center justify-between gap-3 rounded-md px-2.5 py-1.5 text-sm no-underline transition-colors hover:bg-state-hover"
+                  className="flex items-center justify-between gap-3 rounded-control px-2.5 py-1.5 type-body no-underline transition-colors hover:bg-hover"
                 >
                   <span className="min-w-0 truncate">{row.title}</span>
-                  <span className="shrink-0 tabular-nums text-muted-foreground">
+                  <span className="shrink-0 tabular-nums text-ink-muted">
                     {timeAgo(row.lastActivityAt)}
                   </span>
                 </Link>
@@ -78,9 +74,9 @@ function ChatHistory({ onLeave }: { onLeave: () => void }): React.JSX.Element {
       ))}
       {hasMore && (
         <Button
-          variant="ghost"
+          variant="quiet"
           size="sm"
-          className="self-start text-muted-foreground"
+          className="self-start"
           disabled={isLoadingMore}
           onClick={loadMore}
         >
@@ -119,7 +115,7 @@ export function AgentPage(): React.JSX.Element {
   return (
     <Page
       crumbs={[]}
-      measure="none"
+      measure="full"
       beside={
         <div className="flex min-w-0 items-center gap-1">
           <Popover open={historyOpen} onOpenChange={setHistoryOpen}>
@@ -127,16 +123,12 @@ export function AgentPage(): React.JSX.Element {
                 not a control standing next to it. */}
             <PopoverTrigger
               render={
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="max-w-title gap-1 rounded-full px-2"
-                >
+                <Button variant="ghost" size="sm" className="max-w-title">
                   <span className="min-w-0 truncate">{title}</span>
                   <ChevronDown
                     strokeWidth={1.75}
                     aria-hidden
-                    className="shrink-0 text-muted-foreground"
+                    className="shrink-0 text-ink-muted"
                   />
                 </Button>
               }
@@ -151,12 +143,12 @@ export function AgentPage(): React.JSX.Element {
                   <Link
                     to="/agent"
                     onClick={() => setHistoryOpen(false)}
-                    className="flex items-center gap-2 rounded-md px-2.5 py-1.5 text-sm no-underline transition-colors hover:bg-state-hover"
+                    className="flex items-center gap-2 rounded-control px-2.5 py-1.5 type-body no-underline transition-colors hover:bg-hover"
                   >
                     <Plus {...ICON_UI} />
                     New chat
                   </Link>
-                  <Separator className="my-1 bg-border" />
+                  <Separator className="my-1" />
                 </>
               )}
               <ChatHistory onLeave={() => setHistoryOpen(false)} />
@@ -168,10 +160,9 @@ export function AgentPage(): React.JSX.Element {
               <DropdownMenuTrigger
                 render={
                   <Button
-                    variant="ghost"
-                    size="icon"
+                    variant="quiet"
+                    size="icon-sm"
                     aria-label="More actions"
-                    className="rounded-full text-muted-foreground"
                   >
                     <MoreHorizontal {...ICON_UI} />
                   </Button>
@@ -200,7 +191,7 @@ export function AgentPage(): React.JSX.Element {
     >
       {/* The fall belongs to this surface alone, where the conversation has the
           whole stage to fall through. */}
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden lg:stage-fall">
+      <div className="stage-fall flex min-h-0 flex-1 flex-col overflow-hidden">
         <SessionView sessionId={sessionId} />
       </div>
       {deletion.dialog}

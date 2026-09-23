@@ -7,10 +7,10 @@ export type StatusTone = "ok" | "run" | "warn" | "fail" | "muted";
 
 const TONE: Record<StatusTone, string> = {
   ok: "text-ok",
-  run: "text-run",
-  warn: "text-wait",
+  run: "text-accent-ink",
+  warn: "text-warn",
   fail: "text-fail",
-  muted: "text-muted-foreground",
+  muted: "text-ink-muted",
 };
 
 export function StatusText({
@@ -23,7 +23,7 @@ export function StatusText({
   className?: string;
 }): React.JSX.Element {
   return (
-    <span className={cn("text-sm whitespace-nowrap", TONE[tone], className)}>
+    <span className={cn("type-body whitespace-nowrap", TONE[tone], className)}>
       {children}
     </span>
   );
@@ -40,10 +40,7 @@ export function MetaText({
 }): React.JSX.Element {
   return (
     <span
-      className={cn(
-        "text-sm whitespace-nowrap text-muted-foreground",
-        className,
-      )}
+      className={cn("type-body whitespace-nowrap text-ink-muted", className)}
     >
       {children}
     </span>

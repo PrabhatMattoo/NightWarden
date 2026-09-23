@@ -16,6 +16,7 @@ import type {
 
 import { TestProviders } from "./renderWithProviders.js";
 import { MetricsSourcePage } from "../features/integrations/metrics/MetricsSourcePage.js";
+import { sentBody } from "./sentBody";
 
 // The page navigates on disconnect, so it needs a real router around it.
 function renderPage(kind: MetricsSourceKind) {
@@ -71,12 +72,12 @@ function connected(over: Partial<MetricsSourceStatus> = {}) {
 
 // Captures what the page posts, and answers the status from what a case sets.
 function stubApi(status: unknown) {
-  const posted: Array<Record<string, unknown>> = [];
+  const posted: unknown[] = [];
   const fetchMock = vi
     .fn<(url: string, init?: RequestInit) => Promise<unknown>>()
     .mockImplementation((_url: string, init?: RequestInit) => {
       if (init?.method === "POST") {
-        posted.push(JSON.parse(String(init.body)) as Record<string, unknown>);
+        posted.push(sentBody(init));
       }
       return Promise.resolve({
         ok: true,
