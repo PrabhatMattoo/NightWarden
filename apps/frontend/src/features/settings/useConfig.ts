@@ -1,19 +1,20 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  useMutation,
+  useQueryClient,
+  useSuspenseQuery,
+} from "@tanstack/react-query";
 import type { AgentConfig } from "@nightwarden/shared";
 
 import { apiFetch } from "@/shared/api/client";
 import { toast } from "@/shared/lib/toast";
+import { configQuery } from "./queries";
 
-const KEY = ["config"];
+const KEY = configQuery().queryKey;
 
 type ConfigPatch = Partial<Omit<AgentConfig, "providers">>;
 
-export function useConfig(): AgentConfig | undefined {
-  const { data } = useQuery<AgentConfig>({
-    queryKey: KEY,
-    queryFn: () => apiFetch<AgentConfig>("/api/config"),
-  });
-  return data;
+export function useConfig(): AgentConfig {
+  return useSuspenseQuery(configQuery()).data;
 }
 
 // A value valid on its own writes when committed, so there is nothing to save.

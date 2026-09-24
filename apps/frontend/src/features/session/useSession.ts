@@ -1,8 +1,8 @@
 import { useCallback } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { FrontendEvent, SessionDetail } from "@nightwarden/shared";
-import { apiFetch } from "@/shared/api/client";
 import { useFrontendEvents } from "@/shared/events/FrontendEventsProvider.js";
+import { sessionQuery } from "./queries";
 
 // The alert list lives here rather than on the report, so without this an open
 // record never learns that the condition recovered.
@@ -24,7 +24,7 @@ export function useSession(sessionId: string | null): SessionDetail | null {
       if (env.type === "SESSION_TITLE_UPDATED") {
         if (env.payload.sessionId !== sessionId) return;
         queryClient.setQueryData<SessionDetail>(
-          ["session", sessionId],
+          sessionQuery(sessionId).queryKey,
           (prev) => (prev ? { ...prev, title: env.payload.title } : prev),
         );
         return;
@@ -32,15 +32,17 @@ export function useSession(sessionId: string | null): SessionDetail | null {
       if (!REFRESHES.has(env.type)) return;
       if (!("sessionId" in env.payload)) return;
       if (env.payload.sessionId !== sessionId) return;
-      void queryClient.invalidateQueries({ queryKey: ["session", sessionId] });
+      void queryClient.invalidateQueries({
+        queryKey: sessionQuery(sessionId).queryKey,
+      });
     },
     [queryClient, sessionId],
   );
   useFrontendEvents(handleEnvelope);
 
-  const { data = null } = useQuery<SessionDetail>({
-    queryKey: ["session", sessionId],
-    queryFn: () => apiFetch<SessionDetail>(`/api/sessions/${sessionId}`),
+  // Loaded by the route before the page renders; asked again only once stale.
+  const { data = null } = useQuery({
+    ...sessionQuery(sessionId ?? ""),
     enabled: sessionId !== null,
   });
   return data;

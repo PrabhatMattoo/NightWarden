@@ -1,5 +1,9 @@
 import { useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  useMutation,
+  useQueryClient,
+  useSuspenseQuery,
+} from "@tanstack/react-query";
 import type { SentryIntegrationStatus } from "@nightwarden/shared";
 
 import { Alert, AlertTitle, AlertDescription } from "@/shared/ui/alert";
@@ -7,7 +11,6 @@ import { StatusText } from "@/shared/ui/status";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import { Field, FieldLabel, FieldDescription } from "@/shared/ui/field";
-import { Spinner } from "@/shared/ui/spinner";
 import { Page } from "@/shared/ui/Page";
 import { ConfirmDialog } from "@/shared/ui/ConfirmDialog";
 import { ConnectedState, type Fact } from "@/features/integrations/FactGrid";
@@ -16,6 +19,7 @@ import { dayClock } from "@/shared/lib/time";
 import { apiFetch } from "@/shared/api/client";
 import { connectMessage, useDisconnect } from "../useIntegration";
 import { INTEGRATION_CATALOG } from "../catalog";
+import { sentryStatusQuery } from "../queries";
 import { IntegrationHeader } from "@/features/integrations/IntegrationHeader";
 
 export function SentryPage(): React.JSX.Element {
@@ -26,11 +30,7 @@ export function SentryPage(): React.JSX.Element {
   const [connectError, setConnectError] = useState<string | null>(null);
   const [confirmDisconnect, setConfirmDisconnect] = useState(false);
 
-  const { data: status, isLoading } = useQuery<SentryIntegrationStatus>({
-    queryKey: ["sentry-integration"],
-    queryFn: () =>
-      apiFetch<SentryIntegrationStatus>("/api/integrations/sentry"),
-  });
+  const { data: status } = useSuspenseQuery(sentryStatusQuery());
 
   const connect = useMutation({
     mutationFn: () =>
@@ -49,38 +49,39 @@ export function SentryPage(): React.JSX.Element {
       setOrgSlug("");
       setToken("");
       toast.success("Sentry connected");
-      await queryClient.invalidateQueries({ queryKey: ["sentry-integration"] });
+      await queryClient.invalidateQueries({
+        queryKey: sentryStatusQuery().queryKey,
+      });
     },
     onError: (err) => setConnectError(connectMessage(err)),
   });
 
   const disconnect = useDisconnect({
     label: "Sentry",
-    queryKey: ["sentry-integration"],
+    queryKey: sentryStatusQuery().queryKey,
     endpoint: () => "/api/integrations/sentry",
   });
 
-  const facts: Fact[] =
-    status?.configured === true
-      ? [
-          {
-            label: "Status",
-            value: <StatusText tone="ok">Connected</StatusText>,
-          },
-          { label: "Base URL", value: status.url },
-          ...(status.orgSlug !== null
-            ? [{ label: "Organization", value: status.orgSlug } satisfies Fact]
-            : []),
-          ...(status.validatedAt !== null
-            ? [
-                {
-                  label: "Last verified",
-                  value: dayClock(status.validatedAt),
-                } satisfies Fact,
-              ]
-            : []),
-        ]
-      : [];
+  const facts: Fact[] = status.configured
+    ? [
+        {
+          label: "Status",
+          value: <StatusText tone="ok">Connected</StatusText>,
+        },
+        { label: "Base URL", value: status.url },
+        ...(status.orgSlug !== null
+          ? [{ label: "Organization", value: status.orgSlug } satisfies Fact]
+          : []),
+        ...(status.validatedAt !== null
+          ? [
+              {
+                label: "Last verified",
+                value: dayClock(status.validatedAt),
+              } satisfies Fact,
+            ]
+          : []),
+      ]
+    : [];
 
   return (
     <Page
@@ -90,14 +91,7 @@ export function SentryPage(): React.JSX.Element {
       <div className="flex flex-col gap-8">
         <IntegrationHeader identity={INTEGRATION_CATALOG.sentry} />
 
-        {isLoading && (
-          <div className="flex items-center gap-2">
-            <Spinner />
-            <p className="type-body text-ink-muted">Loading...</p>
-          </div>
-        )}
-
-        {status && !status.configured && (
+        {!status.configured && (
           <section className="flex flex-col gap-4">
             <Field>
               <FieldLabel htmlFor="sentry-url">Sentry URL</FieldLabel>
@@ -160,13 +154,12 @@ export function SentryPage(): React.JSX.Element {
               }
               onClick={() => connect.mutate()}
             >
-              {connect.isPending && <Spinner className="size-4" />}
               Connect
             </Button>
           </section>
         )}
 
-        {status?.configured === true && (
+        {status.configured && (
           <ConnectedState
             facts={facts}
             actions={

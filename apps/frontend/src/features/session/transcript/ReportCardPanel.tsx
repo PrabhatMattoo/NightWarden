@@ -1,5 +1,4 @@
 import { Button } from "@/shared/ui/button";
-import { Spinner } from "@/shared/ui/spinner";
 import type { ReportCardItem } from "./types.js";
 import { GateCard } from "./GateCard.js";
 
@@ -20,7 +19,6 @@ export function ReportCardPanel({
     <GateCard data-testid="report-card" data-phase="failed">
       <p className="type-body">The run did not finish.</p>
       <Button size="sm" disabled={retrying} onClick={() => onRetry?.()}>
-        {retrying && <Spinner className="size-4" />}
         Try again
       </Button>
     </GateCard>

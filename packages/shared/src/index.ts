@@ -211,6 +211,7 @@ export {
   SETTING_RANGES,
 } from "./config.js";
 export type {
+  AlertSourceStatus,
   GitHubErrorCode,
   GitHubIntegrationStatus,
   GitHubRepoSummary,

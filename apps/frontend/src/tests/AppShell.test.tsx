@@ -1,12 +1,6 @@
-import { render, screen, waitFor, act, within } from "@testing-library/react";
+import { screen, waitFor, act, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import {
-  RouterProvider,
-  createMemoryHistory,
-  createRouter,
-} from "@tanstack/react-router";
 
 import type {
   QueueState,
@@ -14,8 +8,8 @@ import type {
   SessionListRow,
 } from "@nightwarden/shared";
 
-import { TestProviders } from "./renderWithProviders.js";
-import { routeTree } from "@/app/router";
+import { renderApp } from "./renderWithProviders.js";
+import { json } from "./stubApi.js";
 import { MockEventSource } from "./mockEventSource.js";
 
 const OWNER_EMAIL = "admin@example.com";
@@ -131,7 +125,17 @@ function setup({
     alerts = next;
   };
 
-  const fetchMock = vi.fn().mockImplementation((url: string) => {
+  const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL) => {
+    // The auth client passes a URL and reads the Response the way a browser does.
+    const url =
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+          ? input.href
+          : input.url;
+    if (url.endsWith("/api/auth/sign-out")) {
+      return Promise.resolve(json({ success: true }));
+    }
     if (url.includes("/auth-status")) {
       return Promise.resolve({
         ok: true,
@@ -217,22 +221,7 @@ function setup({
   });
   vi.stubGlobal("fetch", fetchMock);
 
-  const qc = new QueryClient({
-    defaultOptions: { queries: { retry: false, gcTime: 0 } },
-  });
-
-  const router = createRouter({
-    routeTree,
-    history: createMemoryHistory({ initialEntries: [path] }),
-  });
-
-  render(
-    <TestProviders>
-      <QueryClientProvider client={qc}>
-        <RouterProvider router={router} />
-      </QueryClientProvider>
-    </TestProviders>,
-  );
+  const { router, queryClient: qc } = renderApp({ path });
 
   return { router, qc, fetchMock, setInvestigation, setAlerts };
 }
@@ -280,6 +269,26 @@ describe("Shell", () => {
         name: "Investigations",
       });
       expect(item).toHaveTextContent(/^Investigations$/);
+    });
+  });
+
+  describe("signing out", () => {
+    it("leaves for the login page once the server has ended the session", async () => {
+      const user = userEvent.setup();
+      const { router, fetchMock } = setup({ path: "/investigations" });
+      await screen.findByRole("heading", { name: "Investigations" });
+
+      await user.click(screen.getByRole("button", { name: "Log out" }));
+
+      expect(
+        await screen.findByRole("heading", { name: /^log in$/i }),
+      ).toBeInTheDocument();
+      expect(router.state.location.pathname).toBe("/login");
+      expect(
+        fetchMock.mock.calls.some(([input]) =>
+          String(input).endsWith("/api/auth/sign-out"),
+        ),
+      ).toBe(true);
     });
   });
 

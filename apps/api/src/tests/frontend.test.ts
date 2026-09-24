@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -17,6 +18,9 @@ import { registerFrontendRoutes } from "../frontend.js";
 
 const compress = promisify(brotliCompress);
 
+// The one inline script index.html carries: the theme painted before first load.
+const THEME_SCRIPT = `document.documentElement.dataset.theme = "dark";`;
+
 // What the frontend build lays down: hashed files under assets/, verbatim public
 // files beside them, and a .br for anything worth compressing.
 async function buildFixture(): Promise<string> {
@@ -25,7 +29,10 @@ async function buildFixture(): Promise<string> {
   await mkdir(join(root, "logos"), { recursive: true });
 
   const script = `console.log("app");${" ".repeat(2000)}`;
-  await writeFile(join(root, "index.html"), "<!doctype html><div id=root>");
+  await writeFile(
+    join(root, "index.html"),
+    `<!doctype html><script>${THEME_SCRIPT}</script><div id=root><script type="module" src="/assets/index-AbCdEfGh.js"></script>`,
+  );
   await writeFile(join(root, "assets/index-AbCdEfGh.js"), script);
   await writeFile(
     join(root, "assets/index-AbCdEfGh.js.br"),
@@ -128,6 +135,28 @@ describe("frontend static serving", () => {
       const res = await server.inject({ method: "POST", url: "/sessions" });
 
       expect(res.statusCode).toBe(404);
+    });
+  });
+
+  describe("content security policy", () => {
+    it("lets the app reach only this origin, and run only its own scripts", async () => {
+      const res = await server.inject("/sessions/abc123");
+      const policy = String(res.headers["content-security-policy"]);
+      const hash = createHash("sha256").update(THEME_SCRIPT).digest("base64");
+
+      expect(policy).toContain("connect-src 'self'");
+      expect(policy).toContain(`script-src 'self' 'sha256-${hash}'`);
+      expect(policy).not.toMatch(/script-src[^;]*unsafe-inline/);
+      expect(policy).toContain("frame-ancestors 'none'");
+    });
+
+    it("sends the same policy with index.html asked for by name", async () => {
+      const deepLink = await server.inject("/sessions/abc123");
+      const direct = await server.inject("/index.html");
+
+      expect(direct.headers["content-security-policy"]).toBe(
+        deepLink.headers["content-security-policy"],
+      );
     });
   });
 

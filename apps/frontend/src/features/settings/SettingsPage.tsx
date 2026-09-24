@@ -21,8 +21,8 @@ import {
 } from "@/features/settings/ProviderSection";
 import { SandboxSection } from "@/features/settings/SandboxSection";
 import { useConfig, useConfigAutosave } from "@/features/settings/useConfig";
+import { configQuery } from "@/features/settings/queries";
 import { useDebounced } from "@/shared/hooks/useDebounced";
-import { useAuth } from "@/features/auth/AuthContext";
 
 const CATALOG_ERRORS: Record<CatalogError, string> = {
   needs_key: "Add an API key to load models.",
@@ -81,35 +81,44 @@ export function SettingsPage(): React.JSX.Element {
   const active: SectionId =
     SECTIONS.find((s) => s.id === section)?.id ?? "provider";
 
-  const { logoutAll } = useAuth();
   const config = useConfig();
   const save = useConfigAutosave();
   const queryClient = useQueryClient();
 
   // The provider block is a draft, seeded once and held while it is edited: a
   // background refetch would otherwise replace what is being typed.
-  const [form, setForm] = useState<AgentConfig | null>(null);
+  const [form, setForm] = useState<AgentConfig>(() => config);
   const [newApiKey, setNewApiKey] = useState("");
-  if (form === null && config !== undefined) setForm(config);
+  // Counts edits to the typed key, so the catalog is keyed without the key itself.
+  const [keyRevision, setKeyRevision] = useState(0);
+  function changeApiKey(value: string): void {
+    setNewApiKey(value);
+    setKeyRevision((n) => n + 1);
+  }
 
-  const availableProviders = config?.providerOptions ?? [];
+  const availableProviders = config.providerOptions;
 
-  const editedProvider = form?.provider ?? null;
+  const editedProvider = form.provider ?? null;
   const editedBaseUrl = editedProvider
-    ? (form?.providers[editedProvider].baseUrl ?? "")
+    ? (form.providers[editedProvider].baseUrl ?? "")
     : "";
   const catalogInput = useDebounced(
-    { provider: editedProvider, baseUrl: editedBaseUrl, apiKey: newApiKey },
+    {
+      provider: editedProvider,
+      baseUrl: editedBaseUrl,
+      apiKey: newApiKey,
+      keyRevision,
+    },
     CATALOG_DEBOUNCE_MS,
   );
 
   const { data: catalogData, isPending: catalogPending } =
     useQuery<ModelCatalog>({
       queryKey: [
-        "config/models",
+        "models",
         catalogInput.provider,
         catalogInput.baseUrl,
-        catalogInput.apiKey,
+        catalogInput.keyRevision,
       ],
       queryFn: () =>
         apiFetch<ModelCatalog>("/api/config/models", {
@@ -133,8 +142,8 @@ export function SettingsPage(): React.JSX.Element {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          ...(form?.provider !== config?.provider && {
-            provider: form?.provider,
+          ...(form.provider !== config.provider && {
+            provider: form.provider,
           }),
           providers,
         }),
@@ -150,13 +159,13 @@ export function SettingsPage(): React.JSX.Element {
       }),
   });
 
-  const block = form?.provider ? form.providers[form.provider] : null;
-  const savedBlock = form?.provider
-    ? (config?.providers[form.provider] ?? null)
+  const block = form.provider ? form.providers[form.provider] : null;
+  const savedBlock = form.provider
+    ? (config.providers[form.provider] ?? null)
     : null;
 
   const catalog: CatalogState = ((): CatalogState => {
-    const settled = catalogInput.provider === form?.provider;
+    const settled = catalogInput.provider === form.provider;
     if (!settled || catalogPending || catalogData === undefined) {
       return { kind: "loading" };
     }
@@ -191,12 +200,12 @@ export function SettingsPage(): React.JSX.Element {
     key: K,
     value: ProviderSettings[K],
   ): void {
-    if (!form?.provider) return;
+    if (!form.provider) return;
     patchProvider(form.provider, { [key]: value });
   }
 
   function setModel(id: string | null): void {
-    if (!form?.provider) return;
+    if (!form.provider) return;
     if (id === null) {
       patchProvider(form.provider, { model: null, reasoningLevel: null });
       return;
@@ -224,10 +233,10 @@ export function SettingsPage(): React.JSX.Element {
     Object.keys(providerDelta).length > 0 ||
     newApiKey.trim() !== "" ||
     (form != null && config != null && form.provider !== config.provider);
-  const unchosen = form?.provider != null && !block?.model;
+  const unchosen = form.provider != null && !block?.model;
 
   async function handleSaveProvider(): Promise<void> {
-    if (!form?.provider) return;
+    if (!form.provider) return;
     const keyToSave = newApiKey.trim();
     try {
       // The key goes first and alone: saving the block looks the chosen model up
@@ -239,8 +248,8 @@ export function SettingsPage(): React.JSX.Element {
         });
       }
       await saveConfig.mutateAsync(providerDelta);
-      await queryClient.invalidateQueries({ queryKey: ["config"] });
-      setNewApiKey("");
+      await queryClient.invalidateQueries({ queryKey: configQuery().queryKey });
+      changeApiKey("");
       toast.show({
         title: "Settings saved",
         message: "Your changes have been saved.",
@@ -269,7 +278,7 @@ export function SettingsPage(): React.JSX.Element {
 
   return (
     <Page title={activeLabel} measure="wide">
-      {config && form && active === "provider" && (
+      {active === "provider" && (
         <ProviderSection
           form={form}
           block={block}
@@ -285,19 +294,13 @@ export function SettingsPage(): React.JSX.Element {
           }
           onProviderField={setProviderField}
           onModelChange={setModel}
-          onApiKeyChange={setNewApiKey}
+          onApiKeyChange={changeApiKey}
           onSave={() => void handleSaveProvider()}
         />
       )}
-      {config && active === "agent" && (
-        <AgentSection config={config} save={save} />
-      )}
-      {config && active === "sandbox" && (
-        <SandboxSection config={config} save={save} />
-      )}
-      {active === "account" && (
-        <AccountSection onLogoutAll={() => void logoutAll()} />
-      )}
+      {active === "agent" && <AgentSection config={config} save={save} />}
+      {active === "sandbox" && <SandboxSection config={config} save={save} />}
+      {active === "account" && <AccountSection />}
 
       <ConfirmDialog
         open={blocker.status === "blocked"}

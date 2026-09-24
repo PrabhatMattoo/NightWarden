@@ -1,4 +1,5 @@
-import { existsSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import FastifyStatic from "@fastify/static";
@@ -22,6 +23,29 @@ function setCacheHeaders(reply: FastifyReply, path: string): void {
   );
 }
 
+/* The page reaches this origin and nothing else. A script runs from here or is
+   one index.html itself carries, by its hash; sonner writes its own <style>. */
+export function contentSecurityPolicy(indexHtml: string): string {
+  const inline = [
+    ...indexHtml.matchAll(/<script(?![^>]*\ssrc=)[^>]*>([\s\S]*?)<\/script>/g),
+  ].map(
+    ([, body]) =>
+      `'sha256-${createHash("sha256")
+        .update(body ?? "")
+        .digest("base64")}'`,
+  );
+  return [
+    "default-src 'self'",
+    ["script-src 'self'", ...inline].join(" "),
+    "style-src 'self' 'unsafe-inline'",
+    "connect-src 'self'",
+    "object-src 'none'",
+    "base-uri 'self'",
+    "form-action 'self'",
+    "frame-ancestors 'none'",
+  ].join("; ");
+}
+
 // Same origin as the API, so the frontend's relative /api calls need no CORS.
 // In dev Vite serves it instead, so a missing build is normal.
 export async function registerFrontendRoutes(
@@ -41,6 +65,15 @@ export async function registerFrontendRoutes(
     logger.info("no frontend build found, serving API only");
     return;
   }
+
+  const policy = contentSecurityPolicy(
+    readFileSync(join(root, "index.html"), "utf8"),
+  );
+  fastify.addHook("onSend", async (_request, reply) => {
+    if (String(reply.getHeader("content-type")).startsWith("text/html")) {
+      reply.header("content-security-policy", policy);
+    }
+  });
 
   await fastify.register(FastifyStatic, {
     root,

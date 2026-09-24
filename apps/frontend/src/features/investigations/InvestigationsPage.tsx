@@ -11,7 +11,7 @@ import type {
 import { Page } from "@/shared/ui/Page";
 import { Button, buttonVariants } from "@/shared/ui/button";
 import { Card } from "@/shared/ui/card";
-import { Spinner } from "@/shared/ui/spinner";
+import { Rounds } from "@/shared/ui/Rounds";
 import {
   Empty,
   EmptyDescription,
@@ -27,7 +27,8 @@ import {
   SelectValue,
 } from "@/shared/ui/select";
 import { useFrontendEvents } from "@/shared/events/FrontendEventsProvider";
-import { sessionsQueryKey, useSessions } from "@/features/session/useSessions";
+import { useSessions } from "@/features/session/useSessions";
+import { sessionsQueryKey } from "@/features/session/queries";
 import { groupByStatus, STATUS_LABEL } from "@/features/investigations/queue";
 import { timeAgo } from "@/shared/lib/time";
 import { cn } from "@/shared/lib/utils";
@@ -81,13 +82,7 @@ function InvestigationRow({
             </span>
             {/* Read from the live dispatcher, so it is not decoration: it says
                 a run is moving at this moment. */}
-            {running && (
-              <Spinner
-                aria-hidden
-                role="none"
-                className="size-3.5 shrink-0 self-center text-accent-ink"
-              />
-            )}
+            {running && <Rounds size="inline" />}
           </span>
         )}
       </Link>
@@ -106,7 +101,7 @@ function QueueBand({
   const alerts = queue.waiting === 1 ? "1 alert" : `${queue.waiting} alerts`;
   return (
     <p className="mb-6 flex items-center gap-2 type-body">
-      <Spinner aria-hidden className="size-3.5 text-accent-ink" role="none" />
+      <Rounds size="inline" />
       <span className="emphasis">{alerts} waiting</span>
       <span className="text-ink-muted">
         {queue.running} of {queue.limit} investigations running
@@ -262,7 +257,7 @@ export function InvestigationsPage(): React.JSX.Element {
               disabled={isLoadingMore}
               onClick={loadMore}
             >
-              {isLoadingMore ? "Loading…" : "Load older investigations"}
+              Load older investigations
             </Button>
           )}
         </>

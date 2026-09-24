@@ -1,12 +1,15 @@
 import { useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  useMutation,
+  useQueryClient,
+  useSuspenseQuery,
+} from "@tanstack/react-query";
 import { useBlocker } from "@tanstack/react-router";
 import type { AlertSourceKind } from "@nightwarden/shared";
 
 import { Button } from "@/shared/ui/button";
 import { FieldDescription, FieldTitle } from "@/shared/ui/field";
 import { StatusText } from "@/shared/ui/status";
-import { Spinner } from "@/shared/ui/spinner";
 import { Page } from "@/shared/ui/Page";
 import { ConfirmDialog } from "@/shared/ui/ConfirmDialog";
 import { CopyableSnippet } from "@/shared/ui/CopyableSnippet";
@@ -18,12 +21,7 @@ import { apiFetch } from "@/shared/api/client";
 import { useDisconnect } from "../useIntegration";
 import { ALERT_SOURCE_CONTENT, SECRET_MASK } from "./content";
 import { INTEGRATION_CATALOG } from "../catalog";
-
-interface CredentialStatus {
-  configured: boolean;
-  ingestUrl: string;
-  lastReceivedAt: string | null;
-}
+import { alertSourceQuery } from "../queries";
 
 function Row({
   label,
@@ -57,14 +55,8 @@ export function AlertSourcePage({
   const [confirmDisconnect, setConfirmDisconnect] = useState(false);
 
   const base = `/api/integrations/alerting/${kind}`;
-  // Keyed by kind: two senders are two credentials with two status lines, and a
-  // shared key would show one sender's delivery proof on the other's page.
-  const queryKey = ["alert-source", kind];
-
-  const { data: status, isLoading } = useQuery<CredentialStatus>({
-    queryKey,
-    queryFn: () => apiFetch<CredentialStatus>(base),
-  });
+  const { queryKey } = alertSourceQuery(kind);
+  const { data: status } = useSuspenseQuery(alertSourceQuery(kind));
 
   const unsaved = secret !== null;
   const blocker = useBlocker({
@@ -95,7 +87,7 @@ export function AlertSourcePage({
     endpoint: () => base,
   });
 
-  const configured = status?.configured === true;
+  const configured = status.configured;
 
   return (
     <Page
@@ -104,7 +96,7 @@ export function AlertSourcePage({
       /* Withheld while a freshly minted secret is on screen: that moment is a
          step to finish, not a delivery report to read. */
       controls={
-        configured && !unsaved && status ? (
+        configured && !unsaved ? (
           <StatusText tone={status.lastReceivedAt !== null ? "ok" : "muted"}>
             {status.lastReceivedAt !== null
               ? `Receiving - last alert ${timeAgo(status.lastReceivedAt)} ago`
@@ -116,84 +108,69 @@ export function AlertSourcePage({
       <div className="flex flex-col gap-8">
         <IntegrationHeader identity={identity} />
 
-        {isLoading && (
-          <div className="flex items-center gap-2">
-            <Spinner />
-            <p className="type-body text-ink-muted">Loading...</p>
-          </div>
-        )}
+        <p className="type-body text-ink-muted">{content.where}</p>
 
-        {status && (
-          <>
-            <p className="type-body text-ink-muted">{content.where}</p>
-
-            {/* Three rows in a fixed order that never reflows. Only the secret
+        {/* Three rows in a fixed order that never reflows. Only the secret
                 row changes state, so nothing moves under whoever is copying. */}
-            <section className="flex flex-col gap-4">
-              <Row label="Webhook URL">
+        <section className="flex flex-col gap-4">
+          <Row label="Webhook URL">
+            <CopyableSnippet
+              label="Copy the webhook URL"
+              text={status.ingestUrl}
+            />
+          </Row>
+
+          <Row label="Secret">
+            {secret !== null ? (
+              <div className="flex flex-col gap-3">
+                <CopyableSnippet label="Copy the secret" text={secret} />
+                <FieldDescription>
+                  Copy it now. It is not shown again and cannot be recovered; if
+                  you lose it, rotate for a new one.
+                </FieldDescription>
+                <Button className="self-start" onClick={() => setSecret(null)}>
+                  I&apos;ve saved it
+                </Button>
+              </div>
+            ) : configured ? (
+              <div className="flex flex-col gap-3">
                 <CopyableSnippet
-                  label="Copy the webhook URL"
-                  text={status.ingestUrl}
+                  label="The secret is not shown again"
+                  text={SECRET_MASK}
+                  copyable={false}
                 />
-              </Row>
-
-              <Row label="Secret">
-                {secret !== null ? (
-                  <div className="flex flex-col gap-3">
-                    <CopyableSnippet label="Copy the secret" text={secret} />
-                    <FieldDescription>
-                      Copy it now. It is not shown again and cannot be
-                      recovered; if you lose it, rotate for a new one.
-                    </FieldDescription>
-                    <Button
-                      className="self-start"
-                      onClick={() => setSecret(null)}
-                    >
-                      I&apos;ve saved it
-                    </Button>
-                  </div>
-                ) : configured ? (
-                  <div className="flex flex-col gap-3">
-                    <CopyableSnippet
-                      label="The secret is not shown again"
-                      text={SECRET_MASK}
-                      copyable={false}
-                    />
-                    <div className="flex items-center gap-2">
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        disabled={generate.isPending}
-                        onClick={() => setConfirmRotate(true)}
-                      >
-                        Rotate
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        onClick={() => setConfirmDisconnect(true)}
-                      >
-                        Disconnect
-                      </Button>
-                    </div>
-                  </div>
-                ) : (
+                <div className="flex items-center gap-2">
                   <Button
-                    className="self-start"
+                    size="sm"
+                    variant="secondary"
                     disabled={generate.isPending}
-                    onClick={() => generate.mutate()}
+                    onClick={() => setConfirmRotate(true)}
                   >
-                    {generate.isPending && <Spinner className="size-4" />}
-                    Generate secret
+                    Rotate
                   </Button>
-                )}
-              </Row>
-            </section>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => setConfirmDisconnect(true)}
+                  >
+                    Disconnect
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <Button
+                className="self-start"
+                disabled={generate.isPending}
+                onClick={() => generate.mutate()}
+              >
+                Generate secret
+              </Button>
+            )}
+          </Row>
+        </section>
 
-            {/* Stated where they are set: these fail without reporting. */}
-            <IntegrationWarnings warnings={content.warnings} />
-          </>
-        )}
+        {/* Stated where they are set: these fail without reporting. */}
+        <IntegrationWarnings warnings={content.warnings} />
       </div>
 
       <ConfirmDialog

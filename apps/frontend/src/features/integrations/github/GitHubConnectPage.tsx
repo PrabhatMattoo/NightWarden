@@ -1,10 +1,14 @@
 import { useEffect, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQueryClient,
+  useSuspenseQuery,
+} from "@tanstack/react-query";
 import { CircleCheckIcon, ExternalLink, RefreshCw } from "lucide-react";
 import type {
   GitHubErrorBody,
   GitHubIntegrationStatus,
-  GitHubRepoPage,
   GitHubRepoSummary,
 } from "@nightwarden/shared";
 
@@ -21,8 +25,7 @@ import {
 } from "@/shared/ui/combobox";
 import { Field, FieldDescription, FieldLabel } from "@/shared/ui/field";
 import { Input } from "@/shared/ui/input";
-import { Skeleton } from "@/shared/ui/skeleton";
-import { Spinner } from "@/shared/ui/spinner";
+import { Rounds } from "@/shared/ui/Rounds";
 import { ConfirmDialog } from "@/shared/ui/ConfirmDialog";
 import { Page } from "@/shared/ui/Page";
 import { expiryDaysFrom } from "@/features/integrations/github/useGitHubExpiryDays";
@@ -32,6 +35,12 @@ import { ApiError, apiFetch } from "@/shared/api/client";
 import { INTEGRATION_CATALOG } from "../catalog";
 import { IntegrationHeader } from "@/features/integrations/IntegrationHeader";
 import { useDisconnect } from "../useIntegration";
+import {
+  fetchGitHubRepos,
+  githubPreflightQuery,
+  githubReposQuery,
+  githubStatusQuery,
+} from "../queries";
 
 /* Repo selection stays on GitHub's own picker, the user's deliberate consent
    moment; no `issues` permission since NightWarden opens PRs, not issues. */
@@ -44,6 +53,8 @@ const FINE_GRAINED_TOKEN_URL =
 /* Escape hatch for orgs that block fine-grained PATs entirely. */
 const CLASSIC_TOKEN_URL =
   "https://github.com/settings/tokens/new?scopes=repo&description=NightWarden";
+
+const TYPED_REPOS_KEY = githubReposQuery("typed").queryKey;
 
 /* Both ends of this contract are ours: the route answers with GitHubErrorBody,
    which is what the ladder below branches on. */
@@ -245,44 +256,118 @@ function RepoCombobox({
 
 export function GitHubConnectPage(): React.JSX.Element {
   const queryClient = useQueryClient();
-
-  const { data: status, isPending: statusPending } =
-    useQuery<GitHubIntegrationStatus>({
-      queryKey: ["github-integration"],
-      queryFn: () =>
-        apiFetch<GitHubIntegrationStatus>("/api/integrations/github"),
-    });
-  const configured = status?.configured === true;
+  const { data: status } = useSuspenseQuery(githubStatusQuery());
+  const { data: preflight } = useSuspenseQuery(githubPreflightQuery());
+  const configured = status.configured;
 
   const [token, setToken] = useState("");
   const [changingToken, setChangingToken] = useState(false);
-  const [repos, setRepos] = useState<GitHubRepoSummary[] | null>(null);
-  const [hasMore, setHasMore] = useState(false);
-  const [page, setPage] = useState(1);
-  const [selected, setSelected] = useState<string | null>(null);
-  const [error, setError] = useState<unknown>(null);
+  const [picked, setPicked] = useState<string | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
 
-  // Advisory only, and asked once: it is a POST, so the default would repeat
-  // it on every window focus, and an unreachable preflight must not block setup.
-  const preflight = useQuery({
-    queryKey: ["github-preflight"],
-    queryFn: () =>
-      githubPost<{ ok: boolean; reason?: string }>(
-        "/api/integrations/github/preflight",
-        {},
-      ),
-    retry: false,
-    staleTime: Number.POSITIVE_INFINITY,
-    refetchOnWindowFocus: false,
-    refetchOnReconnect: false,
-  });
   const preflightIssue =
-    preflight.data !== undefined && !preflight.data.ok
-      ? (preflight.data.reason ?? "Sandbox prerequisites are missing")
+    preflight !== null && !preflight.ok
+      ? (preflight.reason ?? "Sandbox prerequisites are missing")
       : null;
 
   const usingFreshToken = token.trim() !== "";
+  const storedKey = githubReposQuery("stored").queryKey;
+  const typedOptions = githubReposQuery("typed", token);
+
+  // Never while a typed token is in the box: reloading from the stored
+  // credential would wipe the validation error the user still has to read.
+  const stored = useInfiniteQuery({
+    ...githubReposQuery("stored"),
+    enabled: configured && !usingFreshToken,
+  });
+  // Filled only by Validate, so typing never asks GitHub on its own.
+  const typed = useInfiniteQuery({ ...typedOptions, enabled: false });
+  const list = usingFreshToken ? typed : stored;
+  const repos = list.data?.pages.flatMap((page) => page.repos) ?? null;
+
+  // A validated token belongs to this visit only, as the typed token does.
+  useEffect(
+    () => () => queryClient.removeQueries({ queryKey: TYPED_REPOS_KEY }),
+    [queryClient],
+  );
+
+  const validate = useMutation({
+    mutationFn: () => fetchGitHubRepos(1, token),
+    onMutate: () => {
+      connectWithToken.reset();
+      updateRepoOnly.reset();
+    },
+    onSuccess: (page) => {
+      queryClient.setQueryData(typedOptions.queryKey, {
+        pages: [page],
+        pageParams: [1],
+      });
+      // A good token supersedes whatever the stored one last answered.
+      queryClient.removeQueries({ queryKey: storedKey });
+      setPicked(null);
+      setChangingToken(false);
+      toast.success("Token validated");
+    },
+    onError: () =>
+      queryClient.removeQueries({ queryKey: typedOptions.queryKey }),
+  });
+
+  /* Full (re)bind: the only path that ever sends a token, so the only one that
+     can replace the stored credential. */
+  const connectWithToken = useMutation({
+    mutationFn: (repo: string) =>
+      githubPost<GitHubIntegrationStatus>("/api/integrations/github", {
+        token,
+        repo,
+      }),
+    onMutate: () => validate.reset(),
+    onSuccess: async () => {
+      // The list just validated is now the stored credential's, so it stays on screen.
+      const validated = queryClient.getQueryData(typedOptions.queryKey);
+      if (validated !== undefined)
+        queryClient.setQueryData(storedKey, validated);
+      toast.success(
+        configured ? "GitHub repository updated" : "GitHub connected",
+      );
+      setToken("");
+      setChangingToken(false);
+      await queryClient.invalidateQueries({
+        queryKey: githubStatusQuery().queryKey,
+      });
+    },
+  });
+
+  /* Repo-only rebind: never sends a token, so the stored credential is the only
+     one that can be used here. */
+  const updateRepoOnly = useMutation({
+    mutationFn: (repo: string) =>
+      githubPatch<GitHubIntegrationStatus>("/api/integrations/github", {
+        repo,
+      }),
+    onMutate: () => validate.reset(),
+    onSuccess: async () => {
+      toast.success("GitHub repository updated");
+      await queryClient.invalidateQueries({
+        queryKey: githubStatusQuery().queryKey,
+      });
+    },
+  });
+
+  const disconnect = useDisconnect({
+    label: "GitHub",
+    queryKey: githubStatusQuery().queryKey,
+    endpoint: () => "/api/integrations/github",
+  });
+
+  // The latest action's failure first, then whatever GitHub last said of the list.
+  const error: Error | null =
+    connectWithToken.error ??
+    updateRepoOnly.error ??
+    validate.error ??
+    stored.error ??
+    typed.error ??
+    null;
+
   // A stored token GitHub has just rejected is no longer a connection to
   // summarise, so the input returns for a replacement rather than reading valid.
   const tokenRejected =
@@ -291,12 +376,22 @@ export function GitHubConnectPage(): React.JSX.Element {
       errorBody(error).code === "sso_required");
   const showTokenInput =
     changingToken || (!configured && repos === null) || tokenRejected;
-  // The initial load, before we know whether the stored token still reaches a
-  // repo: skeleton it so "Validated" never flashes ahead of the repo list.
-  const settling =
-    !changingToken &&
-    !usingFreshToken &&
-    (statusPending || (configured && repos === null && error === null));
+  // GitHub is asked whether the stored token still reaches a repo; until it
+  // answers, nothing claims the token is valid.
+  const checking =
+    !changingToken && configured && !usingFreshToken && stored.isLoading;
+
+  // The bound repo when the list still holds it, else the only one there is.
+  const bound = usingFreshToken ? null : status.repo;
+  const fallback =
+    repos === null
+      ? null
+      : bound !== null && repos.some((r) => r.fullName === bound)
+        ? bound
+        : repos.length === 1
+          ? (repos[0]?.fullName ?? null)
+          : null;
+  const selected = picked ?? fallback;
 
   function tokenSummaryText(): string {
     if (!usingFreshToken && configured) {
@@ -309,116 +404,7 @@ export function GitHubConnectPage(): React.JSX.Element {
     return "Validated";
   }
 
-  function fetchRepos(pageNum: number): Promise<GitHubRepoPage> {
-    const body = usingFreshToken ? { token, page: pageNum } : { page: pageNum };
-    return githubPost<GitHubRepoPage>("/api/integrations/github/repos", body);
-  }
-
-  function takeFirstPage(data: GitHubRepoPage): void {
-    setRepos(data.repos);
-    setHasMore(data.hasMore);
-    setPage(1);
-  }
-
-  const validate = useMutation({
-    mutationFn: () => fetchRepos(1),
-    onMutate: () => setError(null),
-    onSuccess: (data) => {
-      takeFirstPage(data);
-      setSelected(
-        data.repos.length === 1 ? (data.repos[0]?.fullName ?? null) : null,
-      );
-      setChangingToken(false);
-      toast.success("Token validated");
-    },
-    onError: (err) => {
-      setError(err);
-      setRepos(null);
-    },
-  });
-
-  /* Rebinding to a different repo the token already grants needs no fresh
-     token - the repos endpoint falls back to the stored credential. */
-  const loadRepos = useMutation({
-    mutationFn: () => fetchRepos(1),
-    onMutate: () => setError(null),
-    onSuccess: (data) => {
-      takeFirstPage(data);
-      const bound = status?.repo ?? null;
-      setSelected(
-        bound !== null && data.repos.some((r) => r.fullName === bound)
-          ? bound
-          : data.repos.length === 1
-            ? (data.repos[0]?.fullName ?? null)
-            : null,
-      );
-    },
-    onError: (err) => setError(err),
-  });
-
-  const loadMore = useMutation({
-    mutationFn: () => fetchRepos(page + 1),
-    onSuccess: (data) => {
-      setRepos((prev) => [...(prev ?? []), ...data.repos]);
-      setHasMore(data.hasMore);
-      setPage((prev) => prev + 1);
-    },
-    onError: (err) => setError(err),
-  });
-
-  /* Full (re)bind: the only path that ever sends a token, so the only one that
-     can replace the stored credential. */
-  const connectWithToken = useMutation({
-    mutationFn: (repo: string) =>
-      githubPost<GitHubIntegrationStatus>("/api/integrations/github", {
-        token,
-        repo,
-      }),
-    onMutate: () => setError(null),
-    onSuccess: async () => {
-      toast.success(
-        configured ? "GitHub repository updated" : "GitHub connected",
-      );
-      setToken("");
-      setChangingToken(false);
-      await queryClient.invalidateQueries({ queryKey: ["github-integration"] });
-    },
-    onError: (err) => setError(err),
-  });
-
-  /* Repo-only rebind: never sends a token, so the stored credential is the only
-     one that can be used here. */
-  const updateRepoOnly = useMutation({
-    mutationFn: (repo: string) =>
-      githubPatch<GitHubIntegrationStatus>("/api/integrations/github", {
-        repo,
-      }),
-    onMutate: () => setError(null),
-    onSuccess: async () => {
-      toast.success("GitHub repository updated");
-      await queryClient.invalidateQueries({ queryKey: ["github-integration"] });
-    },
-    onError: (err) => setError(err),
-  });
-
-  const disconnect = useDisconnect({
-    label: "GitHub",
-    queryKey: ["github-integration"],
-    endpoint: () => "/api/integrations/github",
-  });
-
-  // Never while a typed token is in the box: reloading from the stored
-  // credential would wipe the validation error the user still has to read.
-  const runLoadRepos = loadRepos.mutate;
-  useEffect(() => {
-    if (configured && repos === null && !usingFreshToken) runLoadRepos();
-  }, [configured, repos, usingFreshToken, runLoadRepos]);
-
-  const validating = validate.isPending;
-  const loadingRepos = loadRepos.isPending;
-  const loadingMore = loadMore.isPending;
   const connecting = connectWithToken.isPending || updateRepoOnly.isPending;
-  const disconnecting = disconnect.isPending;
 
   return (
     <Page
@@ -441,10 +427,12 @@ export function GitHubConnectPage(): React.JSX.Element {
             </a>{" "}
             with repo scope instead.
           </FieldDescription>
-          {settling ? (
-            <div className="mt-2 flex flex-col gap-3">
-              <Skeleton className="h-5 w-48" />
-              <Skeleton className="h-9 w-full max-w-field" />
+          {checking ? (
+            <div className="mt-2 flex items-center gap-2">
+              <Rounds size="inline" />
+              <span className="type-body text-ink-muted">
+                Checking the token with GitHub…
+              </span>
             </div>
           ) : showTokenInput ? (
             <div className="mt-2 flex flex-col gap-3">
@@ -475,10 +463,9 @@ export function GitHubConnectPage(): React.JSX.Element {
                   onChange={(e) => setToken(e.target.value)}
                 />
                 <Button
-                  disabled={token.trim() === "" || validating}
+                  disabled={token.trim() === "" || validate.isPending}
                   onClick={() => validate.mutate()}
                 >
-                  {validating && <Spinner className="size-4" />}
                   Validate
                 </Button>
               </div>
@@ -500,10 +487,6 @@ export function GitHubConnectPage(): React.JSX.Element {
 
         {error !== null && <LadderAlert error={error} />}
 
-        {!settling && !showTokenInput && loadingRepos && (
-          <Spinner className="size-4" />
-        )}
-
         {!showTokenInput &&
           repos !== null &&
           (repos.length === 0 ? (
@@ -518,22 +501,22 @@ export function GitHubConnectPage(): React.JSX.Element {
               <RepoCombobox
                 repos={repos}
                 selected={selected}
-                onSelect={setSelected}
-                refreshing={validating || loadingRepos}
+                onSelect={setPicked}
+                refreshing={validate.isPending || list.isFetching}
                 onRefresh={() => {
+                  setPicked(null);
                   if (usingFreshToken) validate.mutate();
-                  else loadRepos.mutate();
+                  else void stored.refetch();
                 }}
               />
-              {hasMore && (
+              {list.hasNextPage && (
                 <Button
                   size="sm"
                   variant="secondary"
                   className="self-start"
-                  disabled={loadingMore}
-                  onClick={() => loadMore.mutate()}
+                  disabled={list.isFetchingNextPage}
+                  onClick={() => void list.fetchNextPage()}
                 >
-                  {loadingMore && <Spinner className="size-4" />}
                   Load more
                 </Button>
               )}
@@ -542,7 +525,7 @@ export function GitHubConnectPage(): React.JSX.Element {
                 disabled={
                   selected === null ||
                   connecting ||
-                  (configured && !usingFreshToken && selected === status?.repo)
+                  (configured && !usingFreshToken && selected === status.repo)
                 }
                 onClick={() => {
                   if (selected === null) return;
@@ -550,7 +533,6 @@ export function GitHubConnectPage(): React.JSX.Element {
                   else updateRepoOnly.mutate(selected);
                 }}
               >
-                {connecting && <Spinner className="size-4" />}
                 {configured ? "Update repository" : "Connect repository"}
               </Button>
             </div>
@@ -564,10 +546,9 @@ export function GitHubConnectPage(): React.JSX.Element {
               size="sm"
               variant="destructive-ghost"
               className="self-start"
-              disabled={disconnecting}
+              disabled={disconnect.isPending}
               onClick={() => setConfirmOpen(true)}
             >
-              {disconnecting && <Spinner className="size-4" />}
               Disconnect GitHub
             </Button>
           </div>
@@ -578,10 +559,18 @@ export function GitHubConnectPage(): React.JSX.Element {
         open={confirmOpen}
         onOpenChange={setConfirmOpen}
         title="Disconnect GitHub?"
-        description={`This deletes NightWarden's stored copy of the token and unbinds ${status?.repo ?? "the repository"}. The token itself stays valid until you revoke it on GitHub.`}
+        description={`This deletes NightWarden's stored copy of the token and unbinds ${status.repo ?? "the repository"}. The token itself stays valid until you revoke it on GitHub.`}
         confirmLabel="Disconnect"
         destructive
-        onConfirm={() => disconnect.mutate()}
+        onConfirm={() =>
+          disconnect.mutate(undefined, {
+            // Nothing a revoked credential could reach should reappear on reconnecting.
+            onSuccess: () =>
+              queryClient.removeQueries({
+                queryKey: ["integrations", "github", "repos"],
+              }),
+          })
+        }
       />
     </Page>
   );

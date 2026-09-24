@@ -9,6 +9,14 @@ export type GitHubErrorCode =
   // A payload we cannot read, which no retry and no credential change fixes.
   | "bad_response";
 
+// One alert sender's credential and its delivery proof, never its configuration alone.
+export interface AlertSourceStatus {
+  configured: boolean;
+  ingestUrl: string;
+  // Null until that sender actually posts, and again after a rotation.
+  lastReceivedAt: string | null;
+}
+
 export interface GitHubIntegrationStatus {
   configured: boolean;
   repo: string | null;

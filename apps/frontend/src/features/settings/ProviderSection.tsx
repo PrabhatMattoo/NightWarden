@@ -25,7 +25,6 @@ import {
   SelectValue,
 } from "@/shared/ui/select";
 import { ICON_UI } from "@/shared/lib/iconProps";
-import { Spinner } from "@/shared/ui/spinner";
 import { SettingsGroup, SettingsRow } from "./SettingsRow";
 
 // "input-clear" is absent on purpose: that is Base UI wiping the box when the
@@ -262,7 +261,6 @@ export function ProviderSection({
           disabled={!dirty || unchosen || saving}
           onClick={onSave}
         >
-          {saving && <Spinner className="size-4" />}
           Save
         </Button>
       </div>

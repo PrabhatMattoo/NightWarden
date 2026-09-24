@@ -51,6 +51,8 @@ const TWO_REPOS = {
 interface MockState {
   status: GitHubIntegrationStatus;
   repos: { status: number; body: unknown };
+  // Holds GitHub's answer back until the test releases it.
+  reposGate?: Promise<void>;
   bind: { status: number; body?: unknown };
   patch: { status: number; body?: unknown };
 }
@@ -60,11 +62,11 @@ function makeFetchMock(state: MockState) {
     .fn<(url: string, init?: RequestInit) => Promise<unknown>>()
     .mockImplementation((url, init) => {
       if (url.includes("/api/integrations/github/repos")) {
-        return Promise.resolve({
+        return (state.reposGate ?? Promise.resolve()).then(() => ({
           ok: state.repos.status < 400,
           status: state.repos.status,
           json: () => Promise.resolve(state.repos.body),
-        });
+        }));
       }
       if (url === "/api/integrations/github") {
         if (init?.method === "POST") {
@@ -356,13 +358,22 @@ describe("GitHubConnectPage - management (already connected)", () => {
   });
 
   it("brings back the token input when GitHub rejects the stored token, not a Validated line", async () => {
+    let answer = (): void => {};
     setup({
       status: configuredStatus("acme/api", 5),
       repos: {
         status: 401,
         body: { error: "Token invalid or expired", code: "invalid_token" },
       },
+      reposGate: new Promise((release) => (answer = release)),
     });
+
+    // While GitHub has not answered, the page says it is asking and claims nothing.
+    expect(
+      await screen.findByText(/checking the token with github/i),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/^validated/i)).not.toBeInTheDocument();
+    answer();
 
     // The live repos load rejects the stored token, so the page asks for a
     // replacement rather than claiming the old one is valid.

@@ -9,7 +9,7 @@ import {
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { TestProviders } from "./renderWithProviders.js";
+import { renderApp, TestProviders } from "./renderWithProviders.js";
 import {
   createMemoryHistory,
   createRootRoute,
@@ -19,26 +19,12 @@ import { RouterProvider } from "@tanstack/react-router";
 
 import { SessionView } from "../features/session/SessionView.js";
 import { FrontendEventsProvider } from "@/shared/events/FrontendEventsProvider";
-import { routeTree } from "@/app/router";
 import { MockEventSource } from "./mockEventSource.js";
 import { sentBody } from "./sentBody";
 
 // What the API accepts as a client message id.
 const UUID_V4 =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
-
-// AuthProvider as well as the hook: the page tests drive the real route tree,
-// whose root mounts the provider before any page renders.
-vi.mock("@/features/auth/AuthContext", () => ({
-  AuthProvider: ({ children }: { children: React.ReactNode }) => children,
-  useAuth: () => ({
-    phase: { kind: "authenticated", email: "user@nightwarden.io" },
-    login: vi.fn(),
-    signup: vi.fn(),
-    logout: vi.fn(),
-    logoutAll: vi.fn(),
-  }),
-}));
 
 // The projected transcript the API returns: items to draw, not raw messages.
 const USER_TURN = {
@@ -225,21 +211,7 @@ function setupPage({
   });
   vi.stubGlobal("fetch", fetchMock);
 
-  const qc = new QueryClient({
-    defaultOptions: { queries: { retry: false, gcTime: 0 } },
-  });
-  const router = createRouter({
-    routeTree,
-    history: createMemoryHistory({ initialEntries: [path] }),
-  });
-
-  render(
-    <TestProviders>
-      <QueryClientProvider client={qc}>
-        <RouterProvider router={router} />
-      </QueryClientProvider>
-    </TestProviders>,
-  );
+  const { router } = renderApp({ path });
 
   return { router, fetchMock, writeText };
 }

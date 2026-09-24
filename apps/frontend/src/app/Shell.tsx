@@ -27,7 +27,7 @@ import {
   SidebarTrigger,
   useSidebar,
 } from "@/shared/ui/sidebar";
-import { useAuth } from "@/features/auth/AuthContext";
+import { useSignOut } from "@/features/auth/useSignOut";
 import { cn } from "@/shared/lib/utils";
 import { cssNumber } from "@/shared/lib/cssNumber";
 import { ICON_NAV } from "@/shared/lib/iconProps";
@@ -73,7 +73,7 @@ function ShellContent({
 }): React.JSX.Element {
   const { isOverlay, setOpenOverlay } = useSidebar();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
-  const { logout } = useAuth();
+  const signOut = useSignOut();
   const inSettings = pathname.startsWith("/settings");
 
   function isActive(to: string): boolean {
@@ -188,7 +188,7 @@ function ShellContent({
                 tooltip="Log out"
                 onClick={() => {
                   dismissOverlay();
-                  void logout();
+                  signOut.mutate();
                 }}
               >
                 <LogOut {...ICON_NAV} />

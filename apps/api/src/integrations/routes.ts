@@ -20,7 +20,7 @@ import {
   getAlertSource,
 } from "./alert-sources.js";
 import { isAlertSourceKind } from "@nightwarden/shared";
-import type { AlertSourceKind } from "@nightwarden/shared";
+import type { AlertSourceKind, AlertSourceStatus } from "@nightwarden/shared";
 import {
   GitHubApiError,
   listRepos,
@@ -401,13 +401,11 @@ export async function registerIntegrationRoutes(
   fastify.get<AlertSourceRoute>(
     "/integrations/alerting/:kind",
     { preHandler: knownSender },
-    async (request) => {
+    async (request): Promise<AlertSourceStatus> => {
       const source = await getAlertSource(request.params.kind);
       return {
         configured: source !== null,
         ingestUrl: `${publicUrl(request)}/api/alerts/ingest`,
-        // Delivery proof, not configuration state: null until that sender
-        // actually posts, and again after a rotation.
         lastReceivedAt: source?.lastReceivedAt ?? null,
       };
     },

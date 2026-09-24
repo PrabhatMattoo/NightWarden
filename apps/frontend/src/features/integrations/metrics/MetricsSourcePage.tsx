@@ -1,5 +1,9 @@
 import { useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  useMutation,
+  useQueryClient,
+  useSuspenseQuery,
+} from "@tanstack/react-query";
 import { TriangleAlert } from "lucide-react";
 import type {
   MetricsConnectInput,
@@ -22,7 +26,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/shared/ui/select";
-import { Spinner } from "@/shared/ui/spinner";
 import { Page, Section } from "@/shared/ui/Page";
 import { ConfirmDialog } from "@/shared/ui/ConfirmDialog";
 import { IntegrationHeader } from "@/features/integrations/IntegrationHeader";
@@ -40,6 +43,7 @@ import {
   type AuthMethod,
 } from "./content";
 import { INTEGRATION_CATALOG } from "../catalog";
+import { metricsSourceQuery } from "../queries";
 
 // The method decides which fields travel, so a credential the user switched
 // away from is never sent beside the one they chose.
@@ -308,7 +312,9 @@ function ConnectForm({ kind }: { kind: MetricsSourceKind }): React.JSX.Element {
     onMutate: () => setError(null),
     onSuccess: async () => {
       toast.success(`${identity.label} connected`);
-      await queryClient.invalidateQueries({ queryKey: ["metrics-sources"] });
+      await queryClient.invalidateQueries({
+        queryKey: metricsSourceQuery().queryKey,
+      });
     },
     onError: (err) =>
       setError(
@@ -422,7 +428,6 @@ function ConnectForm({ kind }: { kind: MetricsSourceKind }): React.JSX.Element {
         disabled={trim(queryUrl) === "" || connect.isPending}
         onClick={() => connect.mutate()}
       >
-        {connect.isPending && <Spinner className="size-4" />}
         Connect
       </Button>
     </div>
@@ -482,19 +487,16 @@ export function MetricsSourcePage({
   const identity = INTEGRATION_CATALOG[kind];
   const [confirmRemove, setConfirmRemove] = useState(false);
 
-  const { data: status, isLoading } = useQuery<MetricsSourceStatus>({
-    queryKey: ["metrics-sources"],
-    queryFn: () => apiFetch<MetricsSourceStatus>("/api/integrations/metrics"),
-  });
+  const { data: status } = useSuspenseQuery(metricsSourceQuery());
 
   // One source across every product, so a card is connected, free, or blocked
   // by whichever other product holds the slot.
-  const connected = status?.configured === true && status.kind === kind;
-  const heldByAnother = status?.configured === true && status.kind !== kind;
+  const connected = status.configured && status.kind === kind;
+  const heldByAnother = status.configured && status.kind !== kind;
 
   const disconnect = useDisconnect({
     label: identity.label,
-    queryKey: ["metrics-sources"],
+    queryKey: metricsSourceQuery().queryKey,
     endpoint: () => "/api/integrations/metrics",
   });
 
@@ -506,33 +508,24 @@ export function MetricsSourcePage({
       <div className="flex flex-col gap-8">
         <IntegrationHeader identity={identity} />
 
-        {isLoading && (
-          <div className="flex items-center gap-2">
-            <Spinner />
-            <p className="type-body text-ink-muted">Loading...</p>
-          </div>
-        )}
-
-        {connected && status !== undefined && (
+        {connected && (
           <ConnectedSource
             source={status}
             onRemove={() => setConfirmRemove(true)}
           />
         )}
 
-        {heldByAnother && (
+        {heldByAnother && status.configured && (
           <Alert variant="warning">
             <AlertTitle>Another metrics source is connected</AlertTitle>
             <AlertDescription>
-              NightWarden queries one metrics source. Disconnect {status?.label}{" "}
+              NightWarden queries one metrics source. Disconnect {status.label}{" "}
               first to connect {identity.label} instead.
             </AlertDescription>
           </Alert>
         )}
 
-        {!connected && !heldByAnother && !isLoading && (
-          <ConnectForm kind={kind} />
-        )}
+        {!connected && !heldByAnother && <ConnectForm kind={kind} />}
       </div>
 
       <ConfirmDialog

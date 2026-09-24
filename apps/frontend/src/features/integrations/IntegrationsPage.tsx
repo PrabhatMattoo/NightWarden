@@ -1,20 +1,20 @@
-import { useQuery } from "@tanstack/react-query";
+import { useSuspenseQueries } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import type {
-  AlertSourceKind,
-  GitHubIntegrationStatus,
-  LokiIntegrationStatus,
-  MetricsSourceStatus,
-  RunnerRecord,
-  SentryIntegrationStatus,
-} from "@nightwarden/shared";
+import type { AlertSourceKind, AlertSourceStatus } from "@nightwarden/shared";
 import { METRICS_SOURCE_KINDS } from "@nightwarden/shared";
 
 import { Page } from "@/shared/ui/Page";
 import { StatusText } from "@/shared/ui/status";
 import { IntegrationLogo } from "@/features/integrations/IntegrationHeader";
-import { apiFetch } from "@/shared/api/client";
 import { INTEGRATION_CATALOG } from "./catalog";
+import {
+  alertSourceQuery,
+  githubStatusQuery,
+  lokiStatusQuery,
+  metricsSourceQuery,
+  runnersQuery,
+  sentryStatusQuery,
+} from "./queries";
 
 // Named for what a connection gives an investigation, and the order they read in.
 const CATEGORIES = [
@@ -80,24 +80,11 @@ function CatalogCard({ row }: { row: IntegrationRow }): React.JSX.Element {
   );
 }
 
-interface AlertSourceStatus {
-  configured: boolean;
-  lastReceivedAt: string | null;
-}
-
-function useAlertSource(kind: AlertSourceKind): AlertSourceStatus | undefined {
-  return useQuery<AlertSourceStatus>({
-    queryKey: ["alert-source", kind],
-    queryFn: () =>
-      apiFetch<AlertSourceStatus>(`/api/integrations/alerting/${kind}`),
-  }).data;
-}
-
 // Delivery, not configuration: a card reading Connected on a sender that has
 // never delivered is the failure this surface exists to catch.
 function alertSourceCard(
   kind: AlertSourceKind,
-  status: AlertSourceStatus | undefined,
+  status: AlertSourceStatus,
 ): IntegrationRow {
   const identity = INTEGRATION_CATALOG[kind];
   return {
@@ -106,51 +93,39 @@ function alertSourceCard(
     category: "Alerting",
     logo: identity.logo,
     to: `/integrations/alerting/${kind}`,
-    status:
-      status?.configured !== true
-        ? null
-        : status.lastReceivedAt !== null
-          ? "Receiving"
-          : "Waiting for first alert",
-    statusVariant: status?.lastReceivedAt !== null ? "success" : "muted",
+    status: !status.configured
+      ? null
+      : status.lastReceivedAt !== null
+        ? "Receiving"
+        : "Waiting for first alert",
+    statusVariant: status.lastReceivedAt !== null ? "success" : "muted",
   };
 }
 
 export function IntegrationsPage(): React.JSX.Element {
-  const { data: github } = useQuery<GitHubIntegrationStatus>({
-    queryKey: ["github-integration"],
-    queryFn: () =>
-      apiFetch<GitHubIntegrationStatus>("/api/integrations/github"),
-  });
-
-  const { data: runners } = useQuery<RunnerRecord[]>({
-    queryKey: ["runners"],
-    queryFn: () => apiFetch<RunnerRecord[]>("/api/runners"),
-  });
-
   // One query per sender: each has its own credential and its own delivery
   // proof, so one status line can never stand for the other's.
-  const alertmanager = useAlertSource("alertmanager");
-  const grafana = useAlertSource("grafana");
-
-  // One source across every product, so one status answers all five rows.
-  const { data: metrics } = useQuery<MetricsSourceStatus>({
-    queryKey: ["metrics-sources"],
-    queryFn: () => apiFetch<MetricsSourceStatus>("/api/integrations/metrics"),
+  const [
+    { data: github },
+    { data: runners },
+    { data: alertmanager },
+    { data: grafana },
+    { data: metrics },
+    { data: loki },
+    { data: sentry },
+  ] = useSuspenseQueries({
+    queries: [
+      githubStatusQuery(),
+      runnersQuery(),
+      alertSourceQuery("alertmanager"),
+      alertSourceQuery("grafana"),
+      metricsSourceQuery(),
+      lokiStatusQuery(),
+      sentryStatusQuery(),
+    ],
   });
 
-  const { data: loki } = useQuery<LokiIntegrationStatus>({
-    queryKey: ["loki-integration"],
-    queryFn: () => apiFetch<LokiIntegrationStatus>("/api/integrations/loki"),
-  });
-
-  const { data: sentry } = useQuery<SentryIntegrationStatus>({
-    queryKey: ["sentry-integration"],
-    queryFn: () =>
-      apiFetch<SentryIntegrationStatus>("/api/integrations/sentry"),
-  });
-
-  const connectedRunners = (runners ?? []).filter((r) => r.hostname !== null);
+  const connectedRunners = runners.filter((r) => r.hostname !== null);
 
   // Two entries, because the two install and are addressed differently. An
   // empty platform routes straight to setup rather than an empty list.
@@ -182,11 +157,10 @@ export function IntegrationsPage(): React.JSX.Element {
     alertSourceCard("grafana", grafana),
     ...METRICS_SOURCE_KINDS.map((kind): IntegrationRow => {
       const identity = INTEGRATION_CATALOG[kind];
-      const connected = metrics?.configured === true && metrics.kind === kind;
+      const connected = metrics.configured && metrics.kind === kind;
       // One source across every product, so connecting one closes the other
       // four rather than offering an action the API would refuse.
-      const heldByAnother =
-        metrics?.configured === true && metrics.kind !== kind;
+      const heldByAnother = metrics.configured && metrics.kind !== kind;
       /* A source with no rules endpoint is connected and still cannot confirm
          a recovery, so the row says which rather than a flat "Connected". */
       const blind = connected && metrics.rules === null;
@@ -213,7 +187,7 @@ export function IntegrationsPage(): React.JSX.Element {
       logo: INTEGRATION_CATALOG.loki.logo,
       category: "Logs",
       to: "/integrations/loki",
-      status: loki?.configured === true ? "Connected" : null,
+      status: loki.configured ? "Connected" : null,
     },
     {
       title: INTEGRATION_CATALOG.sentry.label,
@@ -221,7 +195,7 @@ export function IntegrationsPage(): React.JSX.Element {
       logo: INTEGRATION_CATALOG.sentry.logo,
       category: "Error tracking",
       to: "/integrations/sentry",
-      status: sentry?.configured === true ? "Connected" : null,
+      status: sentry.configured ? "Connected" : null,
     },
     {
       title: INTEGRATION_CATALOG.github.label,
@@ -229,7 +203,7 @@ export function IntegrationsPage(): React.JSX.Element {
       logo: INTEGRATION_CATALOG.github.logo,
       category: "Code",
       to: "/integrations/github",
-      status: github?.configured === true ? "Connected" : null,
+      status: github.configured ? "Connected" : null,
     },
   ];
 

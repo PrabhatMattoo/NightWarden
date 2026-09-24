@@ -1,29 +1,23 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import {
+  useMutation,
+  useQueryClient,
+  useSuspenseQuery,
+} from "@tanstack/react-query";
+
+import { authCall, authClient } from "@/shared/api/authClient";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import { Field, FieldError, FieldLabel } from "@/shared/ui/field";
 import { StatusText } from "@/shared/ui/status";
-import { Spinner } from "@/shared/ui/spinner";
-import { useAuth } from "@/features/auth/AuthContext";
 import { timeAgo } from "@/shared/lib/time";
+import {
+  authStatusQuery,
+  devicesQuery,
+  isSignedIn,
+} from "@/features/auth/queries";
+import { useSignOut } from "@/features/auth/useSignOut";
 import { SettingsGroup, SettingsRow } from "./SettingsRow";
-
-interface DeviceSession {
-  token: string;
-  userAgent: string | null;
-  createdAt: string;
-}
-
-// Better Auth returns the whole row; only these three are drawn, and the IP
-// deliberately is not.
-function readSessions(body: unknown): DeviceSession[] {
-  if (!Array.isArray(body)) return [];
-  return body.flatMap((row) => {
-    const { token, userAgent, createdAt } = row as Partial<DeviceSession>;
-    if (typeof token !== "string" || typeof createdAt !== "string") return [];
-    return [{ token, userAgent: userAgent ?? null, createdAt }];
-  });
-}
 
 /* A user agent is a long string nobody reads, so it is reduced to the two facts
    that identify a device: which browser, on which system. */
@@ -88,44 +82,45 @@ function ChangePassword({ onDone }: { onDone: () => void }): React.JSX.Element {
   const [current, setCurrent] = useState("");
   const [next, setNext] = useState("");
   const [confirm, setConfirm] = useState("");
-  const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
+  const [mismatch, setMismatch] = useState(false);
   const first = useRef<HTMLInputElement>(null);
+  const queryClient = useQueryClient();
+  const change = useMutation({
+    mutationFn: () =>
+      authCall(
+        authClient.changePassword({
+          currentPassword: current,
+          newPassword: next,
+          // Every other device is signed out, because a password is changed when
+          // one of them is no longer trusted.
+          revokeOtherSessions: true,
+        }),
+      ),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({
+        queryKey: devicesQuery().queryKey,
+      });
+      onDone();
+    },
+  });
 
   // The form arrives on a click, so the caret goes with it rather than leaving
   // a keyboard user to hunt for what just appeared.
   useEffect(() => first.current?.focus(), []);
 
-  async function submit(e: React.FormEvent): Promise<void> {
+  function submit(e: React.FormEvent): void {
     e.preventDefault();
-    setError("");
-    if (next !== confirm) {
-      setError("The two new passwords do not match");
-      return;
-    }
-    setBusy(true);
-    const res = await fetch("/api/auth/change-password", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      // Every other device is signed out, because a password is changed when
-      // one of them is no longer trusted.
-      body: JSON.stringify({
-        currentPassword: current,
-        newPassword: next,
-        revokeOtherSessions: true,
-      }),
-    });
-    setBusy(false);
-    if (!res.ok) {
-      const body = (await res.json().catch(() => ({}))) as { message?: string };
-      setError(body.message ?? "Could not change the password");
-      return;
-    }
-    onDone();
+    change.reset();
+    setMismatch(next !== confirm);
+    if (next === confirm) change.mutate();
   }
 
+  const error = mismatch
+    ? "The two new passwords do not match"
+    : change.error?.message;
+
   return (
-    <form className="flex flex-col gap-3" onSubmit={(e) => void submit(e)}>
+    <form className="flex flex-col gap-3" onSubmit={submit}>
       <PasswordField
         id="settings-current-password"
         label="Current password"
@@ -148,9 +143,9 @@ function ChangePassword({ onDone }: { onDone: () => void }): React.JSX.Element {
         autoComplete="new-password"
         onChange={setConfirm}
       />
-      {error !== "" && <FieldError>{error}</FieldError>}
+      {error !== undefined && <FieldError>{error}</FieldError>}
       <div className="flex gap-2">
-        <Button type="submit" disabled={busy}>
+        <Button type="submit" disabled={change.isPending}>
           Change password
         </Button>
         <Button type="button" variant="ghost" onClick={onDone}>
@@ -162,25 +157,15 @@ function ChangePassword({ onDone }: { onDone: () => void }): React.JSX.Element {
 }
 
 function Devices(): React.JSX.Element {
-  const [sessions, setSessions] = useState<DeviceSession[] | null>(null);
+  const { data: sessions } = useSuspenseQuery(devicesQuery());
+  const queryClient = useQueryClient();
+  const revoke = useMutation({
+    mutationFn: (token: string) =>
+      authCall(authClient.revokeSession({ token })),
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: devicesQuery().queryKey }),
+  });
 
-  const load = useCallback(async () => {
-    const res = await fetch("/api/auth/list-sessions");
-    setSessions(res.ok ? readSessions(await res.json()) : []);
-  }, []);
-
-  useEffect(() => void load(), [load]);
-
-  async function revoke(token: string): Promise<void> {
-    await fetch("/api/auth/revoke-session", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ token }),
-    });
-    await load();
-  }
-
-  if (sessions === null) return <Spinner />;
   if (sessions.length === 0) {
     return <StatusText tone="muted">No signed-in devices</StatusText>;
   }
@@ -205,7 +190,8 @@ function Devices(): React.JSX.Element {
           <Button
             type="button"
             variant="destructive-ghost"
-            onClick={() => void revoke(session.token)}
+            disabled={revoke.isPending && revoke.variables === session.token}
+            onClick={() => revoke.mutate(session.token)}
           >
             Revoke
           </Button>
@@ -215,19 +201,13 @@ function Devices(): React.JSX.Element {
   );
 }
 
-interface AccountSectionProps {
-  onLogoutAll: () => void;
-}
-
-export function AccountSection({
-  onLogoutAll,
-}: AccountSectionProps): React.JSX.Element {
-  const { phase } = useAuth();
+export function AccountSection(): React.JSX.Element {
+  const { data: status } = useSuspenseQuery(authStatusQuery());
+  const signOutEverywhere = useSignOut({ everywhere: true });
   const [changing, setChanging] = useState(false);
-  const identity =
-    phase.kind === "authenticated"
-      ? `${phase.name} (${phase.email})`
-      : "Not signed in";
+  const identity = isSignedIn(status)
+    ? `${status.name} (${status.email})`
+    : "Not signed in";
 
   return (
     <div className="flex flex-col gap-8">
@@ -291,7 +271,8 @@ export function AccountSection({
             id="settings-logout-all"
             type="button"
             variant="destructive-ghost"
-            onClick={onLogoutAll}
+            disabled={signOutEverywhere.isPending}
+            onClick={() => signOutEverywhere.mutate()}
           >
             Log out everywhere
           </Button>

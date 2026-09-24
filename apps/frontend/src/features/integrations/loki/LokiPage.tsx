@@ -1,5 +1,9 @@
 import { useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  useMutation,
+  useQueryClient,
+  useSuspenseQuery,
+} from "@tanstack/react-query";
 import type { LokiIntegrationStatus } from "@nightwarden/shared";
 
 import { Alert, AlertTitle, AlertDescription } from "@/shared/ui/alert";
@@ -7,7 +11,6 @@ import { StatusText } from "@/shared/ui/status";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import { Field, FieldLabel, FieldDescription } from "@/shared/ui/field";
-import { Spinner } from "@/shared/ui/spinner";
 import { Page } from "@/shared/ui/Page";
 import { ConfirmDialog } from "@/shared/ui/ConfirmDialog";
 import { ConnectedState, type Fact } from "@/features/integrations/FactGrid";
@@ -16,6 +19,7 @@ import { dayClock } from "@/shared/lib/time";
 import { apiFetch } from "@/shared/api/client";
 import { connectMessage, useDisconnect } from "../useIntegration";
 import { INTEGRATION_CATALOG } from "../catalog";
+import { lokiStatusQuery } from "../queries";
 import { IntegrationHeader } from "@/features/integrations/IntegrationHeader";
 
 export function LokiPage(): React.JSX.Element {
@@ -26,10 +30,7 @@ export function LokiPage(): React.JSX.Element {
   const [connectError, setConnectError] = useState<string | null>(null);
   const [confirmDisconnect, setConfirmDisconnect] = useState(false);
 
-  const { data: status, isLoading } = useQuery<LokiIntegrationStatus>({
-    queryKey: ["loki-integration"],
-    queryFn: () => apiFetch<LokiIntegrationStatus>("/api/integrations/loki"),
-  });
+  const { data: status } = useSuspenseQuery(lokiStatusQuery());
 
   const connect = useMutation({
     mutationFn: () =>
@@ -48,39 +49,40 @@ export function LokiPage(): React.JSX.Element {
       setAuthHeader("");
       setOrgId("");
       toast.success("Loki connected");
-      await queryClient.invalidateQueries({ queryKey: ["loki-integration"] });
+      await queryClient.invalidateQueries({
+        queryKey: lokiStatusQuery().queryKey,
+      });
     },
     onError: (err) => setConnectError(connectMessage(err)),
   });
 
   const disconnect = useDisconnect({
     label: "Loki",
-    queryKey: ["loki-integration"],
+    queryKey: lokiStatusQuery().queryKey,
     endpoint: () => "/api/integrations/loki",
   });
 
-  const facts: Fact[] =
-    status?.configured === true
-      ? [
-          {
-            label: "Status",
-            value: <StatusText tone="ok">Connected</StatusText>,
-          },
-          { label: "Endpoint", value: status.url },
-          { label: "Auth", value: status.hasAuth ? "Configured" : "None" },
-          ...(status.hasOrgId
-            ? [{ label: "Tenant", value: "Configured" } satisfies Fact]
-            : []),
-          ...(status.validatedAt !== null
-            ? [
-                {
-                  label: "Last verified",
-                  value: dayClock(status.validatedAt),
-                } satisfies Fact,
-              ]
-            : []),
-        ]
-      : [];
+  const facts: Fact[] = status.configured
+    ? [
+        {
+          label: "Status",
+          value: <StatusText tone="ok">Connected</StatusText>,
+        },
+        { label: "Endpoint", value: status.url },
+        { label: "Auth", value: status.hasAuth ? "Configured" : "None" },
+        ...(status.hasOrgId
+          ? [{ label: "Tenant", value: "Configured" } satisfies Fact]
+          : []),
+        ...(status.validatedAt !== null
+          ? [
+              {
+                label: "Last verified",
+                value: dayClock(status.validatedAt),
+              } satisfies Fact,
+            ]
+          : []),
+      ]
+    : [];
 
   return (
     <Page
@@ -90,14 +92,7 @@ export function LokiPage(): React.JSX.Element {
       <div className="flex flex-col gap-8">
         <IntegrationHeader identity={INTEGRATION_CATALOG.loki} />
 
-        {isLoading && (
-          <div className="flex items-center gap-2">
-            <Spinner />
-            <p className="type-body text-ink-muted">Loading...</p>
-          </div>
-        )}
-
-        {status && !status.configured && (
+        {!status.configured && (
           <section className="flex flex-col gap-4">
             <Field>
               <FieldLabel htmlFor="loki-url">Loki URL</FieldLabel>
@@ -152,13 +147,12 @@ export function LokiPage(): React.JSX.Element {
               disabled={url.trim() === "" || connect.isPending}
               onClick={() => connect.mutate()}
             >
-              {connect.isPending && <Spinner className="size-4" />}
               Connect
             </Button>
           </section>
         )}
 
-        {status?.configured === true && (
+        {status.configured && (
           <ConnectedState
             facts={facts}
             actions={

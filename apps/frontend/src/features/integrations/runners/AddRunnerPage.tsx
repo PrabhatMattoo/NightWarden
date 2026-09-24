@@ -1,7 +1,7 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useSuspenseQuery } from "@tanstack/react-query";
 import { useBlocker, useNavigate } from "@tanstack/react-router";
-import type { Platform, RunnerRecord } from "@nightwarden/shared";
+import type { Platform } from "@nightwarden/shared";
 import { serverNameError } from "@nightwarden/shared";
 import { ServerCard } from "@/features/integrations/runners/ServerCard";
 import { AlertCircle } from "lucide-react";
@@ -16,7 +16,7 @@ import {
   FieldError,
 } from "@/shared/ui/field";
 import { Input } from "@/shared/ui/input";
-import { Spinner } from "@/shared/ui/spinner";
+import { Rounds } from "@/shared/ui/Rounds";
 import { Page } from "@/shared/ui/Page";
 import {
   WizardStepper,
@@ -25,7 +25,8 @@ import {
 import { ConfirmDialog } from "@/shared/ui/ConfirmDialog";
 import { CopyableSnippet } from "@/shared/ui/CopyableSnippet";
 import { ICON_UI } from "@/shared/lib/iconProps";
-import { ApiError, apiFetch } from "@/shared/api/client";
+import { ApiError, apiFetch, apiText } from "@/shared/api/client";
+import { runnersQuery } from "../queries";
 import { PLATFORM_COPY } from "./RunnerListPage.js";
 
 interface MintedToken {
@@ -50,10 +51,7 @@ export function AddRunnerPage({
 
   const [step, setStep] = useState(0);
   const [serverName, setServerName] = useState("");
-  const [minting, setMinting] = useState(false);
   const [mintedToken, setMintedToken] = useState<MintedToken | null>(null);
-  const [installText, setInstallText] = useState<string | null>(null);
-  const [installError, setInstallError] = useState<string | null>(null);
   const [committed, setCommitted] = useState(false);
   const [touched, setTouched] = useState(false);
 
@@ -64,29 +62,46 @@ export function AddRunnerPage({
   const nameError = serverNameError(serverName);
   const shownError = touched ? nameError : null;
 
-  const { data: runners } = useQuery<RunnerRecord[]>({
-    queryKey: ["wizard-runners"],
-    queryFn: () => apiFetch<RunnerRecord[]>("/api/runners"),
-    enabled: step === 1 && mintedToken !== null,
-    refetchInterval: step === 1 ? RUNNER_POLL_MS : false,
+  // Polled only while waiting for the new runner to dial in.
+  const { data: runners } = useSuspenseQuery({
+    ...runnersQuery(),
+    refetchInterval:
+      step === 1 && mintedToken !== null ? RUNNER_POLL_MS : false,
   });
 
-  const connectedRunner = runners?.find(
+  const connectedRunner = runners.find(
     (r) => r.id === mintedToken?.id && r.online && r.hostname !== null,
   );
 
-  const { data: fleet } = useQuery<RunnerRecord[]>({
-    queryKey: ["runners"],
-    queryFn: () => apiFetch<RunnerRecord[]>("/api/runners"),
-  });
   // With nothing to list, back skips the list page so a first install returns
   // to Integrations rather than an empty intermediary.
-  const hasConnected = (fleet ?? []).some(
+  const hasConnected = runners.some(
     (r) => r.hostname !== null && r.platform === platform,
   );
   const back = hasConnected
     ? { to: listPath, label: copy.plural }
     : { to: "/integrations", label: "Integrations" };
+
+  /* The token is kept as soon as it exists, so leaving before the script arrives
+     still revokes it. A taken name sends the person back to the name step. */
+  const prepare = useMutation({
+    mutationFn: async () => {
+      const minted = await apiFetch<MintedToken>("/api/tokens", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ platform, serverName: serverName.trim() }),
+      });
+      setMintedToken(minted);
+      return await apiText(INSTALL_URL, {
+        headers: { Authorization: `Bearer ${minted.token}` },
+      });
+    },
+    onError: (err) => {
+      if (err instanceof ApiError && err.status === 409) setStep(0);
+    },
+  });
+  const installText = prepare.data ?? null;
+  const installError = prepare.error?.message ?? null;
 
   // Read from the manifest the runner already sent: nothing is dispatched, so
   // checking the wiring cannot start an investigation or spend a token.
@@ -105,12 +120,14 @@ export function AddRunnerPage({
     withResolver: true,
   });
 
+  // Best effort: leaving never waits on it.
+  const revoke = useMutation({
+    mutationFn: (id: string) =>
+      apiFetch<void>(`/api/tokens/${id}`, { method: "DELETE" }),
+  });
+
   function confirmLeaveSetup(): void {
-    if (mintedToken !== null) {
-      void apiFetch<void>(`/api/tokens/${mintedToken.id}`, {
-        method: "DELETE",
-      }).catch(() => {});
-    }
+    if (mintedToken !== null) revoke.mutate(mintedToken.id);
     if (blocker.status === "blocked") blocker.proceed();
   }
 
@@ -118,39 +135,10 @@ export function AddRunnerPage({
     if (blocker.status === "blocked") blocker.reset();
   }
 
-  async function handleStartInstall(): Promise<void> {
+  function handleStartInstall(): void {
     if (nameError !== null) return;
     setStep(1);
-    setMinting(true);
-    setInstallError(null);
-    try {
-      const minted = await apiFetch<MintedToken>("/api/tokens", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          platform: platform,
-          serverName: serverName.trim(),
-        }),
-      });
-      setMintedToken(minted);
-
-      const res = await fetch(INSTALL_URL, {
-        headers: { Authorization: `Bearer ${minted.token}` },
-      });
-      if (!res.ok) throw new Error(`${INSTALL_URL} ${res.status}`);
-      setInstallText(await res.text());
-    } catch (err) {
-      if (err instanceof ApiError && err.status === 409) {
-        setInstallError(err.message);
-        setStep(0);
-        return;
-      }
-      setInstallError(
-        err instanceof Error ? err.message : "Failed to prepare install",
-      );
-    } finally {
-      setMinting(false);
-    }
+    prepare.mutate();
   }
 
   return (
@@ -200,7 +188,7 @@ export function AddRunnerPage({
             <Button
               className="ml-auto"
               disabled={nameError !== null}
-              onClick={() => void handleStartInstall()}
+              onClick={handleStartInstall}
             >
               Continue
             </Button>
@@ -210,11 +198,11 @@ export function AddRunnerPage({
 
       {step === 1 && (
         <div className="flex flex-col gap-4">
-          {minting && (
+          {prepare.isPending && (
             <div className="flex items-center gap-2">
-              <Spinner />
+              <Rounds size="inline" />
               <p className="type-body text-ink-muted">
-                Generating a runner token...
+                Generating a runner token…
               </p>
             </div>
           )}
@@ -245,9 +233,9 @@ export function AddRunnerPage({
                   <StatusText tone="ok">Runner connected</StatusText>
                 ) : (
                   <div className="flex items-center gap-2">
-                    <Spinner />
+                    <Rounds size="inline" />
                     <p className="type-body text-ink-muted">
-                      Waiting for the runner to connect...
+                      Waiting for the runner to connect…
                     </p>
                   </div>
                 )}

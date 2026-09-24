@@ -37,6 +37,13 @@ async function request(url: string, init?: RequestInit): Promise<Response> {
   throw new ApiError(res.status, message, body);
 }
 
+export async function apiText(
+  url: string,
+  init?: RequestInit,
+): Promise<string> {
+  return await (await request(url, init)).text();
+}
+
 export async function apiFetch<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await request(url, init);
   if (res.status === 204) return undefined as T;

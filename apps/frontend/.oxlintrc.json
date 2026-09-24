@@ -41,33 +41,6 @@
             ]
           },
           {
-            "pattern": "^(Skeleton)$",
-            "allow": [
-              "layout",
-              "spacing",
-              "shape",
-              "w-*",
-              "max-w-*",
-              "min-w-*",
-              "sm:w-*",
-              "md:w-*",
-              "lg:w-*"
-            ]
-          },
-          {
-            "pattern": "^(Spinner)$",
-            "allow": [
-              "layout",
-              "color",
-              "w-*",
-              "max-w-*",
-              "min-w-*",
-              "sm:w-*",
-              "md:w-*",
-              "lg:w-*"
-            ]
-          },
-          {
             "pattern": "^(Message)$",
             "allow": [
               "layout",
@@ -114,7 +87,7 @@
             ]
           },
           {
-            "pattern": "^(Button|Skeleton)$",
+            "pattern": "^(Button)$",
             "allow": [
               "layout",
               "max-w-*",
@@ -131,6 +104,18 @@
           "shape": "<{{component}}> owns its shape. Use one of its variants, or add a variant in src/shared/ui."
         }
       }
+    ],
+    "no-restricted-globals": [
+      "error",
+      {
+        "globals": [
+          {
+            "name": "fetch",
+            "message": "Reach the network through apiFetch or the auth client, inside a queryFn or mutationFn."
+          }
+        ],
+        "checkGlobalObject": true
+      }
     ]
   },
   "overrides": [
@@ -142,6 +127,12 @@
       }
     },
     {
+      "files": ["src/shared/api/**"],
+      "rules": {
+        "no-restricted-globals": "off"
+      }
+    },
+    {
       "files": ["src/tests/**", "vitest.setup.ts"],
       "rules": {
         "shadcn/no-inline-styles": "off",
@@ -149,12 +140,12 @@
         "shadcn/no-arbitrary-values": "off",
         "shadcn/no-unknown-classes": "off",
         "shadcn/no-raw-colors": "off",
-        "shadcn/require-static-classes": "off"
+        "shadcn/require-static-classes": "off",
+        "no-restricted-globals": "off"
       }
     },
     {
       "files": [
-        "src/features/settings/AccountSection.tsx",
         "src/features/session/SessionView.tsx",
         "src/features/investigations/InvestigationWorkspace.tsx"
       ],

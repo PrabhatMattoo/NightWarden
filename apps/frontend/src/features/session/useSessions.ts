@@ -12,14 +12,8 @@ import type {
   SessionListPage,
   SessionListRow,
 } from "@nightwarden/shared";
-import { apiFetch } from "@/shared/api/client";
 import { useFrontendEvents } from "@/shared/events/FrontendEventsProvider.js";
-
-// One cache per kind. Investigations and chats are two pages over one table, so
-// a shared cache would make either page's "load more" fetch the other's rows.
-export function sessionsQueryKey(kind: SessionKind): readonly [string, string] {
-  return ["sessions", kind] as const;
-}
+import { sessionsQuery, sessionsQueryKey } from "./queries";
 
 type Pages = InfiniteData<SessionListPage, number>;
 
@@ -66,21 +60,7 @@ export function useSessions(kind: SessionKind): UseSessionsResult {
   );
   useFrontendEvents(onEvent);
 
-  const query = useInfiniteQuery<
-    SessionListPage,
-    Error,
-    Pages,
-    ReturnType<typeof sessionsQueryKey>,
-    number
-  >({
-    queryKey: sessionsQueryKey(kind),
-    initialPageParam: 0,
-    queryFn: ({ pageParam }) =>
-      apiFetch<SessionListPage>(
-        `/api/sessions?kind=${kind}&offset=${pageParam}`,
-      ),
-    getNextPageParam: (lastPage) => lastPage.nextOffset ?? undefined,
-  });
+  const query = useInfiniteQuery(sessionsQuery(kind));
 
   const first = query.data?.pages[0];
   return {

@@ -1,13 +1,18 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import {
+  useMutation,
+  useQueryClient,
+  useSuspenseQuery,
+} from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { AlertCircle } from "lucide-react";
 
 import { ICON_UI } from "@/shared/lib/iconProps";
+import { authCall, authClient } from "@/shared/api/authClient";
 import { Button } from "@/shared/ui/button";
 import { Field, FieldError, FieldLabel } from "@/shared/ui/field";
 import { Input } from "@/shared/ui/input";
-import { Spinner } from "@/shared/ui/spinner";
-import { useAuth } from "@/features/auth/AuthContext";
+import { authStatusQuery } from "@/features/auth/queries";
 
 const MIN_PASSWORD = 12;
 
@@ -68,16 +73,29 @@ function ServerError({ message }: { message: string }): React.JSX.Element {
   );
 }
 
+// Signed in: the status is read again so the app layout finds the session, then the app opens.
+function useEnter(): () => Promise<void> {
+  const queryClient = useQueryClient();
+  const navigate = useNavigate();
+  return async () => {
+    await queryClient.query({ ...authStatusQuery(), staleTime: 0 });
+    await navigate({ to: "/" });
+  };
+}
+
 function SetupForm(): React.JSX.Element {
-  const { signup } = useAuth();
+  const enter = useEnter();
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [passwordError, setPasswordError] = useState("");
   const [confirmError, setConfirmError] = useState("");
-  const [serverError, setServerError] = useState("");
-  const [submitting, setSubmitting] = useState(false);
+  const signUp = useMutation({
+    mutationFn: () =>
+      authCall(authClient.signUp.email({ name, email, password })),
+    onSuccess: enter,
+  });
 
   function validatePassword(value: string): boolean {
     if (value === "") {
@@ -101,28 +119,16 @@ function SetupForm(): React.JSX.Element {
     return !mismatched;
   }
 
-  async function handleSubmit(e: React.FormEvent): Promise<void> {
+  function handleSubmit(e: React.FormEvent): void {
     e.preventDefault();
-    setServerError("");
-
+    signUp.reset();
     const passwordOk = validatePassword(password);
     const confirmOk = validateConfirm(confirmPassword, password);
-    if (!passwordOk || !confirmOk) return;
-
-    setSubmitting(true);
-    try {
-      const result = await signup(name, email, password);
-      if (!result.ok) setServerError(result.error);
-    } finally {
-      setSubmitting(false);
-    }
+    if (passwordOk && confirmOk) signUp.mutate();
   }
 
   return (
-    <form
-      className="flex flex-col gap-6"
-      onSubmit={(e) => void handleSubmit(e)}
-    >
+    <form className="flex flex-col gap-6" onSubmit={handleSubmit}>
       <FormHeading>Create your account</FormHeading>
       {/* Shown on an approval record, so it is a person's name and not a login. */}
       <AuthField
@@ -158,9 +164,8 @@ function SetupForm(): React.JSX.Element {
         onBlur={(v) => validateConfirm(v, password)}
       />
       <div className="flex flex-col gap-2">
-        {serverError && <ServerError message={serverError} />}
-        <Button type="submit" className="w-full" disabled={submitting}>
-          {submitting && <Spinner className="size-4" />}
+        {signUp.error && <ServerError message={signUp.error.message} />}
+        <Button type="submit" className="w-full" disabled={signUp.isPending}>
           Create account
         </Button>
       </div>
@@ -169,28 +174,21 @@ function SetupForm(): React.JSX.Element {
 }
 
 function LoginForm(): React.JSX.Element {
-  const { login } = useAuth();
+  const enter = useEnter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [serverError, setServerError] = useState("");
-  const [submitting, setSubmitting] = useState(false);
+  const signIn = useMutation({
+    mutationFn: () => authCall(authClient.signIn.email({ email, password })),
+    onSuccess: enter,
+  });
 
-  async function handleSubmit(e: React.FormEvent): Promise<void> {
+  function handleSubmit(e: React.FormEvent): void {
     e.preventDefault();
-    setSubmitting(true);
-    try {
-      const result = await login(email, password);
-      setServerError(result.ok ? "" : result.error);
-    } finally {
-      setSubmitting(false);
-    }
+    signIn.mutate();
   }
 
   return (
-    <form
-      className="flex flex-col gap-6"
-      onSubmit={(e) => void handleSubmit(e)}
-    >
+    <form className="flex flex-col gap-6" onSubmit={handleSubmit}>
       <FormHeading>Log in</FormHeading>
       <AuthField
         id="login-email"
@@ -207,9 +205,8 @@ function LoginForm(): React.JSX.Element {
         onChange={setPassword}
       />
       <div className="flex flex-col gap-2">
-        {serverError && <ServerError message={serverError} />}
-        <Button type="submit" className="w-full" disabled={submitting}>
-          {submitting && <Spinner className="size-4" />}
+        {signIn.error && <ServerError message={signIn.error.message} />}
+        <Button type="submit" className="w-full" disabled={signIn.isPending}>
           Log in
         </Button>
       </div>
@@ -217,21 +214,13 @@ function LoginForm(): React.JSX.Element {
   );
 }
 
-export function LoginPage(): React.JSX.Element | null {
-  const { phase } = useAuth();
-  const navigate = useNavigate();
-
-  useEffect(() => {
-    if (phase.kind === "authenticated") void navigate({ to: "/" });
-  }, [phase.kind, navigate]);
-
-  if (phase.kind === "loading" || phase.kind === "authenticated") return null;
-
+export function LoginPage(): React.JSX.Element {
+  const { data: status } = useSuspenseQuery(authStatusQuery());
   return (
-    <div className="flex min-h-svh items-start justify-center p-6 pt-24 lg:pt-40">
+    <div className="flex min-h-svh items-start justify-center p-6 pt-24 animate-in fade-in duration-(--duration-content-in) lg:pt-40">
       <div className="flex w-login flex-col gap-8">
         <span className="type-heading text-ink-base">NightWarden</span>
-        {phase.kind === "needs-setup" ? <SetupForm /> : <LoginForm />}
+        {status.ownerExists ? <LoginForm /> : <SetupForm />}
       </div>
     </div>
   );

@@ -80,7 +80,7 @@ function ChatHistory({ onLeave }: { onLeave: () => void }): React.JSX.Element {
           disabled={isLoadingMore}
           onClick={loadMore}
         >
-          {isLoadingMore ? "Loading…" : "Load older conversations"}
+          Load older conversations
         </Button>
       )}
     </>

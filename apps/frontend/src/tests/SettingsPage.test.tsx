@@ -2,7 +2,9 @@ import { render, screen, waitFor, within, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { TestProviders } from "./renderWithProviders.js";
+import { renderApp, TestProviders } from "./renderWithProviders.js";
+import { json, stubApi } from "./stubApi.js";
+import { MockEventSource } from "./mockEventSource.js";
 import type {
   AgentConfig,
   ModelCatalog,
@@ -18,7 +20,6 @@ import {
   createRouter,
 } from "@tanstack/react-router";
 
-import { AuthProvider } from "@/features/auth/AuthContext";
 import { SettingsPage } from "@/features/settings/SettingsPage";
 import { toast } from "@/shared/lib/toast";
 import { sentBody } from "./sentBody";
@@ -178,9 +179,7 @@ function renderSettings(fetchMock: ReturnType<typeof vi.fn>) {
   render(
     <TestProviders>
       <QueryClientProvider client={qc}>
-        <AuthProvider>
-          <RouterProvider router={router} />
-        </AuthProvider>
+        <RouterProvider router={router} />
       </QueryClientProvider>
     </TestProviders>,
   );
@@ -597,11 +596,22 @@ describe("SettingsPage", () => {
 
     it("shows no reasoning control at all for a model that advertises none", async () => {
       const user = userEvent.setup();
-      setup(withLadder(null));
+      // The ladder comes from the catalog, so the saved model publishes none there.
+      const { fetchMock } = setup(undefined, {
+        ok: true,
+        models: [{ id: "claude-sonnet-4-6", reasoning: null }],
+      });
       await openSection(user, /provider/i);
 
       await screen.findByLabelText(/^model$/i, { selector: "input" });
-      expect(screen.queryByLabelText(/^reasoning$/i)).not.toBeInTheDocument();
+      await waitFor(() =>
+        expect(
+          fetchMock.mock.calls.some(([url]) =>
+            String(url).includes("/config/models"),
+          ),
+        ).toBe(true),
+      );
+      await act(async () => {});
       expect(screen.queryByLabelText(/^reasoning$/i)).not.toBeInTheDocument();
     });
 
@@ -948,6 +958,106 @@ describe("SettingsPage", () => {
         // The trailing blank line from typing is dropped on save.
         expect(hosts.at(-1)).toEqual(["registry.npmjs.org", "internal.dev"]);
       });
+    });
+  });
+
+  // The real route, reached as the account page is: signed in, through the auth client.
+  describe("account", () => {
+    function openAccount(answer: (path: string) => Response | undefined) {
+      vi.stubGlobal("EventSource", MockEventSource);
+      const api = stubApi((request) => {
+        if (request.path === "/api/auth-status") {
+          return json({ ...AUTH_STATUS_RESPONSE, theme: "system" });
+        }
+        if (request.path === "/api/config") return json(CONFIG);
+        return answer(request.path);
+      });
+      const { router } = renderApp({ path: "/settings/account" });
+      return { ...api, router };
+    }
+
+    const DEVICE = (token: string, userAgent: string) => ({
+      id: token,
+      token,
+      userAgent,
+      createdAt: new Date(Date.now() - 60_000).toISOString(),
+    });
+
+    it("lists each signed-in device and revokes the one asked", async () => {
+      const user = userEvent.setup();
+      let devices = [
+        DEVICE("t-mac", "Mozilla/5.0 (Macintosh; Mac OS X) Chrome/140"),
+        DEVICE("t-linux", "Mozilla/5.0 (X11; Linux) Firefox/130"),
+      ];
+      const { requests } = openAccount((path) => {
+        if (path === "/api/auth/list-sessions") return json(devices);
+        if (path === "/api/auth/revoke-session") {
+          devices = devices.slice(0, 1);
+          return json({ status: true });
+        }
+        return undefined;
+      });
+
+      expect(await screen.findByText(/firefox on linux/i)).toBeInTheDocument();
+      await user.click(screen.getAllByRole("button", { name: "Revoke" })[1]!);
+
+      await waitFor(() =>
+        expect(screen.queryByText(/firefox on linux/i)).not.toBeInTheDocument(),
+      );
+      expect(requests("/api/auth/revoke-session")[0]?.body).toEqual({
+        token: "t-linux",
+      });
+    });
+
+    it("shows the server's reason when the current password is wrong", async () => {
+      const user = userEvent.setup();
+      openAccount((path) => {
+        if (path === "/api/auth/list-sessions") return json([]);
+        if (path === "/api/auth/change-password") {
+          return json({ message: "Invalid password" }, 400);
+        }
+        return undefined;
+      });
+
+      await user.click(
+        await screen.findByRole("button", { name: /password change/i }),
+      );
+      await user.type(
+        screen.getByLabelText("Current password"),
+        "wrong-one-123",
+      );
+      await user.type(
+        screen.getByLabelText("New password"),
+        "brand-new-pass-1",
+      );
+      await user.type(
+        screen.getByLabelText("Confirm new password"),
+        "brand-new-pass-1",
+      );
+      await user.click(screen.getByRole("button", { name: "Change password" }));
+
+      expect(await screen.findByText("Invalid password")).toBeInTheDocument();
+    });
+
+    it("logs out every device, this one included, and lands on the login page", async () => {
+      const user = userEvent.setup();
+      const { requests, router } = openAccount((path) => {
+        if (path === "/api/auth/list-sessions") return json([]);
+        if (path === "/api/auth/revoke-sessions") return json({ status: true });
+        if (path === "/api/auth/sign-out") return json({ success: true });
+        return undefined;
+      });
+
+      await user.click(
+        await screen.findByRole("button", { name: "Log out all devices" }),
+      );
+
+      expect(
+        await screen.findByRole("heading", { name: /^log in$/i }),
+      ).toBeInTheDocument();
+      expect(router.state.location.pathname).toBe("/login");
+      expect(requests("/api/auth/revoke-sessions")).toHaveLength(1);
+      expect(requests("/api/auth/sign-out")).toHaveLength(1);
     });
   });
 });

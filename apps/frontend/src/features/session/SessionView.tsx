@@ -25,6 +25,7 @@ import { newClientId } from "@/shared/lib/clientId";
 import { useFrontendEvents } from "@/shared/events/FrontendEventsProvider";
 import { useSession } from "@/features/session/useSession";
 import { prependSession } from "@/features/session/useSessions";
+import { sessionQuery } from "@/features/session/queries";
 import { ChatInput } from "@/features/session/transcript/ChatInput";
 import {
   applyLiveEvent,
@@ -315,7 +316,7 @@ export function SessionView({
         // Housekeeping, not correctness: the render already hides a streamed
         // turn the transcript holds. This only bounds the buffer.
         void queryClient
-          .invalidateQueries({ queryKey: ["session", sid] })
+          .invalidateQueries({ queryKey: sessionQuery(sid).queryKey })
           .then(() => setLiveItems([]));
         return;
       }
@@ -346,7 +347,9 @@ export function SessionView({
         setActivityNotice(null);
         setPendingEcho(null);
         setLiveItems([]);
-        void queryClient.invalidateQueries({ queryKey: ["session", sid] });
+        void queryClient.invalidateQueries({
+          queryKey: sessionQuery(sid).queryKey,
+        });
         return;
       }
 

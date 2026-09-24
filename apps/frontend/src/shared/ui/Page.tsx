@@ -130,7 +130,7 @@ export function Page({
   const showBar =
     Object.values(bar).some((part) => part !== undefined) || isOverlay;
   return (
-    <div className="flex min-h-full w-full min-w-0 flex-col">
+    <div className="flex min-h-full w-full min-w-0 flex-col animate-in fade-in duration-(--duration-content-in)">
       {showBar && <PageBar {...bar} />}
       {measure === "full" ? (
         children

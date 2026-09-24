@@ -1,6 +1,10 @@
-import { useEffect, useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "@tanstack/react-router";
+import { useState } from "react";
+import {
+  useMutation,
+  useQueryClient,
+  useSuspenseQuery,
+} from "@tanstack/react-query";
+import { Navigate, useNavigate } from "@tanstack/react-router";
 import type { Platform, RunnerRecord } from "@nightwarden/shared";
 import { Plus } from "lucide-react";
 import { Alert, AlertTitle, AlertDescription } from "@/shared/ui/alert";
@@ -14,11 +18,11 @@ import {
 } from "@/shared/ui/select";
 import { ServerCard } from "@/features/integrations/runners/ServerCard";
 import { Button } from "@/shared/ui/button";
-import { Spinner } from "@/shared/ui/spinner";
 import { Page } from "@/shared/ui/Page";
 import { ICON_UI } from "@/shared/lib/iconProps";
 import { apiFetch } from "@/shared/api/client";
 import { INTEGRATION_CATALOG } from "../catalog";
+import { runnersQuery } from "../queries";
 import { IntegrationHeader } from "@/features/integrations/IntegrationHeader";
 
 // The two platforms are genuinely different things - a machine running
@@ -96,36 +100,30 @@ export function RunnerListPage({
 }): React.JSX.Element {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
-  const [removing, setRemoving] = useState<string | null>(null);
-  const [removeError, setRemoveError] = useState<string | null>(null);
   const [sortField, setSortField] = useState<SortField>("name");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
 
   const copy = PLATFORM_COPY[platform];
 
-  const {
-    data: runners,
-    isLoading,
-    isError,
-  } = useQuery<RunnerRecord[]>({
-    queryKey: ["runners"],
-    queryFn: () => apiFetch<RunnerRecord[]>("/api/runners"),
+  // A failed poll keeps the last list and says so, rather than emptying the page.
+  const { data: runners, isError } = useSuspenseQuery({
+    ...runnersQuery(),
     refetchInterval: 30_000,
   });
 
-  const connected = (runners ?? []).filter(
+  const remove = useMutation({
+    mutationFn: (token: string) =>
+      apiFetch<void>(`/api/tokens/${token}`, { method: "DELETE" }),
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: runnersQuery().queryKey }),
+  });
+
+  const connected = runners.filter(
     (r) => r.hostname !== null && runsPlatform(r, platform),
   );
   const sorted = [...connected].sort((a, b) =>
     compareRunners(a, b, sortField, sortDir),
   );
-
-  // Nothing to list, so an empty fleet goes to the wizard, not an empty page.
-  useEffect(() => {
-    if (!isLoading && !isError && connected.length === 0) {
-      void navigate({ to: `/integrations/${platform}/add`, replace: true });
-    }
-  }, [isLoading, isError, connected.length, navigate, platform]);
 
   function handleSort(field: SortField): void {
     if (field === sortField) {
@@ -136,64 +134,34 @@ export function RunnerListPage({
     }
   }
 
-  async function handleRemove(token: string): Promise<void> {
-    setRemoving(token);
-    setRemoveError(null);
-    try {
-      await apiFetch<void>(`/api/tokens/${token}`, { method: "DELETE" });
-      await queryClient.invalidateQueries({ queryKey: ["runners"] });
-    } catch (err) {
-      setRemoveError(
-        err instanceof Error ? err.message : "Failed to remove runner",
-      );
-    } finally {
-      setRemoving(null);
-    }
+  // Nothing to list, so an empty fleet goes to the wizard, not an empty page.
+  if (connected.length === 0) {
+    return <Navigate to={`/integrations/${platform}/add`} replace />;
   }
 
   return (
     <Page
       measure="narrow"
       back={{ to: "/integrations", label: "Integrations" }}
-      /* The empty state carries this action itself, so offering it twice on
-         the one screen where it is the only thing to do reads as a mistake. */
       controls={
-        connected.length > 0 ? (
-          <Button
-            size="sm"
-            onClick={() =>
-              void navigate({ to: `/integrations/${platform}/add` })
-            }
-          >
-            <Plus {...ICON_UI} />
-            Add a {copy.singular.toLowerCase()}
-          </Button>
-        ) : undefined
+        <Button
+          size="sm"
+          onClick={() => void navigate({ to: `/integrations/${platform}/add` })}
+        >
+          <Plus {...ICON_UI} />
+          Add a {copy.singular.toLowerCase()}
+        </Button>
       }
     >
-      {/* Withheld while the list is empty: the empty state already says what
-          this is and what to do, and saying it twice reads as a stutter. */}
-      {connected.length > 0 && (
-        <div className="-mt-2 mb-4">
-          <IntegrationHeader identity={INTEGRATION_CATALOG[platform]} />
-        </div>
-      )}
+      <div className="-mt-2 mb-4">
+        <IntegrationHeader identity={INTEGRATION_CATALOG[platform]} />
+      </div>
 
-      {removeError !== null && (
+      {remove.error !== null && (
         <Alert variant="destructive" className="mb-4">
           <AlertTitle>Remove failed</AlertTitle>
-          <AlertDescription>{removeError}</AlertDescription>
+          <AlertDescription>{remove.error.message}</AlertDescription>
         </Alert>
-      )}
-
-      {isLoading && (
-        <div
-          role="status"
-          aria-label={`Loading ${copy.plural.toLowerCase()}`}
-          className="py-6"
-        >
-          <Spinner className="size-4" />
-        </div>
       )}
 
       {isError && (
@@ -205,7 +173,7 @@ export function RunnerListPage({
         </Alert>
       )}
 
-      {!isLoading && !isError && connected.length > 1 && (
+      {connected.length > 1 && (
         <Field className="mb-3">
           <FieldLabel htmlFor="runner-sort">Sort by</FieldLabel>
           <Select
@@ -227,28 +195,25 @@ export function RunnerListPage({
         </Field>
       )}
 
-      {!isLoading && !isError && connected.length > 0 && (
-        <div className="flex flex-col gap-3">
-          {sorted.map((runner) => (
-            <ServerCard
-              key={runner.id}
-              runner={runner}
-              actions={
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={removing === runner.id}
-                  aria-label={`Remove ${runner.serverName}`}
-                  onClick={() => void handleRemove(runner.id)}
-                >
-                  {removing === runner.id && <Spinner className="size-3" />}
-                  Remove
-                </Button>
-              }
-            />
-          ))}
-        </div>
-      )}
+      <div className="flex flex-col gap-3">
+        {sorted.map((runner) => (
+          <ServerCard
+            key={runner.id}
+            runner={runner}
+            actions={
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={remove.isPending && remove.variables === runner.id}
+                aria-label={`Remove ${runner.serverName}`}
+                onClick={() => remove.mutate(runner.id)}
+              >
+                Remove
+              </Button>
+            }
+          />
+        ))}
+      </div>
     </Page>
   );
 }

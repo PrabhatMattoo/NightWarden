@@ -122,7 +122,9 @@
   --duration-reveal: 1600ms;
   --duration-live: 1300ms;
   --duration-breathe: 1800ms;
-  --duration-skeleton-delay: 300ms;
+  --duration-rounds: 1600ms;
+  --duration-pending-in: 100ms;
+  --duration-content-in: 80ms;
   --default-transition-duration: var(--duration-base);
   --default-transition-timing-function: var(--ease-out);
 
@@ -263,17 +265,47 @@
   }
 }
 
-/* Painted only once a wait outlasts 300ms, so a fast load never flashes a frame. */
-@utility skeleton-reveal {
-  animation: nw-reveal var(--duration-fast) var(--ease-out)
-    var(--duration-skeleton-delay) both;
-}
-@keyframes nw-reveal {
-  from {
-    opacity: 0;
+/* One lit dot walks the grid's edge, a step every 200ms, and fades over the
+   next two so the round leaves a trail. */
+@utility rounds {
+  & [data-step] {
+    animation: nw-rounds var(--duration-rounds) linear infinite;
   }
-  to {
+  & [data-step="0"] {
+    animation-delay: calc(var(--duration-rounds) * -1);
+  }
+  & [data-step="1"] {
+    animation-delay: calc(var(--duration-rounds) * -0.875);
+  }
+  & [data-step="2"] {
+    animation-delay: calc(var(--duration-rounds) * -0.75);
+  }
+  & [data-step="3"] {
+    animation-delay: calc(var(--duration-rounds) * -0.625);
+  }
+  & [data-step="4"] {
+    animation-delay: calc(var(--duration-rounds) * -0.5);
+  }
+  & [data-step="5"] {
+    animation-delay: calc(var(--duration-rounds) * -0.375);
+  }
+  & [data-step="6"] {
+    animation-delay: calc(var(--duration-rounds) * -0.25);
+  }
+  & [data-step="7"] {
+    animation-delay: calc(var(--duration-rounds) * -0.125);
+  }
+}
+@keyframes nw-rounds {
+  0% {
     opacity: 1;
+  }
+  12.5% {
+    opacity: 0.85;
+  }
+  37.5%,
+  100% {
+    opacity: 0.3;
   }
 }
 
@@ -428,5 +460,9 @@
     animation-iteration-count: 1 !important;
     transition-duration: 1ms !important;
     scroll-behavior: auto !important;
+  }
+  /* The one exception: a wait still has to read as alive, so the frozen round breathes. */
+  [data-slot="rounds"] {
+    animation: nw-breathe var(--duration-breathe) var(--ease-out) infinite !important;
   }
 }
