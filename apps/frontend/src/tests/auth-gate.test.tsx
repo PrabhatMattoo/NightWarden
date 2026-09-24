@@ -11,6 +11,7 @@ const SIGNED_IN = {
   authenticated: true,
   email: "a@b.com",
   name: "Admin",
+  image: null,
   theme: "system",
 };
 

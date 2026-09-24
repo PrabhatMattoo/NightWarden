@@ -4,6 +4,7 @@ import remarkGfm from "remark-gfm";
 import { CircleAlert } from "lucide-react";
 
 import { Message } from "@/shared/ui/message";
+import { IconLine } from "@/shared/ui/icon-line";
 import { Bubble, BubbleContent } from "@/shared/ui/bubble";
 import { MetaText } from "@/shared/ui/status";
 import type { TranscriptItem, AlertArrivedItem } from "./types.js";
@@ -40,14 +41,14 @@ function AgentMarkdown({ text }: { text: string }): React.JSX.Element {
 // muted and inline, so it never colours like the agent reasoning badly.
 function ErrorNotice({ text }: { text: string }): React.JSX.Element {
   return (
-    <div
+    <IconLine
+      icon={CircleAlert}
       role="status"
       data-testid="error-notice"
-      className="animate-in fade-in flex items-start gap-2 type-prose text-ink-muted duration-(--duration-slow)"
+      className="animate-in fade-in type-prose text-ink-muted duration-(--duration-slow)"
     >
-      <CircleAlert aria-hidden className="size-4 shrink-0" />
       <p className="m-0 whitespace-pre-wrap">{text}</p>
-    </div>
+    </IconLine>
   );
 }
 
@@ -176,10 +177,8 @@ export function TranscriptItemRenderer({
       return <AlertArrived item={item} />;
     case "compaction":
       return <Compaction />;
-    // One kind for a tool call's whole life, so what it is drawn as is read off
-    // its state. Waiting on a person is raised; every other moment is a row.
-    // In the transcript a call is a row whatever it is waiting on. The decision
-    // is taken on the card pinned above the message box.
+    // A call is a row whatever it waits on; a person decides on the card
+    // pinned above the message box.
     case "tool_call":
       return <ToolCall item={item} />;
     case "candidate_card":

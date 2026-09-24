@@ -42,6 +42,19 @@
             ]
           },
           {
+            "pattern": "^(IconLine)$",
+            "allow": [
+              "layout",
+              "typography",
+              "color",
+              "type-*",
+              "motion",
+              "animate-*",
+              "fade-*",
+              "duration-*"
+            ]
+          },
+          {
             "pattern": "^(Message)$",
             "allow": [
               "layout",

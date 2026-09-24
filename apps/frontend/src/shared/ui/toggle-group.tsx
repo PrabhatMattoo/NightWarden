@@ -18,11 +18,21 @@ function ToggleGroup({ className, ...props }: ToggleGroupPrimitive.Props) {
   );
 }
 
-function ToggleGroupItem({ className, ...props }: TogglePrimitive.Props) {
+// An icon item is square and carries its name in aria-label and a tooltip.
+function ToggleGroupItem({
+  className,
+  size = "default",
+  ...props
+}: TogglePrimitive.Props & { size?: "default" | "icon" }) {
   return (
     <TogglePrimitive
       data-slot="toggle-group-item"
-      className={cn(TOGGLE, "data-pressed:shadow-control", className)}
+      className={cn(
+        TOGGLE,
+        "data-pressed:shadow-control",
+        size === "icon" && "w-7 px-0",
+        className,
+      )}
       {...props}
     />
   );

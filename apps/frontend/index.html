@@ -9,6 +9,7 @@
     <script>
       // Before first paint, so the page never flashes the theme it is leaving.
       (function () {
+        var root = document.documentElement;
         var choice = "system";
         try {
           choice = localStorage.getItem("nightwarden.theme") || "system";
@@ -17,7 +18,7 @@
           choice === "light" ||
           (choice === "system" &&
             matchMedia("(prefers-color-scheme: light)").matches);
-        document.documentElement.dataset.theme = light ? "light" : "dark";
+        root.dataset.theme = light ? "light" : "dark";
       })();
     </script>
   </head>

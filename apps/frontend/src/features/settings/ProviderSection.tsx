@@ -1,10 +1,11 @@
 import { useState } from "react";
 import { Pencil } from "lucide-react";
-import type {
-  AgentConfig,
-  ModelOption,
-  ProviderOption,
-  ProviderSettings,
+import {
+  REASONING_LEVELS,
+  type AgentConfig,
+  type ModelOption,
+  type ProviderOption,
+  type ProviderSettings,
 } from "@nightwarden/shared";
 
 import { Button } from "@/shared/ui/button";
@@ -25,7 +26,7 @@ import {
   SelectValue,
 } from "@/shared/ui/select";
 import { ICON_UI } from "@/shared/lib/iconProps";
-import { SettingsGroup, SettingsRow } from "./SettingsRow";
+import { rowLabel, SettingsGroup, SettingsRow } from "./SettingsRow";
 
 // "input-clear" is absent on purpose: that is Base UI wiping the box when the
 // list closes on no match, and honouring it threw away what was typed.
@@ -92,15 +93,22 @@ export function ProviderSection({
   const providerItems: Record<string, string> = Object.fromEntries(
     providers.map((provider) => [provider.name, provider.label]),
   );
+  /* While the catalog loads, the saved level stands alone and disabled, so the
+     row keeps its place instead of vanishing and returning with the ladder. */
+  const heldLevel =
+    catalog.kind === "loading" && block?.model ? block.reasoningLevel : null;
+  const levels =
+    reasoning?.levels ??
+    REASONING_LEVELS.filter((level) => level.value === heldLevel);
   const levelItems: Record<string, string> = Object.fromEntries(
-    (reasoning?.levels ?? []).map((l) => [l.value, l.label]),
+    levels.map((l) => [l.value, l.label]),
   );
 
   return (
     <div className="flex flex-col gap-3">
       <SettingsGroup>
         <SettingsRow
-          controlId="settings-provider"
+          id="settings-provider"
           title="Provider"
           description="Which service answers a request."
         >
@@ -113,7 +121,7 @@ export function ProviderSection({
               )
             }
           >
-            <SelectTrigger id="settings-provider">
+            <SelectTrigger aria-labelledby={rowLabel("settings-provider")}>
               <SelectValue placeholder="Select a provider" />
             </SelectTrigger>
             <SelectContent>
@@ -127,13 +135,13 @@ export function ProviderSection({
         </SettingsRow>
 
         <SettingsRow
-          controlId="settings-base-url"
+          id="settings-base-url"
           unavailable={noProvider}
           title="Base URL"
           description="Where to reach that service."
         >
           <Input
-            id="settings-base-url"
+            aria-labelledby={rowLabel("settings-base-url")}
             measure="beside"
             disabled={noProvider}
             value={
@@ -148,14 +156,14 @@ export function ProviderSection({
         </SettingsRow>
 
         <SettingsRow
-          controlId="settings-api-key"
+          id="settings-api-key"
           unavailable={noProvider}
           title="API key"
           description="Stored encrypted and never shown again."
         >
           {keyInputOpen ? (
             <Input
-              id="settings-api-key"
+              aria-labelledby={rowLabel("settings-api-key")}
               type="password"
               measure="beside"
               disabled={noProvider}
@@ -182,7 +190,7 @@ export function ProviderSection({
         </SettingsRow>
 
         <SettingsRow
-          controlId="settings-model"
+          id="settings-model"
           unavailable={noProvider}
           title="Model"
           description="One of the models that endpoint lists."
@@ -201,8 +209,7 @@ export function ProviderSection({
             openOnInputClick
           >
             <ComboboxInput
-              id="settings-model"
-              aria-label="Model"
+              aria-labelledby={rowLabel("settings-model")}
               className="w-full sm:w-control"
               onKeyDownCapture={(e) => {
                 if (e.key !== "Enter") return;
@@ -232,20 +239,21 @@ export function ProviderSection({
           </Combobox>
         </SettingsRow>
 
-        {reasoning && (
+        {levels.length > 0 && (
           <SettingsRow
-            controlId="settings-reasoning"
+            id="settings-reasoning"
             title="Reasoning"
             description="How hard the model works on each request."
           >
             <Select
               items={levelItems}
+              disabled={reasoning === null}
               value={block?.reasoningLevel ?? ""}
               onValueChange={(value) =>
                 onProviderField("reasoningLevel", value || null)
               }
             >
-              <SelectTrigger id="settings-reasoning">
+              <SelectTrigger aria-labelledby={rowLabel("settings-reasoning")}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>

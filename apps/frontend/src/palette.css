@@ -1,13 +1,13 @@
 /* Every colour role for each ground, in the dark and the light theme. */
 
 :root:not([data-theme="light"]) {
-  --accent: lch(47.918 59.303 288.421);
-  --accent-hover: lch(52.418 61.103 288.421);
-  --accent-ink: lch(57.028 70 288.421);
-  --on-accent: lch(100 5 288.421);
-  --focus: lch(47.918 59.303 288.421);
+  --accent: lch(52 62 278);
+  --accent-hover: lch(56.5 63.8 278);
+  --accent-ink: lch(57.028 70 278);
+  --on-accent: lch(100 5 278);
+  --focus: lch(52 62 278);
+  --selection: lch(52 62 278 / 0.7);
   --edge: lch(100 0 0 / 0.083);
-  --selection: lch(47.918 59.303 288.421 / 0.7);
   --scrim: lch(0 0 0 / 0.4);
   --shade: lch(7.32 0.85 272);
   --stage-fall: linear-gradient(lch(5.52 0.4 272) 0%, lch(2.595 0.4 272) 100%);
@@ -35,10 +35,11 @@
   --control: lch(10.149 0.689 272);
   --control-hover: lch(14.777 1.075 272);
   --ghost-hover: lch(14.006 0.593 272);
+  --edge-faint: lch(13.08 1.48 272);
   --edge-input: lch(27.12 1.48 272);
   --edge-input-hover: lch(24.32 6.48 272);
   --edge-strong: lch(48.72 1.48 272);
-  --edge-overlay: lch(18.48 1.48 272);
+  --edge-base: lch(18.48 1.48 272);
   --edge-modal: transparent;
   --switch-off: lch(43.839 0.463 272);
   --switch-off-hover: lch(52.526 0.558 272);
@@ -67,10 +68,11 @@
   --control: lch(10.149 0.689 272);
   --control-hover: lch(14.777 1.075 272);
   --ghost-hover: lch(14.006 0.593 272);
+  --edge-faint: lch(13.08 1.48 272);
   --edge-input: lch(27.12 1.48 272);
   --edge-input-hover: lch(24.32 6.48 272);
   --edge-strong: lch(48.72 1.48 272);
-  --edge-overlay: lch(18.48 1.48 272);
+  --edge-base: lch(18.48 1.48 272);
   --edge-modal: transparent;
   --switch-off: lch(43.839 0.463 272);
   --switch-off-hover: lch(52.526 0.558 272);
@@ -97,10 +99,11 @@
   --control: lch(10.149 0.689 272);
   --control-hover: lch(14.777 1.075 272);
   --ghost-hover: lch(10.149 0.689 272);
+  --edge-faint: lch(10.155 1.48 272);
   --edge-input: lch(24.195 1.48 272);
   --edge-input-hover: lch(21.395 6.48 272);
   --edge-strong: lch(45.795 1.48 272);
-  --edge-overlay: lch(15.555 1.48 272);
+  --edge-base: lch(15.555 1.48 272);
   --edge-modal: transparent;
   --switch-off: lch(40.914 0.463 272);
   --switch-off-hover: lch(49.601 0.558 272);
@@ -127,10 +130,11 @@
   --control: lch(13.861 1.139 272);
   --control-hover: lch(18.49 1.525 272);
   --ghost-hover: lch(17.718 1.043 272);
+  --edge-faint: lch(16.793 1.93 272);
   --edge-input: lch(30.833 1.93 272);
   --edge-input-hover: lch(28.033 6.93 272);
   --edge-strong: lch(52.433 1.93 272);
-  --edge-overlay: lch(22.193 1.93 272);
+  --edge-base: lch(22.193 1.93 272);
   --edge-modal: transparent;
   --switch-off: lch(47.552 0.913 272);
   --switch-off-hover: lch(56.239 1.008 272);
@@ -157,10 +161,11 @@
   --control: lch(21.061 1.589 272);
   --control-hover: lch(25.69 1.975 272);
   --ghost-hover: lch(24.918 1.493 272);
+  --edge-faint: lch(23.993 2.38 272);
   --edge-input: lch(38.033 2.38 272);
   --edge-input-hover: lch(35.233 7.38 272);
   --edge-strong: lch(59.633 2.38 272);
-  --edge-overlay: lch(29.393 2.38 272);
+  --edge-base: lch(29.393 2.38 272);
   --edge-modal: transparent;
   --switch-off: lch(54.752 1.363 272);
   --switch-off-hover: lch(63.439 1.458 272);
@@ -187,10 +192,11 @@
   --control: lch(17.349 1.139 272);
   --control-hover: lch(21.977 1.525 272);
   --ghost-hover: lch(21.206 1.043 272);
+  --edge-faint: lch(20.28 1.93 272);
   --edge-input: lch(34.32 1.93 272);
   --edge-input-hover: lch(31.52 6.93 272);
   --edge-strong: lch(55.92 1.93 272);
-  --edge-overlay: lch(25.68 1.93 272);
+  --edge-base: lch(25.68 1.93 272);
   --edge-modal: transparent;
   --switch-off: lch(51.039 0.913 272);
   --switch-off-hover: lch(59.726 1.008 272);
@@ -206,13 +212,13 @@
 }
 
 :root[data-theme="light"] {
-  --accent: lch(53 52.26 286.91);
-  --accent-hover: lch(47 50.26 286.91);
-  --accent-ink: lch(44.073 70 286.91);
-  --on-accent: lch(100 5 286.91);
-  --focus: lch(53 52.26 286.91);
+  --accent: lch(44 64 279);
+  --accent-hover: lch(38 62 279);
+  --accent-ink: lch(44.073 70 279);
+  --on-accent: lch(100 5 279);
+  --focus: lch(44 64 279);
+  --selection: lch(44 64 279 / 0.7);
   --edge: lch(0 0 0 / 0.088);
-  --selection: lch(53 52.26 286.91 / 0.7);
   --scrim: lch(0 0 0 / 0.25);
   --shade: lch(99.997 0.5 282);
   --stage-fall: linear-gradient(lch(97.94 0.5 282) 0%, lch(94.44 0.5 282) 100%);
@@ -240,10 +246,11 @@
   --control: lch(99.997 0.5 282);
   --control-hover: lch(95.883 0.157 282);
   --ghost-hover: lch(94.854 0.5 282);
+  --edge-faint: lch(89.84 0 282);
   --edge-input: lch(84.44 0 282);
   --edge-input-hover: lch(76.44 0 282);
   --edge-strong: lch(52.04 0 282);
-  --edge-overlay: lch(89.84 0 282);
+  --edge-base: lch(89.84 0 282);
   --edge-modal: lch(89.84 0 282);
   --switch-off: lch(80.424 0.054 282);
   --switch-off-hover: lch(74.918 0.076 282);
@@ -272,10 +279,11 @@
   --control: lch(99.997 0.5 282);
   --control-hover: lch(95.883 0.157 282);
   --ghost-hover: lch(94.854 0.5 282);
+  --edge-faint: lch(89.84 0 282);
   --edge-input: lch(84.44 0 282);
   --edge-input-hover: lch(76.44 0 282);
   --edge-strong: lch(52.04 0 282);
-  --edge-overlay: lch(89.84 0 282);
+  --edge-base: lch(89.84 0 282);
   --edge-modal: lch(89.84 0 282);
   --switch-off: lch(80.424 0.054 282);
   --switch-off-hover: lch(74.918 0.076 282);
@@ -302,10 +310,11 @@
   --control: lch(97.94 0.5 282);
   --control-hover: lch(94.44 0.5 282);
   --ghost-hover: lch(0 0 0 / 0.06);
+  --edge-faint: lch(86.34 0 282);
   --edge-input: lch(80.94 0 282);
   --edge-input-hover: lch(88.94 5 282);
   --edge-strong: lch(48.54 0 282);
-  --edge-overlay: lch(86.34 0 282);
+  --edge-base: lch(86.34 0 282);
   --edge-modal: lch(86.34 0 282);
   --switch-off: lch(76.924 0.054 282);
   --switch-off-hover: lch(71.418 0.076 282);
@@ -332,10 +341,11 @@
   --control: lch(100 0 282);
   --control-hover: lch(95.886 0 282);
   --ghost-hover: lch(96.914 0 282);
+  --edge-faint: lch(91.9 0 282);
   --edge-input: lch(86.5 0 282);
   --edge-input-hover: lch(78.5 0 282);
   --edge-strong: lch(54.1 0 282);
-  --edge-overlay: lch(91.9 0 282);
+  --edge-base: lch(91.9 0 282);
   --edge-modal: lch(91.9 0 282);
   --switch-off: lch(82.484 0.054 282);
   --switch-off-hover: lch(76.978 0.076 282);
@@ -362,10 +372,11 @@
   --control: lch(100 0 282);
   --control-hover: lch(95.886 0 282);
   --ghost-hover: lch(96.914 0 282);
+  --edge-faint: lch(91.9 0 282);
   --edge-input: lch(86.5 0 282);
   --edge-input-hover: lch(78.5 0 282);
   --edge-strong: lch(54.1 0 282);
-  --edge-overlay: lch(91.9 0 282);
+  --edge-base: lch(91.9 0 282);
   --edge-modal: lch(91.9 0 282);
   --switch-off: lch(82.484 0.054 282);
   --switch-off-hover: lch(76.978 0.076 282);
@@ -392,10 +403,11 @@
   --control: lch(100 0 282);
   --control-hover: lch(95.886 0 282);
   --ghost-hover: lch(96.914 0 282);
+  --edge-faint: lch(91.9 0 282);
   --edge-input: lch(86.5 0 282);
   --edge-input-hover: lch(78.5 0 282);
   --edge-strong: lch(54.1 0 282);
-  --edge-overlay: lch(91.9 0 282);
+  --edge-base: lch(91.9 0 282);
   --edge-modal: lch(91.9 0 282);
   --switch-off: lch(82.484 0.054 282);
   --switch-off-hover: lch(76.978 0.076 282);

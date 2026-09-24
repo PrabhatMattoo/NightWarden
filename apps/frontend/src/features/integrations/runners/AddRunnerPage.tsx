@@ -141,7 +141,7 @@ export function AddRunnerPage({
   }
 
   return (
-    <Page back={back}>
+    <Page measure="wide" back={back}>
       <WizardStepper step={step} total={3} title={STEP_TITLES[step]} />
 
       {step === 0 && (

@@ -33,7 +33,7 @@ function BubbleContent({
     props: mergeProps<"div">(
       {
         className: cn(
-          "w-fit max-w-full min-w-0 overflow-hidden rounded-card bg-control px-3 py-2 type-prose wrap-break-word group-data-[align=end]/bubble:self-end",
+          "w-fit max-w-full min-w-0 overflow-hidden rounded-control bg-accent px-3 py-2 type-prose text-on-accent wrap-break-word group-data-[align=end]/bubble:self-end",
           className,
         ),
       },

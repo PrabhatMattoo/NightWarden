@@ -253,6 +253,24 @@ function SidebarGroup({ className, ...props }: React.ComponentProps<"div">) {
   );
 }
 
+// A group's name lines up with its rows' icons, in the rows' own type at rest.
+function SidebarGroupLabel({
+  className,
+  ...props
+}: React.ComponentProps<"h2">) {
+  return (
+    <h2
+      data-slot="sidebar-group-label"
+      className={cn(
+        "nav-label-motion mb-1.5 truncate ps-1.5 whitespace-nowrap type-item text-ink-muted",
+        "group-data-[collapsible=icon]:opacity-0 group-data-[collapsible=icon]:delay-0",
+        className,
+      )}
+      {...props}
+    />
+  );
+}
+
 function SidebarMenu({ className, ...props }: React.ComponentProps<"ul">) {
   return (
     <ul
@@ -273,10 +291,12 @@ function SidebarMenuItem({ className, ...props }: React.ComponentProps<"li">) {
   );
 }
 
-/* One geometry open and closed, so only the rail's width moves. The selected fill
-   holds under the pointer; only an unselected row answers hover. */
-const SIDEBAR_ROW =
-  "group/menu-button flex h-7.5 w-full items-center overflow-hidden rounded-control px-1.5 text-left type-item text-ink-muted highlight-motion hover:bg-hover hover:text-ink-title disabled:pointer-events-none aria-disabled:pointer-events-none data-active:bg-selected data-active:text-ink-title data-active:hover:bg-selected [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-5";
+// One geometry open and closed, so only the rail's width moves.
+const ROW_GEOMETRY =
+  "flex h-7.5 w-full items-center overflow-hidden rounded-control text-left type-item";
+
+// The selected fill holds under the pointer; only an unselected row answers hover.
+const SIDEBAR_ROW = `group/menu-button ${ROW_GEOMETRY} px-1.5 text-ink-muted highlight-motion hover:bg-hover hover:text-ink-title disabled:pointer-events-none aria-disabled:pointer-events-none data-active:bg-selected data-active:text-ink-title data-active:hover:bg-selected [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-5`;
 
 function SidebarMenuButton({
   render,
@@ -316,6 +336,43 @@ function SidebarMenuButton({
   );
 }
 
+/* A row that only shows something: no hover, and a 24px mark centred where an
+   icon sits. Room is kept for its action while the rail is open. */
+function SidebarMenuStatic({
+  className,
+  ...props
+}: React.ComponentProps<"div">) {
+  return (
+    <div
+      data-slot="sidebar-menu-static"
+      className={cn(
+        ROW_GEOMETRY,
+        "px-1 text-ink-base group-has-data-[slot=sidebar-menu-action]/menu-item:pe-8 group-data-[collapsible=icon]:pe-1",
+        className,
+      )}
+      {...props}
+    />
+  );
+}
+
+// A second action at a row's end; the collapsed rail has no room for it.
+function SidebarMenuAction({
+  className,
+  ...props
+}: React.ComponentProps<"button">) {
+  return (
+    <button
+      type="button"
+      data-slot="sidebar-menu-action"
+      className={cn(
+        "absolute inset-y-0 end-1 my-auto flex size-6 items-center justify-center rounded-control text-ink-muted highlight-motion hover:bg-highlight hover:text-ink-title group-data-[collapsible=icon]:hidden [&>svg]:size-4 [&>svg]:shrink-0",
+        className,
+      )}
+      {...props}
+    />
+  );
+}
+
 // The one child the rail collapses, and it says so itself.
 function SidebarMenuLabel({
   className,
@@ -339,12 +396,15 @@ export {
   SidebarContent,
   SidebarFooter,
   SidebarGroup,
+  SidebarGroupLabel,
   SidebarHeader,
   SidebarInset,
   SidebarMenu,
+  SidebarMenuAction,
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarMenuLabel,
+  SidebarMenuStatic,
   SidebarProvider,
   SidebarTrigger,
   useSidebar,

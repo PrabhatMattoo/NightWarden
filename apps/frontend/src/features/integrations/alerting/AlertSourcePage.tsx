@@ -91,6 +91,7 @@ export function AlertSourcePage({
 
   return (
     <Page
+      measure="wide"
       back={{ to: "/integrations", label: "Integrations" }}
       /* Withheld while a freshly minted secret is on screen: that moment is a
          step to finish, not a delivery report to read. */

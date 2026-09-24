@@ -5,7 +5,13 @@ export type {
 } from "./alerts.js";
 export { ALERT_SOURCE_KINDS, isAlertSourceKind } from "./alerts.js";
 export type { AuthStatusResponse, ThemePreference } from "./auth.js";
-export { THEME_PREFERENCES } from "./auth.js";
+export {
+  AVATAR_MAX_LENGTH,
+  AVATAR_PATTERN,
+  AVATAR_SIZE_PX,
+  PASSWORD_MIN_LENGTH,
+  THEME_PREFERENCES,
+} from "./auth.js";
 export type {
   DockerServiceIdentity,
   KubernetesWorkloadIdentity,
@@ -206,6 +212,7 @@ export type {
 } from "./config.js";
 export {
   LLM_PROVIDER_NAMES,
+  REASONING_LEVELS,
   SANDBOX_HOST_PATTERN,
   SANDBOX_NETWORKS,
   SETTING_RANGES,

@@ -105,7 +105,7 @@ function LineChart({
           viewBox={`0 0 ${width} ${H}`}
           role="img"
           aria-label={lines.map((line) => line.label).join(", ")}
-          className="w-full rounded-control border-hairline border-edge bg-ground"
+          className="tile w-full bg-ground"
           onPointerMove={(e) => {
             const box = e.currentTarget.getBoundingClientRect();
             const mouseX = Math.max(

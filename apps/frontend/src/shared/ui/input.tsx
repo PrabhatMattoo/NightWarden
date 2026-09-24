@@ -8,6 +8,8 @@ import { cn } from "@/shared/lib/utils";
 const MEASURE = {
   column: "w-full",
   beside: "w-full sm:w-control",
+  // A short typed value beside its title, such as a name.
+  text: "w-full sm:w-control-text",
   short: "w-full max-w-control-sm",
   field: "w-full max-w-field",
 } as const;

@@ -28,10 +28,10 @@ import {
 } from "@/shared/ui/select";
 import { Page, Section } from "@/shared/ui/Page";
 import { ConfirmDialog } from "@/shared/ui/ConfirmDialog";
+import { IconLine } from "@/shared/ui/icon-line";
 import { IntegrationHeader } from "@/features/integrations/IntegrationHeader";
 import { ConnectedState, type Fact } from "@/features/integrations/FactGrid";
 import { IntegrationWarnings } from "@/features/integrations/IntegrationWarnings";
-import { ICON_UI } from "@/shared/lib/iconProps";
 import { toast } from "@/shared/lib/toast";
 import { ApiError, apiFetch } from "@/shared/api/client";
 import { useDisconnect } from "../useIntegration";
@@ -461,13 +461,12 @@ function ConnectedSource({
         source.rules === null ? (
           /* Said here rather than discovered at 3am: this is the difference
              between an investigation that can close itself and one that cannot. */
-          <p className="flex items-start gap-2 type-body text-warn">
-            <TriangleAlert {...ICON_UI} className="shrink-0" />
+          <IconLine icon={TriangleAlert} className="type-body text-warn">
             <span>
               No rules endpoint. This source reaches Resolved only when your
               alert source sends a resolved notification.
             </span>
-          </p>
+          </IconLine>
         ) : undefined
       }
       actions={
@@ -501,7 +500,7 @@ export function MetricsSourcePage({
   });
 
   return (
-    <Page back={{ to: "/integrations", label: "Integrations" }}>
+    <Page measure="wide" back={{ to: "/integrations", label: "Integrations" }}>
       <div className="flex flex-col gap-8">
         <IntegrationHeader identity={identity} />
 

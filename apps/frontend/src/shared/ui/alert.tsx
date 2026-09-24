@@ -12,7 +12,7 @@ type AlertVariant = "destructive" | "warning";
 /* One accent, not a flood: the icon carries the tone, the title and body stay
    neutral. A whole block in the status colour reads as louder than it is. */
 const alertVariants = cva(
-  "group/alert relative flex w-full gap-2 rounded-card border-hairline border-edge px-3 py-2.5 text-left type-body *:[svg]:mt-0.5 *:[svg]:shrink-0",
+  "group/alert relative flex w-full gap-2 tile px-3 py-2.5 text-left type-body *:[svg]:mt-0.5 *:[svg]:shrink-0",
   {
     variants: {
       variant: {

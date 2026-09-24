@@ -30,6 +30,7 @@ const AUTH_STATUS_RESPONSE = {
   authenticated: true,
   email: OWNER_EMAIL,
   name: "Admin",
+  image: null,
 };
 
 // The picker is served with the config, so a new adapter reaches the form as data.
@@ -202,7 +203,7 @@ async function openSection(
   name: RegExp,
 ): Promise<void> {
   const section =
-    ["provider", "agent", "sandbox", "account"].find((s) =>
+    ["profile", "security", "provider", "limits", "sandbox"].find((s) =>
       name.source.includes(s),
     ) ?? "provider";
   await act(async () => {
@@ -390,12 +391,12 @@ describe("SettingsPage", () => {
       await act(async () => {
         await router.navigate({
           to: "/settings/$section",
-          params: { section: "agent" },
+          params: { section: "limits" },
         });
       });
 
       expect(
-        await screen.findByLabelText(/check in after/i),
+        await screen.findByRole("combobox", { name: /ask to continue after/i }),
       ).toBeInTheDocument();
       expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
 
@@ -410,11 +411,9 @@ describe("SettingsPage", () => {
       const user = userEvent.setup();
       const { router } = setup();
 
-      await openSection(user, /agent/i);
-      const retries = await screen.findByLabelText(/^retries$/i);
-      await user.clear(retries);
-      await user.type(retries, "5");
-      await user.tab();
+      await openSection(user, /limits/i);
+      const list = await openSelect(user, /retry failed model requests/i);
+      await user.click(within(list).getByRole("option", { name: "5 times" }));
 
       // Not awaited: a blocked navigation never settles, and awaiting it here
       // is what wedged every test after this one.
@@ -563,16 +562,18 @@ describe("SettingsPage", () => {
       ]);
     });
 
-    /* The ladder is the catalogue's to state, so the control waits for it rather
-       than drawing rungs from a copy that may no longer be what the model offers. */
-    it("waits for the catalog rather than drawing a remembered ladder", async () => {
+    /* The ladder is the catalogue's to state, so while it loads the row holds only
+       the saved level, disabled, and keeps its place in the form. */
+    it("holds the saved level alone while the catalog loads", async () => {
       const user = userEvent.setup();
       // A catalog that never resolves: the rest of the form still stands.
       setup(undefined, new Promise<ModelCatalog>(() => {}));
       await openSection(user, /provider/i);
 
       expect(await screen.findByLabelText(/^base url$/i)).toBeInTheDocument();
-      expect(screen.queryByLabelText(/^reasoning$/i)).not.toBeInTheDocument();
+      const reasoning = screen.getByRole("combobox", { name: /^reasoning$/i });
+      expect(reasoning).toHaveTextContent("High");
+      expect(reasoning).toBeDisabled();
       await openModelList(user);
       expect(await screen.findByText(/loading models/i)).toBeInTheDocument();
     });
@@ -757,46 +758,50 @@ describe("SettingsPage", () => {
     });
   });
 
-  describe("Agent", () => {
-    it("shows durations in the unit a person would say them in", async () => {
+  describe("Limits", () => {
+    it("offers presets in the unit a person would say them in", async () => {
       const user = userEvent.setup();
       setup();
-      await openSection(user, /agent/i);
+      await openSection(user, /limits/i);
 
       // 1800000 ms is thirty minutes; nobody should have to do that division.
-      expect(await screen.findByLabelText(/check in after/i)).toHaveValue("30");
-      expect(screen.getByLabelText(/^maximum$/i)).toHaveValue("10");
-      expect(screen.getByLabelText(/^timeout$/i)).toHaveValue("120");
+      expect(
+        await screen.findByRole("combobox", { name: /ask to continue after/i }),
+      ).toHaveTextContent("30 minutes");
+      expect(
+        screen.getByRole("combobox", { name: /longest tool call/i }),
+      ).toHaveTextContent("10 minutes");
+      expect(
+        screen.getByRole("combobox", { name: /model response timeout/i }),
+      ).toHaveTextContent("2 minutes");
     });
 
-    /* A limit is valid on its own, so leaving the field writes it - but only
-       once it is left. A half-typed 4 must never be saved where 45 was meant. */
-    it("writes on blur, in milliseconds, and not while still being typed", async () => {
+    it("keeps a saved value the presets do not list, rather than showing a blank", async () => {
+      const user = userEvent.setup();
+      setup({ checkInAfterMs: 45 * 60_000 });
+      await openSection(user, /limits/i);
+
+      const list = await openSelect(user, /ask to continue after/i);
+      expect(
+        within(list).getByRole("option", { name: "45 minutes" }),
+      ).toBeInTheDocument();
+    });
+
+    it("writes the picked preset in milliseconds", async () => {
       const user = userEvent.setup();
       const { fetchMock } = setup();
-      await openSection(user, /agent/i);
+      await openSection(user, /limits/i);
 
-      const checkIn = await screen.findByLabelText(/check in after/i);
-      await user.clear(checkIn);
-      await user.type(checkIn, "45");
-
-      expect(
-        fetchMock.mock.calls.filter(
-          ([, init]) => (init as RequestInit | undefined)?.method === "PATCH",
-        ),
-      ).toHaveLength(0);
-
-      await user.tab();
+      const list = await openSelect(user, /ask to continue after/i);
+      await user.click(within(list).getByRole("option", { name: "1 hour" }));
 
       await waitFor(() => {
         const patch = fetchMock.mock.calls.find(
           ([, init]) => (init as RequestInit | undefined)?.method === "PATCH",
         );
         expect(patch).toBeDefined();
-        const body = sentBody(patch?.[1]) as {
-          checkInAfterMs: number;
-        };
-        expect(body.checkInAfterMs).toBe(2_700_000);
+        const body = sentBody(patch?.[1]) as { checkInAfterMs: number };
+        expect(body.checkInAfterMs).toBe(3_600_000);
       });
     });
   });
@@ -919,28 +924,23 @@ describe("SettingsPage", () => {
       });
     });
 
-    it("allowlist mode shows the editable hosts textarea and saves trimmed lines", async () => {
+    it("adds and removes allowed hosts as chips, and refuses anything but a hostname", async () => {
       const user = userEvent.setup();
-      const { fetchMock } = setup();
+      const { fetchMock } = setup({ sandboxNetwork: "allowlist" });
       await openSection(user, /sandbox/i);
 
-      const list = await openSelect(user, /sandbox network/i);
-      await user.click(
-        within(list).getByRole("option", {
-          name: /allowlist \(recommended\)/i,
-        }),
-      );
-      expect(
-        screen.getByText(/only the hosts listed below/i),
-      ).toBeInTheDocument();
+      const hosts = await screen.findByRole("list", { name: /allowed hosts/i });
+      expect(within(hosts).getByText("registry.npmjs.org")).toBeInTheDocument();
 
-      const textarea = screen.getByLabelText(/allowed hosts/i);
-      await user.clear(textarea);
-      await user.type(textarea, "registry.npmjs.org{enter}internal.dev{enter}");
-      await user.tab();
+      const field = screen.getByLabelText(/hosts the sandbox can reach/i);
+      await user.type(field, "https://internal.dev{enter}");
+      expect(await screen.findByText(/a hostname only/i)).toBeInTheDocument();
 
-      await waitFor(() => {
-        const hosts = fetchMock.mock.calls
+      await user.clear(field);
+      await user.type(field, "internal.dev{enter}");
+
+      const patches = () =>
+        fetchMock.mock.calls
           .filter(
             (call) =>
               call[0] === "/api/config" &&
@@ -948,21 +948,96 @@ describe("SettingsPage", () => {
           )
           .map(
             (call) =>
-              (
-                sentBody(call[1]) as {
-                  sandboxAllowlistHosts?: string[];
-                }
-              ).sandboxAllowlistHosts,
-          )
-          .filter((h) => h !== undefined);
-        // The trailing blank line from typing is dropped on save.
-        expect(hosts.at(-1)).toEqual(["registry.npmjs.org", "internal.dev"]);
-      });
+              (sentBody(call[1]) as { sandboxAllowlistHosts?: string[] })
+                .sandboxAllowlistHosts,
+          );
+      await waitFor(() =>
+        expect(patches().at(-1)).toEqual([
+          "registry.npmjs.org",
+          "internal.dev",
+        ]),
+      );
+
+      await user.click(
+        await screen.findByRole("button", { name: "Remove internal.dev" }),
+      );
+      await waitFor(() =>
+        expect(patches().at(-1)).toEqual(["registry.npmjs.org"]),
+      );
     });
   });
 
-  // The real route, reached as the account page is: signed in, through the auth client.
-  describe("account", () => {
+  describe("profile", () => {
+    it("saves a new name when the field is left, and ignores an empty one", async () => {
+      vi.stubGlobal("EventSource", MockEventSource);
+      const user = userEvent.setup();
+      const { requests } = stubApi((request) => {
+        if (request.path === "/api/auth-status") {
+          return json({ ...AUTH_STATUS_RESPONSE, theme: "system" });
+        }
+        if (request.path === "/api/config") return json(CONFIG);
+        if (request.path === "/api/auth/update-user") {
+          return json({ status: true });
+        }
+        return undefined;
+      });
+      renderApp({ path: "/settings/profile" });
+
+      const name = await screen.findByLabelText("Name");
+      await user.clear(name);
+      await user.tab();
+      expect(requests("/api/auth/update-user")).toHaveLength(0);
+      expect(name).toHaveValue("Admin");
+
+      await user.clear(name);
+      await user.type(name, "Night Owl");
+      await user.tab();
+      await waitFor(() =>
+        expect(requests("/api/auth/update-user")[0]?.body).toEqual({
+          name: "Night Owl",
+        }),
+      );
+    });
+  });
+
+  describe("appearance", () => {
+    function openAppearance() {
+      vi.stubGlobal("EventSource", MockEventSource);
+      const api = stubApi((request) => {
+        if (request.path === "/api/auth-status") {
+          return json({ ...AUTH_STATUS_RESPONSE, theme: "dark" });
+        }
+        if (request.path === "/api/config") return json(CONFIG);
+        if (request.path === "/api/auth/update-user") {
+          return json({ status: true });
+        }
+        return undefined;
+      });
+      renderApp({ path: "/settings/profile" });
+      return api;
+    }
+
+    afterEach(() => {
+      localStorage.clear();
+    });
+
+    it("saves the appearance on the account and repaints before the write lands", async () => {
+      const user = userEvent.setup();
+      const { requests } = openAppearance();
+
+      await user.click(await screen.findByRole("button", { name: "Light" }));
+
+      expect(document.documentElement.dataset["theme"]).toBe("light");
+      await waitFor(() =>
+        expect(requests("/api/auth/update-user")[0]?.body).toEqual({
+          theme: "light",
+        }),
+      );
+    });
+  });
+
+  // The real route, reached as the security page is: signed in, through the auth client.
+  describe("security", () => {
     function openAccount(answer: (path: string) => Response | undefined) {
       vi.stubGlobal("EventSource", MockEventSource);
       const api = stubApi((request) => {
@@ -972,7 +1047,7 @@ describe("SettingsPage", () => {
         if (request.path === "/api/config") return json(CONFIG);
         return answer(request.path);
       });
-      const { router } = renderApp({ path: "/settings/account" });
+      const { router } = renderApp({ path: "/settings/security" });
       return { ...api, router };
     }
 
@@ -1020,26 +1095,25 @@ describe("SettingsPage", () => {
       });
 
       await user.click(
-        await screen.findByRole("button", { name: /password change/i }),
+        await screen.findByRole("button", { name: "Change password" }),
       );
+      const dialog = await screen.findByRole("dialog");
       await user.type(
-        screen.getByLabelText("Current password"),
+        within(dialog).getByLabelText("Current password"),
         "wrong-one-123",
       );
       await user.type(
-        screen.getByLabelText("New password"),
+        within(dialog).getByLabelText("New password"),
         "brand-new-pass-1",
       );
-      await user.type(
-        screen.getByLabelText("Confirm new password"),
-        "brand-new-pass-1",
+      await user.click(
+        within(dialog).getByRole("button", { name: "Change password" }),
       );
-      await user.click(screen.getByRole("button", { name: "Change password" }));
 
       expect(await screen.findByText("Invalid password")).toBeInTheDocument();
     });
 
-    it("logs out every device, this one included, and lands on the login page", async () => {
+    it("signs out every device, this one included, and lands on the login page", async () => {
       const user = userEvent.setup();
       const { requests, router } = openAccount((path) => {
         if (path === "/api/auth/list-sessions") return json([]);
@@ -1049,7 +1123,7 @@ describe("SettingsPage", () => {
       });
 
       await user.click(
-        await screen.findByRole("button", { name: "Log out all devices" }),
+        await screen.findByRole("button", { name: "Sign out everywhere" }),
       );
 
       expect(

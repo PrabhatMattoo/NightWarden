@@ -29,19 +29,27 @@ interface Bar {
   controls?: React.ReactNode;
 }
 
-// One reading width for every titled page, so moving between sections never shifts the column.
+// Two widths: the reading column, and a wider one for pages that list or lay out a grid.
 const MEASURE = {
   page: "max-w-page",
+  wide: "max-w-page-wide",
 } as const;
 
-function PageBar({ back, crumbs, beside, controls }: Bar): React.JSX.Element {
+// A bar over a full-width workspace is ruled off from it.
+function PageBar({
+  back,
+  crumbs,
+  beside,
+  controls,
+  ruled,
+}: Bar & { ruled: boolean }): React.JSX.Element {
   const { isOverlay } = useSidebar();
   const trail = crumbs !== undefined && crumbs.length > 0;
   return (
     <header
       className={cn(
         "flex h-12 shrink-0 items-center gap-1 px-3 sm:px-4",
-        trail && "border-b-hairline border-edge",
+        ruled && "border-b-hairline border-edge-faint",
       )}
     >
       {isOverlay && <SidebarTrigger className="shrink-0" />}
@@ -131,7 +139,7 @@ export function Page({
     Object.values(bar).some((part) => part !== undefined) || isOverlay;
   return (
     <div className="flex min-h-full w-full min-w-0 flex-col animate-in fade-in duration-(--duration-content-in)">
-      {showBar && <PageBar {...bar} />}
+      {showBar && <PageBar {...bar} ruled={measure === "full"} />}
       {measure === "full" ? (
         children
       ) : (

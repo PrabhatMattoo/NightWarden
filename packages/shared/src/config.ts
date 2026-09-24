@@ -89,6 +89,17 @@ export interface ReasoningLevel {
   label: string;
 }
 
+/* Every level any provider names, strongest first, because a ladder has holes
+   and the weakest one offered is what a cheap call asks for. */
+export const REASONING_LEVELS: readonly ReasoningLevel[] = [
+  { value: "max", label: "Max" },
+  { value: "xhigh", label: "Extra high" },
+  { value: "high", label: "High" },
+  { value: "medium", label: "Medium" },
+  { value: "low", label: "Low" },
+  { value: "minimal", label: "Minimal" },
+];
+
 // Normalised from whichever catalog it came from, so the frontend renders it
 // and never branches on the provider name.
 export interface ReasoningDescriptor {

@@ -84,7 +84,7 @@ export function SentryPage(): React.JSX.Element {
     : [];
 
   return (
-    <Page back={{ to: "/integrations", label: "Integrations" }}>
+    <Page measure="wide" back={{ to: "/integrations", label: "Integrations" }}>
       <div className="flex flex-col gap-8">
         <IntegrationHeader identity={INTEGRATION_CATALOG.sentry} />
 

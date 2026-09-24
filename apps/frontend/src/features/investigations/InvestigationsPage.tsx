@@ -186,6 +186,7 @@ export function InvestigationsPage(): React.JSX.Element {
 
   return (
     <Page
+      measure="wide"
       title="Investigations"
       subtitle="Every investigation NightWarden has opened, grouped by what each one needs."
       toolbar={

@@ -49,6 +49,7 @@ export async function registerAuthRoutes(
       authenticated: true,
       email: user.email,
       name: user.name,
+      image: user.image,
       theme: user.theme,
     };
   });

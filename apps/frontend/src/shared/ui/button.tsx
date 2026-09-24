@@ -14,6 +14,8 @@ const buttonVariants = cva(
         sm: "h-7 gap-1.5 px-2.5 [&_svg:not([class*='size-'])]:size-3.5",
         icon: "size-8",
         "icon-sm": "size-7",
+        // Inside a 24px chip, beside the text it removes.
+        "icon-xs": "size-5 rounded-full [&_svg:not([class*='size-'])]:size-3",
       },
       variant: {
         default: "bg-accent text-on-accent shadow-lift hover:bg-accent-hover",

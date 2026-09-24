@@ -146,6 +146,7 @@ function setup({
             authenticated: true,
             email: OWNER_EMAIL,
             name: "Admin",
+            image: null,
           }),
       });
     }
@@ -273,12 +274,24 @@ describe("Shell", () => {
   });
 
   describe("signing out", () => {
-    it("leaves for the login page once the server has ended the session", async () => {
+    it("asks first, then leaves for the login page once the server has ended the session", async () => {
       const user = userEvent.setup();
       const { router, fetchMock } = setup({ path: "/investigations" });
       await screen.findByRole("heading", { name: "Investigations" });
 
-      await user.click(screen.getByRole("button", { name: "Log out" }));
+      await user.click(screen.getByRole("button", { name: "Account menu" }));
+      await user.click(
+        await screen.findByRole("menuitem", { name: "Sign out" }),
+      );
+      const confirm = await screen.findByRole("alertdialog");
+      expect(
+        fetchMock.mock.calls.some(([input]) =>
+          String(input).endsWith("/api/auth/sign-out"),
+        ),
+      ).toBe(false);
+      await user.click(
+        within(confirm).getByRole("button", { name: "Sign out" }),
+      );
 
       expect(
         await screen.findByRole("heading", { name: /^log in$/i }),

@@ -1,7 +1,13 @@
 import { hash, verify } from "argon2";
 import { betterAuth } from "better-auth";
+import { APIError } from "better-auth/api";
 import { admin } from "better-auth/plugins";
-import { THEME_PREFERENCES } from "@nightwarden/shared";
+import {
+  AVATAR_MAX_LENGTH,
+  AVATAR_PATTERN,
+  PASSWORD_MIN_LENGTH,
+  THEME_PREFERENCES,
+} from "@nightwarden/shared";
 import { themePreferenceSchema } from "@nightwarden/shared/schemas";
 import { getDb } from "../db.js";
 import { configuredPublicUrl, extraTrustedOrigins } from "../public-url.js";
@@ -43,7 +49,7 @@ function buildAuth() {
     advanced: { disableOriginCheck: false },
     emailAndPassword: {
       enabled: true,
-      minPasswordLength: 12,
+      minPasswordLength: PASSWORD_MIN_LENGTH,
       // OWASP's first recommendation, and the package's defaults already exceed
       // its floor at 64 MiB, 3 iterations and parallelism 4.
       password: {
@@ -118,6 +124,21 @@ function buildAuth() {
             return owner
               ? { data: user }
               : { data: { ...user, role: "admin" } };
+          },
+        },
+        update: {
+          // Rendered as an <img> on every page, so only a small inline picture is kept.
+          before: async (user) => {
+            const { image } = user;
+            if (
+              typeof image === "string" &&
+              (image.length > AVATAR_MAX_LENGTH || !AVATAR_PATTERN.test(image))
+            ) {
+              throw new APIError("BAD_REQUEST", {
+                message: "A profile picture must be a PNG, JPEG or WebP image.",
+              });
+            }
+            return { data: user };
           },
         },
       },

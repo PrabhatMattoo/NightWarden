@@ -5,8 +5,8 @@ import type {
   ModelOption,
   ProviderOption,
   ReasoningDescriptor,
-  ReasoningLevel,
 } from "@nightwarden/shared";
+import { REASONING_LEVELS } from "@nightwarden/shared";
 import {
   capabilitiesFor,
   type ModelCapabilities,
@@ -83,17 +83,6 @@ const PublishedSchema = z.object({
     .catch(undefined),
 });
 
-/* Every level any provider names, strongest first, because a ladder has holes
-   and the weakest one offered is what a cheap call asks for. */
-const LEVELS: readonly ReasoningLevel[] = [
-  { value: "max", label: "Max" },
-  { value: "xhigh", label: "Extra high" },
-  { value: "high", label: "High" },
-  { value: "medium", label: "Medium" },
-  { value: "low", label: "Low" },
-  { value: "minimal", label: "Minimal" },
-];
-
 // Anthropic documents this as equal to omitting the parameter, and it is the
 // middle of every ladder published. The strongest rung stands in without it.
 const PREFERRED_DEFAULT = "high";
@@ -104,7 +93,7 @@ function ladderOf(
   values: readonly string[],
   stated?: string | null,
 ): ReasoningDescriptor | null {
-  const levels = LEVELS.filter((l) => values.includes(l.value));
+  const levels = REASONING_LEVELS.filter((l) => values.includes(l.value));
   if (levels.length === 0) return null;
   const defaultLevel =
     levels.find((l) => l.value === stated)?.value ??

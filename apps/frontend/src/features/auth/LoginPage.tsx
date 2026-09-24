@@ -7,11 +7,11 @@ import {
 import { useNavigate } from "@tanstack/react-router";
 import { AlertCircle } from "lucide-react";
 
-import { ICON_UI } from "@/shared/lib/iconProps";
 import { authCall, authClient } from "@/shared/api/authClient";
 import { Button } from "@/shared/ui/button";
 import { Field, FieldError, FieldLabel } from "@/shared/ui/field";
 import { Input } from "@/shared/ui/input";
+import { IconLine } from "@/shared/ui/icon-line";
 import { authStatusQuery } from "@/features/auth/queries";
 
 const MIN_PASSWORD = 12;
@@ -66,10 +66,9 @@ function FormHeading({
 
 function ServerError({ message }: { message: string }): React.JSX.Element {
   return (
-    <p className="flex items-start gap-1 type-body text-fail" role="alert">
-      <AlertCircle {...ICON_UI} className="mt-px shrink-0" />
+    <IconLine icon={AlertCircle} role="alert" className="type-body text-fail">
       <span>{message}</span>
-    </p>
+    </IconLine>
   );
 }
 

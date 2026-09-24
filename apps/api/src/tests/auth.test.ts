@@ -182,6 +182,7 @@ describe("GET /auth-status", () => {
       authenticated: true,
       email: OWNER.email,
       name: OWNER.name,
+      image: null,
       theme: "system",
     });
   });
@@ -205,6 +206,33 @@ describe("GET /auth-status", () => {
     expect((await update("sepia")).statusCode).toBe(400);
     expect(JSON.parse((await status(server, cookie)).body)).toMatchObject({
       theme: "light",
+    });
+  });
+
+  // Drawn as an <img> on every page, so only a small inline picture is kept.
+  it("keeps an inline picture on the account and refuses a link or anything oversized", async () => {
+    const cookie = cookieFrom(await signIn(server, OWNER));
+    const update = (image: string | null) =>
+      server.inject({
+        method: "POST",
+        url: "/api/auth/update-user",
+        headers: { cookie, origin: BROWSER_ORIGIN },
+        payload: { image },
+      });
+    const picture = "data:image/webp;base64,UklGRhIAAABXRUJQVlA4";
+
+    expect((await update(picture)).statusCode).toBe(200);
+    expect((await update("https://example.com/me.png")).statusCode).toBe(400);
+    expect(
+      (await update(`data:image/png;base64,${"A".repeat(200_000)}`)).statusCode,
+    ).toBe(400);
+    expect(JSON.parse((await status(server, cookie)).body)).toMatchObject({
+      image: picture,
+    });
+
+    expect((await update(null)).statusCode).toBe(200);
+    expect(JSON.parse((await status(server, cookie)).body)).toMatchObject({
+      image: null,
     });
   });
 

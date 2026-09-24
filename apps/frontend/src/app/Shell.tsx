@@ -1,14 +1,20 @@
+import { useRef, useState } from "react";
+import { useSuspenseQuery } from "@tanstack/react-query";
 import { Link, useRouterState } from "@tanstack/react-router";
 import {
   ArrowLeft,
+  BookOpen,
   Bot,
   Box,
   ChevronRight,
   CircleUser,
   Cpu,
+  Ellipsis,
+  Gauge,
   LogOut,
   Plug,
   Settings,
+  Shield,
   Telescope,
 } from "lucide-react";
 
@@ -17,21 +23,37 @@ import {
   SidebarContent,
   SidebarFooter,
   SidebarGroup,
+  SidebarGroupLabel,
   SidebarHeader,
   SidebarInset,
   SidebarMenu,
+  SidebarMenuAction,
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarMenuLabel,
+  SidebarMenuStatic,
   SidebarProvider,
   SidebarTrigger,
   useSidebar,
 } from "@/shared/ui/sidebar";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/shared/ui/dropdown-menu";
+import { ConfirmDialog } from "@/shared/ui/ConfirmDialog";
+import { authStatusQuery, isSignedIn } from "@/features/auth/queries";
+import { UserAvatar } from "@/features/auth/UserAvatar";
 import { useSignOut } from "@/features/auth/useSignOut";
 import { cn } from "@/shared/lib/utils";
 import { cssNumber } from "@/shared/lib/cssNumber";
-import { ICON_NAV } from "@/shared/lib/iconProps";
+import { ICON_NAV, ICON_UI } from "@/shared/lib/iconProps";
 import { useMediaQuery } from "@/shared/hooks/useMediaQuery";
+
+const DOCS_URL =
+  "https://github.com/PrabhatMattoo/NightWarden/blob/main/ARCHITECTURE.md";
 
 // The rail keeps its own column from lg; narrower, it opens over the stage.
 const WIDE = `(width >= ${cssNumber("--breakpoint-lg", 1024)}px)`;
@@ -43,13 +65,23 @@ const NAV_ITEMS = [
   { to: "/integrations", label: "Integrations", icon: Plug },
 ] as const;
 
-// Settings is its own panel: the rail swaps to these sections and offers a way
-// back to the app rather than sharing the app's own shell.
-const SETTINGS_NAV = [
-  { section: "provider", label: "Provider", icon: Cpu },
-  { section: "agent", label: "Agent", icon: Bot },
-  { section: "sandbox", label: "Sandbox", icon: Box },
-  { section: "account", label: "Account", icon: CircleUser },
+// Settings is a level below the app: the rail drills into these groups and back out.
+const SETTINGS_GROUPS = [
+  {
+    label: "Account",
+    items: [
+      { section: "profile", label: "Profile", icon: CircleUser },
+      { section: "security", label: "Security", icon: Shield },
+    ],
+  },
+  {
+    label: "Agent",
+    items: [
+      { section: "provider", label: "Provider", icon: Cpu },
+      { section: "limits", label: "Limits", icon: Gauge },
+      { section: "sandbox", label: "Sandbox", icon: Box },
+    ],
+  },
 ] as const;
 
 export function Shell({
@@ -74,6 +106,11 @@ function ShellContent({
   const { isOverlay, setOpenOverlay } = useSidebar();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const signOut = useSignOut();
+  const [confirmingSignOut, setConfirmingSignOut] = useState(false);
+  const accountRow = useRef<HTMLLIElement>(null);
+  const { data: status } = useSuspenseQuery(authStatusQuery());
+  const name = isSignedIn(status) ? status.name : "";
+  const image = isSignedIn(status) ? status.image : null;
   const inSettings = pathname.startsWith("/settings");
 
   function isActive(to: string): boolean {
@@ -109,57 +146,74 @@ function ShellContent({
         </SidebarHeader>
 
         <SidebarContent>
-          <SidebarGroup>
-            <SidebarMenu>
-              {inSettings ? (
-                <>
-                  {/* The panel's header and its way out, in one row. */}
-                  <SidebarMenuItem>
-                    <SidebarMenuButton
-                      aria-label="Back to the app"
-                      tooltip="Back to the app"
-                      onClick={dismissOverlay}
-                      render={<Link to="/investigations" />}
-                    >
-                      <ArrowLeft {...ICON_NAV} />
-                      <SidebarMenuLabel>Settings</SidebarMenuLabel>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                  {SETTINGS_NAV.map(({ section, label, icon: Icon }) => (
-                    <SidebarMenuItem key={section}>
+          {/* Both levels stay mounted in one cell, so leaving slides one out as the other slides in. */}
+          <div className="grid grid-cols-1 overflow-x-hidden">
+            <div inert={inSettings} data-side="start" className="drill-level">
+              <SidebarGroup>
+                <SidebarMenu>
+                  {NAV_ITEMS.map(({ to, label, icon: Icon }) => (
+                    <SidebarMenuItem key={to}>
                       <SidebarMenuButton
                         aria-label={label}
                         tooltip={label}
-                        isActive={isActive(`/settings/${section}`)}
+                        isActive={isActive(to)}
                         onClick={dismissOverlay}
-                        render={
-                          <Link to="/settings/$section" params={{ section }} />
-                        }
+                        render={<Link to={to} />}
                       >
                         <Icon {...ICON_NAV} />
                         <SidebarMenuLabel>{label}</SidebarMenuLabel>
                       </SidebarMenuButton>
                     </SidebarMenuItem>
                   ))}
-                </>
-              ) : (
-                NAV_ITEMS.map(({ to, label, icon: Icon }) => (
-                  <SidebarMenuItem key={to}>
-                    <SidebarMenuButton
-                      aria-label={label}
-                      tooltip={label}
-                      isActive={isActive(to)}
-                      onClick={dismissOverlay}
-                      render={<Link to={to} />}
-                    >
-                      <Icon {...ICON_NAV} />
-                      <SidebarMenuLabel>{label}</SidebarMenuLabel>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                ))
-              )}
-            </SidebarMenu>
-          </SidebarGroup>
+                </SidebarMenu>
+              </SidebarGroup>
+            </div>
+            <div inert={!inSettings} data-side="end" className="drill-level">
+              <SidebarGroup>
+                <div className="flex flex-col gap-4">
+                  <SidebarMenu>
+                    <SidebarMenuItem>
+                      <SidebarMenuButton
+                        aria-label="Back to the app"
+                        tooltip="Back to the app"
+                        onClick={dismissOverlay}
+                        render={<Link to="/investigations" />}
+                      >
+                        <ArrowLeft {...ICON_NAV} />
+                        <SidebarMenuLabel>Settings</SidebarMenuLabel>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  </SidebarMenu>
+                  {SETTINGS_GROUPS.map((group) => (
+                    <section key={group.label} aria-label={group.label}>
+                      <SidebarGroupLabel>{group.label}</SidebarGroupLabel>
+                      <SidebarMenu>
+                        {group.items.map(({ section, label, icon: Icon }) => (
+                          <SidebarMenuItem key={section}>
+                            <SidebarMenuButton
+                              aria-label={label}
+                              tooltip={label}
+                              isActive={isActive(`/settings/${section}`)}
+                              onClick={dismissOverlay}
+                              render={
+                                <Link
+                                  to="/settings/$section"
+                                  params={{ section }}
+                                />
+                              }
+                            >
+                              <Icon {...ICON_NAV} />
+                              <SidebarMenuLabel>{label}</SidebarMenuLabel>
+                            </SidebarMenuButton>
+                          </SidebarMenuItem>
+                        ))}
+                      </SidebarMenu>
+                    </section>
+                  ))}
+                </div>
+              </SidebarGroup>
+            </div>
+          </div>
         </SidebarContent>
 
         <SidebarFooter>
@@ -178,27 +232,64 @@ function ShellContent({
                   <ChevronRight
                     aria-hidden
                     strokeWidth={1.5}
-                    className="ml-auto size-4 text-ink-faint group-data-[collapsible=icon]:hidden"
+                    className="ml-auto size-4 text-ink-faint highlight-motion group-hover/menu-button:text-ink-title group-data-[collapsible=icon]:hidden"
                   />
                 </SidebarMenuButton>
               </SidebarMenuItem>
             )}
-            <SidebarMenuItem>
-              <SidebarMenuButton
-                aria-label="Log out"
-                tooltip="Log out"
-                onClick={() => {
-                  dismissOverlay();
-                  signOut.mutate();
-                }}
-              >
-                <LogOut {...ICON_NAV} />
-                <SidebarMenuLabel>Log out</SidebarMenuLabel>
-              </SidebarMenuButton>
+            <SidebarMenuItem ref={accountRow}>
+              <SidebarMenuStatic>
+                <UserAvatar size="sm" name={name} image={image} />
+                <SidebarMenuLabel className="ms-1.5">{name}</SidebarMenuLabel>
+              </SidebarMenuStatic>
+              <DropdownMenu>
+                <DropdownMenuTrigger
+                  render={<SidebarMenuAction aria-label="Account menu" />}
+                >
+                  <Ellipsis />
+                </DropdownMenuTrigger>
+                {/* Opens over the whole row, as wide as it, rather than off the small trigger. */}
+                <DropdownMenuContent
+                  side="top"
+                  anchor={accountRow}
+                  className="w-(--anchor-width)"
+                >
+                  <DropdownMenuItem
+                    render={
+                      <a
+                        href={DOCS_URL}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="external"
+                      />
+                    }
+                  >
+                    <BookOpen {...ICON_UI} />
+                    Docs
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={() => setConfirmingSignOut(true)}>
+                    <LogOut {...ICON_UI} />
+                    Sign out
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </SidebarMenuItem>
           </SidebarMenu>
         </SidebarFooter>
       </Sidebar>
+
+      <ConfirmDialog
+        open={confirmingSignOut}
+        onOpenChange={setConfirmingSignOut}
+        title="Sign out?"
+        description="You will need your password to sign back in on this device."
+        confirmLabel="Sign out"
+        onConfirm={() => {
+          dismissOverlay();
+          signOut.mutate();
+        }}
+      />
 
       <SidebarInset
         id="main-content"

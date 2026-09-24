@@ -5,7 +5,7 @@ import { cva, type VariantProps } from "class-variance-authority";
 
 import { cn } from "@/shared/lib/utils";
 
-// Rows share their ground; the separator between two stops 16px short of each side.
+// Rows share their ground; the separator between two runs the card's full width.
 function ItemGroup({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
@@ -22,7 +22,7 @@ function ItemSeparator({ className, ...props }: React.ComponentProps<"div">) {
     <div
       role="separator"
       data-slot="item-separator"
-      className={cn("mx-4 border-t-hairline border-edge", className)}
+      className={cn("border-t-hairline border-edge", className)}
       {...props}
     />
   );
@@ -31,16 +31,23 @@ function ItemSeparator({ className, ...props }: React.ComponentProps<"div">) {
 /* A row that navigates highlights with an inset pill rather than a full-bleed
    band, so its neighbours' dividers stay whole under the pointer. */
 const itemVariants = cva(
-  "group/item relative flex w-full items-center gap-4 text-left outline-none [a]:highlight-motion [a]:before:pointer-events-none [a]:before:absolute [a]:before:inset-x-2 [a]:before:inset-y-0.5 [a]:before:-z-(--z-within) [a]:before:rounded-control [a]:hover:before:bg-hover [a]:focus-visible:before:bg-hover",
+  "group/item relative flex w-full items-center gap-4 text-left outline-none data-unavailable:*:dim-row [a]:highlight-motion [a]:before:pointer-events-none [a]:before:absolute [a]:before:inset-x-2 [a]:before:inset-y-0.5 [a]:before:-z-(--z-within) [a]:before:rounded-control [a]:hover:before:bg-hover [a]:focus-visible:before:bg-hover",
   {
     variants: {
       size: {
         default: "px-4 py-3.5",
         sm: "px-4 py-2.5",
+        lg: "gap-6 p-4",
+      },
+      // A control too tall to sit beside its label drops below at full width.
+      layout: {
+        row: "",
+        stacked: "flex-col items-stretch gap-2",
       },
     },
     defaultVariants: {
       size: "default",
+      layout: "row",
     },
   },
 );
@@ -48,6 +55,7 @@ const itemVariants = cva(
 function Item({
   className,
   size = "default",
+  layout = "row",
   render,
   ...props
 }: useRender.ComponentProps<"div"> & VariantProps<typeof itemVariants>) {
@@ -56,7 +64,7 @@ function Item({
     props: mergeProps<"div">(
       {
         role: "listitem",
-        className: cn("isolate", itemVariants({ size, className })),
+        className: cn("isolate", itemVariants({ size, layout, className })),
       },
       props,
     ),
@@ -82,7 +90,10 @@ function ItemContent({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="item-content"
-      className={cn("flex min-w-0 flex-1 flex-col gap-0.5", className)}
+      className={cn(
+        "flex min-w-0 flex-1 flex-col gap-0.5 group-data-[size=lg]/item:gap-1",
+        className,
+      )}
       {...props}
     />
   );

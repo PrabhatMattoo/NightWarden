@@ -134,6 +134,7 @@ export function RunnerListPage({
 
   return (
     <Page
+      measure="wide"
       back={{ to: "/integrations", label: "Integrations" }}
       controls={
         <Button

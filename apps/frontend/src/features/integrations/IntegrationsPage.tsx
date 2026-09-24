@@ -64,8 +64,7 @@ function CatalogCard({ row }: { row: IntegrationRow }): React.JSX.Element {
       <span className="type-body text-ink-base">{row.description}</span>
     </>
   );
-  const shape =
-    "flex flex-col gap-1.5 rounded-card border-hairline border-edge px-4 py-3 transition-colors";
+  const shape = "tile flex flex-col gap-1.5 p-4 highlight-motion";
   return row.unavailable === true ? (
     <div aria-label={row.title} className={`${shape} opacity-55`}>
       {body}
@@ -211,6 +210,7 @@ export function IntegrationsPage(): React.JSX.Element {
 
   return (
     <Page
+      measure="wide"
       title="Integrations"
       subtitle="Connect your monitoring, error tracking, and developer platforms to NightWarden."
     >

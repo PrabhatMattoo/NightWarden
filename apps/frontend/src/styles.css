@@ -41,7 +41,8 @@
   --color-edge-modal: var(--edge-modal);
   --color-edge-input: var(--edge-input);
   --color-edge-input-hover: var(--edge-input-hover);
-  --color-edge-overlay: var(--edge-overlay);
+  --color-edge-base: var(--edge-base);
+  --color-edge-faint: var(--edge-faint);
   --color-edge-strong: var(--edge-strong);
   --color-accent: var(--accent);
   --color-accent-hover: var(--accent-hover);
@@ -57,12 +58,6 @@
   --color-fail-fill: var(--fail-fill);
   --color-fail-fill-hover: var(--fail-fill-hover);
   --color-scrim: var(--scrim);
-  --color-series-1: var(--series-1);
-  --color-series-2: var(--series-2);
-  --color-series-3: var(--series-3);
-  --color-series-4: var(--series-4);
-  --color-series-5: var(--series-5);
-  --color-series-6: var(--series-6);
   /* Vendor logos are drawn for a white ground in every theme. */
   --color-logo-tile: lch(100 0 0);
 
@@ -85,11 +80,12 @@
   --radius-overlay: 0.75rem;
 
   /* Measures a page's column takes, and the fixed widths of the frame itself. */
-  --container-conversation: 760px;
-  --container-page: 860px;
+  --container-page: 760px;
+  --container-page-wide: 820px;
   --container-field: 420px;
   --container-control: 288px;
   --container-control-sm: 240px;
+  --container-control-text: 160px;
   --container-rail: 480px;
   --container-rail-max: 720px;
   --container-rail-step: 20px;
@@ -370,8 +366,14 @@
 }
 
 /* The transcript and everything docked under it share one column, so none of them drifts. */
+/* An outlined tile on the page: one whole pixel of its ground's plain border. */
+@utility tile {
+  border: 1px solid var(--edge-base);
+  border-radius: var(--radius-control);
+}
+
 @utility conversation-column {
-  @apply mx-auto w-full max-w-conversation px-6;
+  @apply mx-auto w-full max-w-page px-6;
 }
 
 @utility report-column {
@@ -450,6 +452,26 @@
   transition:
     margin-inline-start var(--duration-panel) var(--ease-panel),
     opacity var(--duration-fast) var(--ease-out) var(--duration-base);
+}
+
+/* Two levels share one cell; the inert one waits off to its side, and the collapsed rail only fades. */
+@utility drill-level {
+  grid-area: 1 / 1;
+  transition:
+    translate var(--duration-slow) var(--ease-panel),
+    opacity var(--duration-slow) var(--ease-panel);
+  &[inert] {
+    opacity: 0;
+  }
+  &[inert][data-side="start"] {
+    translate: -100% 0;
+  }
+  &[inert][data-side="end"] {
+    translate: 100% 0;
+  }
+  [data-collapsible="icon"] &[inert] {
+    translate: 0 0;
+  }
 }
 
 @utility prose-nightwarden {

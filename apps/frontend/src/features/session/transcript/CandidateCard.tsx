@@ -42,7 +42,7 @@ export function CandidateCard({
   const [open, setOpen] = useState(false);
 
   return (
-    <div className="overflow-hidden rounded-card border-hairline border-edge bg-ground">
+    <div className="tile overflow-hidden bg-ground">
       <Collapsible open={open} onOpenChange={setOpen}>
         <CollapsibleTrigger
           nativeButton

@@ -38,6 +38,8 @@ export function contentSecurityPolicy(indexHtml: string): string {
     "default-src 'self'",
     ["script-src 'self'", ...inline].join(" "),
     "style-src 'self' 'unsafe-inline'",
+    // A profile picture is a data URL the browser drew itself.
+    "img-src 'self' data:",
     "connect-src 'self'",
     "object-src 'none'",
     "base-uri 'self'",

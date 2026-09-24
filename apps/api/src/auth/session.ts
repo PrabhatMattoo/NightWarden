@@ -7,6 +7,7 @@ export interface SignedInUser {
   id: string;
   email: string;
   name: string;
+  image: string | null;
   role: string | null;
   theme: ThemePreference;
 }
@@ -26,11 +27,12 @@ export async function currentUser(
     headers: fromNodeHeaders(request.headers),
   });
   if (!session) return null;
-  const { id, email, name, role, theme } = session.user;
+  const { id, email, name, image, role, theme } = session.user;
   return {
     id,
     email,
     name,
+    image: image ?? null,
     role: typeof role === "string" ? role : null,
     theme,
   };

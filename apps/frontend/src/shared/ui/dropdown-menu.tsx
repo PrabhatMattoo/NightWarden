@@ -18,12 +18,13 @@ function DropdownMenuContent({
   sideOffset = 4,
   align = "start",
   alignOffset = 0,
+  anchor,
   children,
   ...props
 }: MenuPrimitive.Popup.Props &
   Pick<
     MenuPrimitive.Positioner.Props,
-    "side" | "align" | "sideOffset" | "alignOffset"
+    "side" | "align" | "sideOffset" | "alignOffset" | "anchor"
   >) {
   const ground = useOverlayGround();
   return (
@@ -33,6 +34,7 @@ function DropdownMenuContent({
         sideOffset={sideOffset}
         align={align}
         alignOffset={alignOffset}
+        anchor={anchor}
         className="isolate z-(--z-overlay)"
       >
         <MenuPrimitive.Popup

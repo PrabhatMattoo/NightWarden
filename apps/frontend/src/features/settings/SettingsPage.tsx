@@ -13,13 +13,14 @@ import { Page } from "@/shared/ui/Page";
 import { toast } from "@/shared/lib/toast";
 import { apiFetch } from "@/shared/api/client";
 import { ConfirmDialog } from "@/shared/ui/ConfirmDialog";
-import { AccountSection } from "@/features/settings/AccountSection";
-import { AgentSection } from "@/features/settings/AgentSection";
+import { LimitsSection } from "@/features/settings/LimitsSection";
+import { ProfileSection } from "@/features/settings/ProfileSection";
 import {
   ProviderSection,
   type CatalogState,
 } from "@/features/settings/ProviderSection";
 import { SandboxSection } from "@/features/settings/SandboxSection";
+import { SecuritySection } from "@/features/settings/SecuritySection";
 import { useConfig, useConfigAutosave } from "@/features/settings/useConfig";
 import { configQuery } from "@/features/settings/queries";
 import { useDebounced } from "@/shared/hooks/useDebounced";
@@ -33,10 +34,11 @@ const CATALOG_ERRORS: Record<CatalogError, string> = {
 const CATALOG_DEBOUNCE_MS = 500;
 
 const SECTIONS = [
+  { id: "profile", label: "Profile" },
+  { id: "security", label: "Security" },
   { id: "provider", label: "Provider" },
-  { id: "agent", label: "Agent" },
+  { id: "limits", label: "Limits" },
   { id: "sandbox", label: "Sandbox" },
-  { id: "account", label: "Account" },
 ] as const;
 
 type SectionId = (typeof SECTIONS)[number]["id"];
@@ -79,7 +81,7 @@ function buildProviderDelta(
 export function SettingsPage(): React.JSX.Element {
   const { section } = useParams({ strict: false }) as { section?: string };
   const active: SectionId =
-    SECTIONS.find((s) => s.id === section)?.id ?? "provider";
+    SECTIONS.find((s) => s.id === section)?.id ?? "profile";
 
   const config = useConfig();
   const save = useConfigAutosave();
@@ -298,9 +300,10 @@ export function SettingsPage(): React.JSX.Element {
           onSave={() => void handleSaveProvider()}
         />
       )}
-      {active === "agent" && <AgentSection config={config} save={save} />}
+      {active === "profile" && <ProfileSection />}
+      {active === "security" && <SecuritySection />}
+      {active === "limits" && <LimitsSection config={config} save={save} />}
       {active === "sandbox" && <SandboxSection config={config} save={save} />}
-      {active === "account" && <AccountSection />}
 
       <ConfirmDialog
         open={blocker.status === "blocked"}

@@ -327,7 +327,7 @@ const settingsIndexRoute = createRoute({
   beforeLoad: () => {
     throw redirect({
       to: "/settings/$section",
-      params: { section: "provider" },
+      params: { section: "profile" },
     });
   },
 });
@@ -340,7 +340,7 @@ const settingsRoute = createRoute({
   loader: ({ context: { queryClient }, params }) =>
     Promise.all([
       need(queryClient, configQuery()),
-      params.section === "account" && need(queryClient, devicesQuery()),
+      params.section === "security" && need(queryClient, devicesQuery()),
     ]),
   component: LAZY.SettingsPage,
 });

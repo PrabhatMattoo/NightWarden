@@ -151,6 +151,9 @@ function setupPage({
             ownerExists: true,
             authenticated: true,
             email: "user@nightwarden.io",
+            name: "User",
+            image: null,
+            theme: "system",
           }),
       });
     }
@@ -993,9 +996,8 @@ describe("SessionView", () => {
         expect(screen.queryByTestId("approval-card")).not.toBeInTheDocument();
       });
 
-      // The settled call folds into a collapsed run group; open it to read the
-      // one row and confirm no duplicate grew beneath it. A chat keeps its
-      // settled group open, so the row is already there to read.
+      // A chat keeps its settled run group open, so the one row is there to read
+      // and no duplicate may grow beneath it.
       const user = userEvent.setup();
       expect(screen.getAllByText("RestartDockerService")).toHaveLength(1);
 
@@ -1556,9 +1558,8 @@ describe("SessionView", () => {
       await user.click(within(card).getByRole("button", { name: /submit/i }));
 
       expect(screen.getByTestId("clarification-card")).toBeInTheDocument();
-      // Back to working the moment the answer is sent, rather than after the
-      // first token: the run never looks finished in between, so its group
-      // never settles and folds itself shut under the reader.
+      // Working again the moment the answer is sent, so the group never settles
+      // and folds itself shut under the reader before the first token.
       expect(screen.getByTestId("working-indicator")).toBeInTheDocument();
       expect(screen.getByRole("textbox")).toBeDisabled();
       const group = screen.getByTestId("run-group");
