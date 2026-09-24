@@ -113,7 +113,7 @@ function CommandItem({
       data-slot="command-item"
       className={cn(
         OVERLAY_OPTION,
-        "data-[selected=true]:bg-highlight data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-50",
+        "data-[selected=true]:bg-highlight data-[disabled=true]:pointer-events-none",
         className,
       )}
       {...props}

@@ -37,6 +37,7 @@
   --color-shade: var(--shade);
   --color-ghost-hover: var(--ghost-hover);
   --color-switch-off: var(--switch-off);
+  --color-switch-off-hover: var(--switch-off-hover);
   --color-edge-modal: var(--edge-modal);
   --color-edge-input: var(--edge-input);
   --color-edge-input-hover: var(--edge-input-hover);
@@ -70,6 +71,7 @@
   --shadow-lift: var(--shadow-lift);
   --shadow-card: var(--shadow-card);
   --shadow-overlay: var(--shadow-overlay);
+  --shadow-menu: var(--shadow-menu);
   --shadow-modal: var(--shadow-modal);
 }
 
@@ -83,8 +85,8 @@
   --radius-overlay: 0.75rem;
 
   /* Measures a page's column takes, and the fixed widths of the frame itself. */
-  --container-narrow: 760px;
-  --container-wide: 920px;
+  --container-conversation: 760px;
+  --container-page: 860px;
   --container-field: 420px;
   --container-control: 288px;
   --container-control-sm: 240px;
@@ -94,7 +96,7 @@
   --container-title: 448px;
   --container-login: 360px;
   --container-sidebar: 250px;
-  --container-sidebar-icon: 52px;
+  --container-sidebar-icon: 48px;
   --container-sidebar-sheet: 288px;
 
   --breakpoint-sm: 640px;
@@ -125,6 +127,8 @@
   --duration-rounds: 1600ms;
   --duration-pending-in: 100ms;
   --duration-content-in: 80ms;
+  --duration-knob: 100ms;
+  --duration-knob-follow: 50ms;
   --default-transition-duration: var(--duration-base);
   --default-transition-timing-function: var(--ease-out);
 
@@ -309,6 +313,39 @@
   }
 }
 
+/* A link reads as one in any sentence by its colour; the underline comes with the pointer. */
+@utility link {
+  color: var(--accent-ink);
+  font-weight: 500;
+  text-decoration-line: none;
+  text-underline-offset: 2px;
+  &:hover {
+    text-decoration-line: underline;
+  }
+}
+
+/* Leaving the app is marked, never underlined: an inline-block keeps the hover
+   underline off the arrow. */
+@utility external {
+  &::after {
+    content: "↗";
+    display: inline-block;
+    margin-inline-start: calc(var(--spacing) * 1);
+  }
+}
+
+/* The knob's leading edge moves first and its trailing edge follows, so a toggle
+   stretches across rather than sliding stiff. */
+@utility knob-stretch {
+  transition-property: left, right;
+  transition-duration: var(--duration-knob);
+  transition-timing-function: ease-out;
+  transition-delay: 0s, var(--duration-knob-follow);
+  &[data-checked] {
+    transition-delay: var(--duration-knob-follow), 0s;
+  }
+}
+
 @utility stage-fall {
   background-image: var(--stage-fall);
 }
@@ -320,15 +357,42 @@
   &::before {
     content: "";
     position: absolute;
-    inset: -0.5px;
+    inset: calc(-1 * var(--hairline));
     border-radius: inherit;
-    padding: 0.5px;
+    padding: var(--hairline);
     background: var(--edge-lit);
     mask:
       linear-gradient(#000 0 0) content-box,
       linear-gradient(#000 0 0);
     mask-composite: exclude;
     pointer-events: none;
+  }
+}
+
+/* The transcript and everything docked under it share one column, so none of them drifts. */
+@utility conversation-column {
+  @apply mx-auto w-full max-w-conversation px-6;
+}
+
+@utility report-column {
+  @apply mx-auto w-full max-w-page px-8 py-6;
+}
+
+/* Two dims for what something outside the page is blocking: a control, and a row. */
+@utility dim-control {
+  opacity: 0.6;
+}
+
+@utility dim-row {
+  opacity: 0.5;
+}
+
+/* A small control answers the pointer well past what it draws. */
+@utility hit-area {
+  &::after {
+    content: "";
+    position: absolute;
+    inset: calc(var(--spacing) * -2) calc(var(--spacing) * -3);
   }
 }
 

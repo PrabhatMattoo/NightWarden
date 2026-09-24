@@ -132,7 +132,7 @@ function TranscriptColumn({
       data-testid="transcript-column"
       role="log"
       aria-label="Session transcript"
-      className="mx-auto w-full max-w-narrow gap-0 px-6 pb-8 pt-4"
+      className="conversation-column gap-0 pb-8 pt-4"
     >
       {nodes.map((node, index) => {
         const key =
@@ -517,7 +517,7 @@ export function SessionView({
           (reportItem?.kind !== "report_card" ||
             reportItem.state.phase !== "ready" ||
             candidateItem.rows.some((row) => row.state === "open")) && (
-            <div className="mx-auto mb-2 w-full max-w-narrow px-6">
+            <div className="conversation-column mb-2">
               <TranscriptItemRenderer
                 item={candidateItem}
                 onResolve={handleResolve}
@@ -530,7 +530,7 @@ export function SessionView({
             its own, so what is left is the one thing asking to be acted on. */}
         {reportItem?.kind === "report_card" &&
           reportItem.state.phase === "failed" && (
-            <div className="mx-auto mb-2 w-full max-w-narrow px-6">
+            <div className="conversation-column mb-2">
               <TranscriptItemRenderer
                 item={reportItem}
                 onResolve={handleResolve}
@@ -540,7 +540,7 @@ export function SessionView({
           )}
 
         {dockedItem && (
-          <div className="mx-auto mb-2 w-full max-w-narrow px-6">
+          <div className="conversation-column mb-2">
             <PinnedGate
               item={dockedItem}
               submitting={

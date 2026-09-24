@@ -54,7 +54,7 @@ function FieldLabel({
       htmlFor={htmlFor}
       id={id ?? (htmlFor === undefined ? undefined : `${htmlFor}-label`)}
       className={cn(
-        "group/field-label peer/field-label flex w-fit gap-2 type-item group-data-[disabled=true]/field:opacity-50 has-data-checked:border-accent has-data-checked:bg-hover has-[>[data-slot=field]]:rounded-card has-[>[data-slot=field]]:border-hairline *:data-[slot=field]:p-3",
+        "group/field-label peer/field-label flex w-fit gap-2 type-item has-data-checked:border-accent has-data-checked:bg-hover has-[>[data-slot=field]]:rounded-card has-[>[data-slot=field]]:border-hairline *:data-[slot=field]:p-3",
         "has-[>[data-slot=field]]:w-full has-[>[data-slot=field]]:flex-col",
         className,
       )}
@@ -67,10 +67,7 @@ function FieldTitle({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="field-label"
-      className={cn(
-        "flex w-fit items-center gap-2 type-item group-data-[disabled=true]/field:opacity-50",
-        className,
-      )}
+      className={cn("flex w-fit items-center gap-2 type-item", className)}
       {...props}
     />
   );
@@ -83,7 +80,6 @@ function FieldDescription({ className, ...props }: React.ComponentProps<"p">) {
       className={cn(
         "text-left type-small text-pretty",
         "last:mt-0 nth-last-2:-mt-1",
-        "[&>a]:text-ink-title",
         className,
       )}
       {...props}

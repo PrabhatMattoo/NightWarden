@@ -95,11 +95,12 @@ function ShellContent({
       </a>
 
       <Sidebar>
-        <SidebarHeader className="h-12 flex-row items-center justify-between gap-2 overflow-hidden px-3 group-data-[collapsible=icon]:gap-0">
+        {/* The same 10px inset open and closed; the wordmark gives up its own 4px so the toggle ends on the rail's centre. */}
+        <SidebarHeader className="h-12 flex-row items-center justify-between gap-2 overflow-hidden px-2.5 group-data-[collapsible=icon]:gap-0">
           <span
             className={cn(
-              "nav-label-motion min-w-0 flex-1 truncate ps-2 whitespace-nowrap type-heading",
-              "group-data-[collapsible=icon]:opacity-0 group-data-[collapsible=icon]:delay-0",
+              "nav-label-motion min-w-0 flex-1 truncate ps-1 whitespace-nowrap type-heading",
+              "group-data-[collapsible=icon]:ps-0 group-data-[collapsible=icon]:opacity-0 group-data-[collapsible=icon]:delay-0",
             )}
           >
             NightWarden

@@ -9,7 +9,7 @@ import type {
 } from "@nightwarden/shared";
 
 import { Page } from "@/shared/ui/Page";
-import { Button, buttonVariants } from "@/shared/ui/button";
+import { Button } from "@/shared/ui/button";
 import { Card } from "@/shared/ui/card";
 import { Rounds } from "@/shared/ui/Rounds";
 import {
@@ -127,9 +127,6 @@ function NothingYet(): React.JSX.Element {
           alerting to start.
         </EmptyDescription>
       </EmptyHeader>
-      <Link to="/integrations" className={buttonVariants()}>
-        Connect an alert source
-      </Link>
     </Empty>
   );
 }

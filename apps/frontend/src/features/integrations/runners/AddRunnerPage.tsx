@@ -16,7 +16,7 @@ import {
   FieldError,
 } from "@/shared/ui/field";
 import { Input } from "@/shared/ui/input";
-import { Rounds } from "@/shared/ui/Rounds";
+import { Waiting } from "@/shared/ui/Rounds";
 import { Page } from "@/shared/ui/Page";
 import {
   WizardStepper,
@@ -27,6 +27,7 @@ import { CopyableSnippet } from "@/shared/ui/CopyableSnippet";
 import { ICON_UI } from "@/shared/lib/iconProps";
 import { ApiError, apiFetch, apiText } from "@/shared/api/client";
 import { runnersQuery } from "../queries";
+import { connectedOn } from "./connectedOn";
 import { PLATFORM_COPY } from "./RunnerListPage.js";
 
 interface MintedToken {
@@ -75,9 +76,7 @@ export function AddRunnerPage({
 
   // With nothing to list, back skips the list page so a first install returns
   // to Integrations rather than an empty intermediary.
-  const hasConnected = runners.some(
-    (r) => r.hostname !== null && r.platform === platform,
-  );
+  const hasConnected = connectedOn(runners, platform).length > 0;
   const back = hasConnected
     ? { to: listPath, label: copy.plural }
     : { to: "/integrations", label: "Integrations" };
@@ -142,7 +141,7 @@ export function AddRunnerPage({
   }
 
   return (
-    <Page back={back} measure="narrow">
+    <Page back={back}>
       <WizardStepper step={step} total={3} title={STEP_TITLES[step]} />
 
       {step === 0 && (
@@ -198,14 +197,7 @@ export function AddRunnerPage({
 
       {step === 1 && (
         <div className="flex flex-col gap-4">
-          {prepare.isPending && (
-            <div className="flex items-center gap-2">
-              <Rounds size="inline" />
-              <p className="type-body text-ink-muted">
-                Generating a runner token…
-              </p>
-            </div>
-          )}
+          {prepare.isPending && <Waiting>Generating a runner token…</Waiting>}
 
           {installError !== null && (
             <FieldError>
@@ -232,12 +224,7 @@ export function AddRunnerPage({
                 {connectedRunner ? (
                   <StatusText tone="ok">Runner connected</StatusText>
                 ) : (
-                  <div className="flex items-center gap-2">
-                    <Rounds size="inline" />
-                    <p className="type-body text-ink-muted">
-                      Waiting for the runner to connect…
-                    </p>
-                  </div>
+                  <Waiting>Waiting for the runner to connect…</Waiting>
                 )}
               </div>
             </div>

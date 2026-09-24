@@ -5,6 +5,7 @@ import { CheckIcon, ChevronDownIcon, ChevronUpIcon } from "lucide-react";
 
 import { cn } from "@/shared/lib/utils";
 import { OVERLAY_OPTION, OVERLAY_SURFACE } from "@/shared/ui/overlay";
+import { GroundProvider, useOverlayGround } from "@/shared/ui/ground";
 
 const Select = SelectPrimitive.Root;
 
@@ -40,7 +41,7 @@ function SelectTrigger({
           : undefined)
       }
       className={cn(
-        "flex w-fit max-w-full items-center justify-between gap-2 rounded-control border-hairline border-transparent bg-control bg-clip-padding pr-2 pl-3 type-body text-ink-base shadow-control whitespace-nowrap select-none highlight-motion hover:bg-control-hover disabled:pointer-events-none disabled:text-ink-muted disabled:opacity-60 aria-invalid:border-fail data-placeholder:text-ink-faint data-[size=default]:h-7.5 data-[size=sm]:h-7 *:data-[slot=select-value]:line-clamp-1 *:data-[slot=select-value]:flex *:data-[slot=select-value]:items-center *:data-[slot=select-value]:gap-2 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+        "flex w-fit max-w-full items-center justify-between gap-2 rounded-control border-hairline border-transparent bg-control bg-clip-padding pr-2 pl-3 type-body text-ink-base shadow-control whitespace-nowrap select-none highlight-motion hover:bg-control-hover disabled:pointer-events-none aria-invalid:border-fail data-[size=default]:h-7.5 data-[size=sm]:h-7 *:data-[slot=select-value]:line-clamp-1 *:data-[slot=select-value]:flex *:data-[slot=select-value]:items-center *:data-[slot=select-value]:gap-2 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
         className,
       )}
       {...props}
@@ -69,6 +70,7 @@ function SelectContent({
     SelectPrimitive.Positioner.Props,
     "align" | "alignOffset" | "side" | "sideOffset"
   >) {
+  const ground = useOverlayGround();
   return (
     <SelectPrimitive.Portal>
       <SelectPrimitive.Positioner
@@ -80,7 +82,7 @@ function SelectContent({
       >
         <SelectPrimitive.Popup
           data-slot="select-content"
-          data-ground="overlay"
+          data-ground={ground}
           className={cn(
             OVERLAY_SURFACE,
             "relative max-h-(--available-height) w-auto min-w-(--anchor-width) overflow-x-hidden overflow-y-auto p-0",
@@ -90,7 +92,7 @@ function SelectContent({
         >
           <SelectScrollUpButton />
           <SelectPrimitive.List className="scroll-py-1 p-1">
-            {children}
+            <GroundProvider ground={ground}>{children}</GroundProvider>
           </SelectPrimitive.List>
           <SelectScrollDownButton />
         </SelectPrimitive.Popup>

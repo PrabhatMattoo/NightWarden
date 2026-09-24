@@ -113,7 +113,7 @@ export function ChatInput({
   );
 
   return (
-    <div className="mx-auto w-full max-w-narrow px-6 pb-4 pt-2 max-md:px-3 max-md:pb-3">
+    <div className="conversation-column pb-4 pt-2 max-md:px-3 max-md:pb-3">
       <Label htmlFor="chat-textarea" className="sr-only">
         Message
       </Label>
@@ -132,7 +132,7 @@ export function ChatInput({
           onCompositionEnd={() => {
             composingRef.current = false;
           }}
-          disabled={isRunning}
+          unavailable={isRunning}
           rows={3}
         />
         <InputGroupAddon

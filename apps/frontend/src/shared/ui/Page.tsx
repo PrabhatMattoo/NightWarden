@@ -29,9 +29,9 @@ interface Bar {
   controls?: React.ReactNode;
 }
 
+// One reading width for every titled page, so moving between sections never shifts the column.
 const MEASURE = {
-  narrow: "max-w-narrow",
-  wide: "max-w-wide",
+  page: "max-w-page",
 } as const;
 
 function PageBar({ back, crumbs, beside, controls }: Bar): React.JSX.Element {
@@ -113,7 +113,7 @@ export function Page({
   subtitle,
   actions,
   toolbar,
-  measure = "wide",
+  measure = "page",
   children,
 }: Bar & {
   title?: string;

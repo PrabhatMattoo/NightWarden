@@ -23,6 +23,7 @@ import { ICON_UI } from "@/shared/lib/iconProps";
 import { apiFetch } from "@/shared/api/client";
 import { INTEGRATION_CATALOG } from "../catalog";
 import { runnersQuery } from "../queries";
+import { connectedOn } from "./connectedOn";
 import { IntegrationHeader } from "@/features/integrations/IntegrationHeader";
 
 // The two platforms are genuinely different things - a machine running
@@ -87,12 +88,6 @@ function compareRunners(
   return dir === "asc" ? cmp : -cmp;
 }
 
-// A runner belongs to the platform its row names, decided at onboarding, so the
-// two lists can never disagree with what the runner actually is.
-function runsPlatform(runner: RunnerRecord, platform: Platform): boolean {
-  return runner.platform === platform;
-}
-
 export function RunnerListPage({
   platform,
 }: {
@@ -118,9 +113,7 @@ export function RunnerListPage({
       queryClient.invalidateQueries({ queryKey: runnersQuery().queryKey }),
   });
 
-  const connected = runners.filter(
-    (r) => r.hostname !== null && runsPlatform(r, platform),
-  );
+  const connected = connectedOn(runners, platform);
   const sorted = [...connected].sort((a, b) =>
     compareRunners(a, b, sortField, sortDir),
   );
@@ -141,7 +134,6 @@ export function RunnerListPage({
 
   return (
     <Page
-      measure="narrow"
       back={{ to: "/integrations", label: "Integrations" }}
       controls={
         <Button

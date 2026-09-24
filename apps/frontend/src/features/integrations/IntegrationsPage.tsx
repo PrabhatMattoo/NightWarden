@@ -7,6 +7,7 @@ import { Page } from "@/shared/ui/Page";
 import { StatusText } from "@/shared/ui/status";
 import { IntegrationLogo } from "@/features/integrations/IntegrationHeader";
 import { INTEGRATION_CATALOG } from "./catalog";
+import { connectedOn } from "./runners/connectedOn";
 import {
   alertSourceQuery,
   githubStatusQuery,
@@ -125,8 +126,6 @@ export function IntegrationsPage(): React.JSX.Element {
     ],
   });
 
-  const connectedRunners = runners.filter((r) => r.hostname !== null);
-
   // Two entries, because the two install and are addressed differently. An
   // empty platform routes straight to setup rather than an empty list.
   function platformCard(
@@ -134,9 +133,7 @@ export function IntegrationsPage(): React.JSX.Element {
     noun: string,
   ): IntegrationRow {
     const identity = INTEGRATION_CATALOG[platform];
-    const count = connectedRunners.filter(
-      (r) => r.platform === platform,
-    ).length;
+    const count = connectedOn(runners, platform).length;
     return {
       title: identity.label,
       description: identity.description,

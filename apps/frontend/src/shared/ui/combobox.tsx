@@ -11,6 +11,7 @@ import {
   InputGroupButton,
   InputGroupInput,
 } from "@/shared/ui/input-group";
+import { GroundProvider, useOverlayGround } from "@/shared/ui/ground";
 
 const Combobox = ComboboxPrimitive.Root;
 
@@ -88,6 +89,7 @@ function ComboboxContent({
   alignOffset = 0,
   anchor,
   collisionAvoidance,
+  children,
   ...props
 }: ComboboxPrimitive.Popup.Props &
   Pick<
@@ -99,6 +101,7 @@ function ComboboxContent({
     | "anchor"
     | "collisionAvoidance"
   >) {
+  const ground = useOverlayGround();
   return (
     <ComboboxPrimitive.Portal>
       <ComboboxPrimitive.Positioner
@@ -112,14 +115,16 @@ function ComboboxContent({
       >
         <ComboboxPrimitive.Popup
           data-slot="combobox-content"
-          data-ground="overlay"
+          data-ground={ground}
           className={cn(
             OVERLAY_SURFACE,
             "group/combobox-content relative max-h-(--available-height) w-(--anchor-width) max-w-(--available-width) min-w-(--anchor-width) overflow-hidden p-0",
             className,
           )}
           {...props}
-        />
+        >
+          <GroundProvider ground={ground}>{children}</GroundProvider>
+        </ComboboxPrimitive.Popup>
       </ComboboxPrimitive.Positioner>
     </ComboboxPrimitive.Portal>
   );

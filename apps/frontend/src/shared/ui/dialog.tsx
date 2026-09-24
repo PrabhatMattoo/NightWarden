@@ -7,6 +7,7 @@ import { XIcon } from "lucide-react";
 import { cn } from "@/shared/lib/utils";
 import { Button } from "@/shared/ui/button";
 import { MODAL_BACKDROP, MODAL_SURFACE } from "@/shared/ui/overlay";
+import { GroundProvider } from "@/shared/ui/ground";
 
 function Dialog({ ...props }: DialogPrimitive.Root.Props) {
   return <DialogPrimitive.Root data-slot="dialog" {...props} />;
@@ -40,7 +41,7 @@ function DialogContent({
         className={cn(MODAL_SURFACE, "max-w-md gap-6", className)}
         {...props}
       >
-        {children}
+        <GroundProvider ground="card">{children}</GroundProvider>
         {showCloseButton && (
           <DialogPrimitive.Close
             data-slot="dialog-close"

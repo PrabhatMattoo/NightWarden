@@ -91,7 +91,7 @@ export function ChangesList({
             href={pr.url}
             target="_blank"
             rel="noreferrer"
-            className="min-w-0 truncate type-item text-accent-ink no-underline hover:underline"
+            className="min-w-0 truncate type-item link external"
           >
             #{pr.number} {pr.title}
           </a>

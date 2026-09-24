@@ -14,7 +14,7 @@ import type {
 
 import { Alert, AlertDescription, AlertTitle } from "@/shared/ui/alert";
 import { MetaText } from "@/shared/ui/status";
-import { Button } from "@/shared/ui/button";
+import { Button, buttonVariants } from "@/shared/ui/button";
 import {
   Combobox,
   ComboboxContent,
@@ -25,7 +25,7 @@ import {
 } from "@/shared/ui/combobox";
 import { Field, FieldDescription, FieldLabel } from "@/shared/ui/field";
 import { Input } from "@/shared/ui/input";
-import { Rounds } from "@/shared/ui/Rounds";
+import { Waiting } from "@/shared/ui/Rounds";
 import { ConfirmDialog } from "@/shared/ui/ConfirmDialog";
 import { Page } from "@/shared/ui/Page";
 import { expiryDaysFrom } from "@/features/integrations/github/useGitHubExpiryDays";
@@ -160,7 +160,7 @@ function LadderAlert({ error }: { error: unknown }): React.JSX.Element {
               href={FINE_GRAINED_TOKEN_URL}
               target="_blank"
               rel="noreferrer"
-              className="emphasis underline underline-offset-4"
+              className="link external"
             >
               Regenerate token on GitHub
             </a>
@@ -170,7 +170,7 @@ function LadderAlert({ error }: { error: unknown }): React.JSX.Element {
               href={content.orgApprovalUrl}
               target="_blank"
               rel="noreferrer"
-              className="emphasis underline underline-offset-4"
+              className="link external"
             >
               Review pending token requests
             </a>
@@ -407,10 +407,7 @@ export function GitHubConnectPage(): React.JSX.Element {
   const connecting = connectWithToken.isPending || updateRepoOnly.isPending;
 
   return (
-    <Page
-      back={{ to: "/integrations", label: "Integrations" }}
-      measure="narrow"
-    >
+    <Page back={{ to: "/integrations", label: "Integrations" }}>
       <div className="flex flex-col gap-8">
         <IntegrationHeader identity={INTEGRATION_CATALOG.github} />
         {preflightIssue !== null && <PreflightWarning issue={preflightIssue} />}
@@ -422,35 +419,34 @@ export function GitHubConnectPage(): React.JSX.Element {
             it here.
             <br />
             If your organization blocks fine-grained tokens, create a{" "}
-            <a href={CLASSIC_TOKEN_URL} target="_blank" rel="noreferrer">
+            <a
+              href={CLASSIC_TOKEN_URL}
+              target="_blank"
+              rel="noreferrer"
+              className="link external"
+            >
               classic token
             </a>{" "}
             with repo scope instead.
           </FieldDescription>
           {checking ? (
-            <div className="mt-2 flex items-center gap-2">
-              <Rounds size="inline" />
-              <span className="type-body text-ink-muted">
-                Checking the token with GitHub…
-              </span>
-            </div>
+            <Waiting className="mt-2">Checking the token with GitHub…</Waiting>
           ) : showTokenInput ? (
             <div className="mt-2 flex flex-col gap-3">
               <div className="flex flex-wrap items-center gap-2">
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  render={
-                    <a
-                      href={FINE_GRAINED_TOKEN_URL}
-                      target="_blank"
-                      rel="noreferrer"
-                    />
-                  }
+                {/* A link drawn as a button: it opens GitHub, so it keeps a link's semantics. */}
+                <a
+                  href={FINE_GRAINED_TOKEN_URL}
+                  target="_blank"
+                  rel="noreferrer"
+                  className={buttonVariants({
+                    size: "sm",
+                    variant: "secondary",
+                  })}
                 >
                   <ExternalLink {...ICON_UI} />
                   Create token on GitHub
-                </Button>
+                </a>
               </div>
               <div className="flex gap-2">
                 <Input

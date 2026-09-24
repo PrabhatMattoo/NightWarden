@@ -335,7 +335,7 @@ export function ReportPanel({
     (record.findings.length === 0 && record.report === null)
   ) {
     return (
-      <div className="mx-auto w-full max-w-narrow px-8 py-6">
+      <div className="report-column">
         <AlertBand alerts={alerts} />
         <h1 className="m-0 mt-8 type-title">Investigation</h1>
         <p className="m-0 mt-3 type-body text-ink-muted">
@@ -453,7 +453,7 @@ export function ReportPanel({
   );
 
   return (
-    <div className="mx-auto w-full max-w-narrow px-8 py-6">
+    <div className="report-column">
       <AlertBand alerts={alerts} />
 
       <header className="mt-8">
@@ -512,10 +512,7 @@ export function ReportPanel({
                     : `${approved.length} writes you approved`}
                 </span>{" "}
                 ran during this investigation.{" "}
-                <a
-                  href={`#${TIMELINE_ID}`}
-                  className="underline decoration-edge-strong underline-offset-2 hover:text-accent-ink hover:decoration-accent-ink"
-                >
+                <a href={`#${TIMELINE_ID}`} className="link">
                   See it on the timeline
                 </a>
               </p>

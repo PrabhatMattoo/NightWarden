@@ -1,6 +1,7 @@
 import { Checkbox as CheckboxPrimitive } from "@base-ui/react/checkbox";
 
 import { cn } from "@/shared/lib/utils";
+import { CHOICE_OPTION } from "@/shared/ui/choice";
 import { CheckIcon } from "lucide-react";
 
 function Checkbox({ className, ...props }: CheckboxPrimitive.Root.Props) {
@@ -8,7 +9,7 @@ function Checkbox({ className, ...props }: CheckboxPrimitive.Root.Props) {
     <CheckboxPrimitive.Root
       data-slot="checkbox"
       className={cn(
-        "peer relative flex size-4 shrink-0 items-center justify-center rounded-control border-hairline border-edge-strong highlight-motion group-has-disabled/field:border-edge after:absolute after:-inset-x-3 after:-inset-y-2 aria-invalid:border-fail data-checked:border-accent data-checked:bg-accent data-checked:text-on-accent",
+        "peer relative flex size-4 shrink-0 items-center justify-center rounded-control border-hairline border-edge-strong highlight-motion hit-area aria-invalid:border-fail data-checked:border-accent data-checked:bg-accent data-checked:text-on-accent",
         className,
       )}
       {...props}
@@ -33,10 +34,7 @@ function CheckboxOption({
   return (
     <CheckboxPrimitive.Root
       data-slot="checkbox-option"
-      className={cn(
-        "flex w-full items-baseline gap-3 rounded-control px-3 py-2 text-left highlight-motion hover:bg-hover disabled:pointer-events-none disabled:opacity-50 data-checked:bg-control data-checked:hover:bg-control-hover",
-        className,
-      )}
+      className={cn(CHOICE_OPTION, className)}
       {...props}
     >
       {children}

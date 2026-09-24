@@ -277,7 +277,7 @@ export function SettingsPage(): React.JSX.Element {
     SECTIONS.find((s) => s.id === active)?.label ?? "Settings";
 
   return (
-    <Page title={activeLabel} measure="wide">
+    <Page title={activeLabel}>
       {active === "provider" && (
         <ProviderSection
           form={form}

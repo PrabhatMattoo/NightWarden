@@ -8,10 +8,18 @@ const twMerge = extendTailwindMerge<"type-role">({
   extend: {
     theme: {
       radius: ["control", "card", "overlay"],
-      shadow: ["control", "control-hover", "lift", "card", "overlay", "modal"],
+      shadow: [
+        "control",
+        "control-hover",
+        "lift",
+        "card",
+        "overlay",
+        "menu",
+        "modal",
+      ],
       container: [
-        "narrow",
-        "wide",
+        "conversation",
+        "page",
         "field",
         "control",
         "control-sm",

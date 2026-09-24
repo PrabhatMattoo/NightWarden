@@ -1,10 +1,11 @@
 import * as React from "react";
 
 import { cn } from "@/shared/lib/utils";
+import { GroundProvider } from "@/shared/ui/ground";
 
 /* A panel resting on the stage: its own ground, an alpha ring and a drop rather
    than a border, so it reads the same on any ground beneath it. */
-function Card({ className, ...props }: React.ComponentProps<"div">) {
+function Card({ className, children, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="card"
@@ -14,7 +15,9 @@ function Card({ className, ...props }: React.ComponentProps<"div">) {
         className,
       )}
       {...props}
-    />
+    >
+      <GroundProvider ground="card">{children}</GroundProvider>
+    </div>
   );
 }
 

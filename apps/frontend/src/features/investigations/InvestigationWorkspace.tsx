@@ -82,7 +82,7 @@ function QueueStepper({
         variant="ghost"
         size="icon"
         aria-label="Previous investigation"
-        disabled={at === 0}
+        unavailable={at === 0}
         onClick={() => step(at - 1)}
       >
         <ChevronLeft {...ICON_UI} />
@@ -91,7 +91,7 @@ function QueueStepper({
         variant="ghost"
         size="icon"
         aria-label="Next investigation"
-        disabled={at >= queue.length - 1}
+        unavailable={at >= queue.length - 1}
         onClick={() => step(at + 1)}
       >
         <ChevronRight {...ICON_UI} />

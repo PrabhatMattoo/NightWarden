@@ -47,7 +47,7 @@ function InputGroup({
 }
 
 const inputGroupAddonVariants = cva(
-  "flex h-auto cursor-text items-center justify-center gap-2 py-1 type-body text-ink-muted select-none group-data-[disabled=true]/input-group:opacity-50 [&>kbd]:rounded-control [&>svg:not([class*='size-'])]:size-4",
+  "flex h-auto cursor-text items-center justify-center gap-2 py-1 type-body text-ink-muted select-none [&>kbd]:rounded-control [&>svg:not([class*='size-'])]:size-4",
   {
     variants: {
       align: {
@@ -94,8 +94,8 @@ const inputGroupButtonVariants = cva("flex items-center gap-2", {
     size: {
       xs: "h-6 gap-1 px-2 [&>svg:not([class*='size-'])]:size-3.5",
       "icon-xs": "size-6 p-0 has-[>svg]:p-0",
-      // Round, and a neutral fill until there is something to send.
-      send: "size-6 rounded-full p-0 has-[>svg]:p-0 disabled:bg-control disabled:text-ink-base [&_svg:not([class*='size-'])]:size-3.5",
+      // Round, so the message box's one action reads apart from its text.
+      send: "size-6 rounded-full p-0 has-[>svg]:p-0 [&_svg:not([class*='size-'])]:size-3.5",
       icon: "size-8 p-0 has-[>svg]:p-0",
       default: "",
     },
@@ -157,7 +157,7 @@ function InputGroupInput({
 function InputGroupTextarea({
   className,
   ...props
-}: React.ComponentProps<"textarea">) {
+}: React.ComponentProps<typeof Textarea>) {
   return (
     <Textarea
       data-slot="input-group-control"

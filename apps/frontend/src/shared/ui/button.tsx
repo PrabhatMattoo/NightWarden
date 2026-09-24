@@ -2,10 +2,11 @@ import { Button as ButtonPrimitive } from "@base-ui/react/button";
 import { cva, type VariantProps } from "class-variance-authority";
 
 import { cn } from "@/shared/lib/utils";
+import { unavailableProps } from "@/shared/ui/unavailable";
 
-// Hover moves the fill and raises the ink one rung; disabled keeps the look at lower opacity.
+// Hover moves the fill and raises the ink one rung; disabled only stops the pointer, never dims.
 const buttonVariants = cva(
-  "group/button inline-flex shrink-0 items-center justify-center rounded-control border-hairline border-transparent bg-clip-padding type-item whitespace-nowrap select-none highlight-motion disabled:pointer-events-none disabled:opacity-60 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+  "group/button inline-flex shrink-0 items-center justify-center rounded-control border-hairline border-transparent bg-clip-padding type-item whitespace-nowrap select-none highlight-motion disabled:pointer-events-none [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
   {
     variants: {
       size: {
@@ -17,7 +18,7 @@ const buttonVariants = cva(
       variant: {
         default: "bg-accent text-on-accent shadow-lift hover:bg-accent-hover",
         secondary:
-          "bg-control text-ink-base shadow-control hover:bg-control-hover hover:shadow-control-hover aria-expanded:bg-control-hover aria-expanded:text-ink-title aria-expanded:shadow-control-hover disabled:text-ink-muted",
+          "bg-control text-ink-base shadow-control hover:bg-control-hover hover:shadow-control-hover aria-expanded:bg-control-hover aria-expanded:text-ink-title aria-expanded:shadow-control-hover",
         outline:
           "border-edge-input text-ink-base hover:bg-ghost-hover aria-expanded:bg-ghost-hover",
         ghost:
@@ -42,12 +43,23 @@ function Button({
   className,
   variant = "default",
   size = "default",
+  unavailable = false,
+  disabled,
   ...props
-}: ButtonPrimitive.Props & VariantProps<typeof buttonVariants>) {
+}: ButtonPrimitive.Props &
+  VariantProps<typeof buttonVariants> & {
+    // Dims, where disabled alone only stops the pointer.
+    unavailable?: boolean;
+  }) {
   return (
     <ButtonPrimitive
       data-slot="button"
-      className={cn(buttonVariants({ variant, size, className }))}
+      {...unavailableProps(unavailable, disabled)}
+      className={cn(
+        buttonVariants({ variant, size }),
+        "data-unavailable:dim-control",
+        className,
+      )}
       {...props}
     />
   );

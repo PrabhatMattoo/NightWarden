@@ -113,7 +113,7 @@ function OpenedPullRequest({
         href={pr.url}
         target="_blank"
         rel="noreferrer"
-        className="emphasis text-accent-ink no-underline hover:underline"
+        className="link external"
       >
         #{pr.number}
       </a>

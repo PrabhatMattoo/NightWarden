@@ -2,7 +2,9 @@
 
 import { Menu as MenuPrimitive } from "@base-ui/react/menu";
 import { cn } from "@/shared/lib/utils";
+import { unavailableProps } from "@/shared/ui/unavailable";
 import { OVERLAY_OPTION, OVERLAY_SURFACE } from "@/shared/ui/overlay";
+import { GroundProvider, useOverlayGround } from "@/shared/ui/ground";
 
 const DropdownMenu = MenuPrimitive.Root;
 
@@ -23,6 +25,7 @@ function DropdownMenuContent({
     MenuPrimitive.Positioner.Props,
     "side" | "align" | "sideOffset" | "alignOffset"
   >) {
+  const ground = useOverlayGround();
   return (
     <MenuPrimitive.Portal>
       <MenuPrimitive.Positioner
@@ -34,11 +37,15 @@ function DropdownMenuContent({
       >
         <MenuPrimitive.Popup
           data-slot="dropdown-menu-content"
-          data-ground="overlay"
-          className={cn(OVERLAY_SURFACE, "min-w-40 overflow-hidden", className)}
+          data-ground={ground}
+          className={cn(
+            OVERLAY_SURFACE,
+            "min-w-40 overflow-hidden shadow-menu",
+            className,
+          )}
           {...props}
         >
-          {children}
+          <GroundProvider ground={ground}>{children}</GroundProvider>
         </MenuPrimitive.Popup>
       </MenuPrimitive.Positioner>
     </MenuPrimitive.Portal>
@@ -50,15 +57,23 @@ function DropdownMenuContent({
 function DropdownMenuItem({
   className,
   variant = "default",
+  unavailable = false,
+  disabled,
   ...props
-}: MenuPrimitive.Item.Props & { variant?: "default" | "destructive" }) {
+}: MenuPrimitive.Item.Props & {
+  variant?: "default" | "destructive";
+  // The row fades and its ink turns muted, where disabled alone only stops the pointer.
+  unavailable?: boolean;
+}) {
   return (
     <MenuPrimitive.Item
       data-slot="dropdown-menu-item"
       data-variant={variant}
+      {...unavailableProps(unavailable, disabled)}
       className={cn(
         OVERLAY_OPTION,
-        "whitespace-nowrap data-[variant=destructive]:text-fail data-[variant=destructive]:data-highlighted:text-fail",
+        // An action menu's row rises to title ink under the pointer; a select list's keeps base.
+        "whitespace-nowrap data-highlighted:text-ink-title data-[variant=destructive]:text-fail data-[variant=destructive]:data-highlighted:text-fail data-unavailable:text-ink-muted data-unavailable:dim-row",
         className,
       )}
       {...props}

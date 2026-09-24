@@ -29,6 +29,7 @@
             "pattern": "^(Card|CardContent|Section|ItemGroup|Collapsible|CollapsibleContent|CollapsibleTrigger|PopoverContent|MessageScrollerContent|SidebarHeader|RadioGroup|Progress|InputGroupAddon|DialogContent)$",
             "allow": [
               "layout",
+              "conversation-column",
               "spacing",
               "type-*",
               "font-mono",

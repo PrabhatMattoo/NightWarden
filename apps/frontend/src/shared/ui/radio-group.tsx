@@ -4,6 +4,7 @@ import { Radio as RadioPrimitive } from "@base-ui/react/radio";
 import { RadioGroup as RadioGroupPrimitive } from "@base-ui/react/radio-group";
 
 import { cn } from "@/shared/lib/utils";
+import { CHOICE_OPTION } from "@/shared/ui/choice";
 
 function RadioGroup({ className, ...props }: RadioGroupPrimitive.Props) {
   return (
@@ -25,10 +26,7 @@ function RadioGroupOption({
   return (
     <RadioPrimitive.Root
       data-slot="radio-group-option"
-      className={cn(
-        "flex w-full items-baseline gap-3 rounded-control px-3 py-2 text-left highlight-motion hover:bg-hover disabled:pointer-events-none disabled:opacity-50 data-checked:bg-control data-checked:hover:bg-control-hover",
-        className,
-      )}
+      className={cn(CHOICE_OPTION, className)}
       {...props}
     >
       {children}

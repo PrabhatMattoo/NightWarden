@@ -49,3 +49,24 @@ export function Rounds({
     </svg>
   );
 }
+
+// A live wait: the sentence names it, the grid says it is still going.
+export function Waiting({
+  className,
+  children,
+}: {
+  className?: string;
+  children: React.ReactNode;
+}): React.JSX.Element {
+  return (
+    <p
+      className={cn(
+        "flex items-center gap-2 type-body text-ink-muted",
+        className,
+      )}
+    >
+      <Rounds size="inline" />
+      {children}
+    </p>
+  );
+}

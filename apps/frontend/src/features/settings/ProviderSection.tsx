@@ -82,6 +82,8 @@ export function ProviderSection({
   const [replacingKey, setReplacingKey] = useState(false);
   const [typed, setTyped] = useState<string | null>(null);
   const keyInputOpen = savedApiKeyMasked === null || replacingKey;
+  // Everything below the provider waits on it, and dims until it is chosen.
+  const noProvider = block === null;
   const models = catalog.kind === "ready" ? catalog.models : [];
   // From the list the picker is drawn from, so the control always fits the
   // model actually selected.
@@ -126,13 +128,14 @@ export function ProviderSection({
 
         <SettingsRow
           controlId="settings-base-url"
+          unavailable={noProvider}
           title="Base URL"
           description="Where to reach that service."
         >
           <Input
             id="settings-base-url"
             measure="beside"
-            disabled={block === null}
+            disabled={noProvider}
             value={
               block?.baseUrl ??
               providers.find((p) => p.name === form.provider)?.defaultBaseUrl ??
@@ -146,6 +149,7 @@ export function ProviderSection({
 
         <SettingsRow
           controlId="settings-api-key"
+          unavailable={noProvider}
           title="API key"
           description="Stored encrypted and never shown again."
         >
@@ -154,7 +158,7 @@ export function ProviderSection({
               id="settings-api-key"
               type="password"
               measure="beside"
-              disabled={block === null}
+              disabled={noProvider}
               placeholder="Paste API key"
               value={newApiKey}
               onChange={(e) => onApiKeyChange(e.currentTarget.value)}
@@ -179,6 +183,7 @@ export function ProviderSection({
 
         <SettingsRow
           controlId="settings-model"
+          unavailable={noProvider}
           title="Model"
           description="One of the models that endpoint lists."
         >
@@ -206,9 +211,9 @@ export function ProviderSection({
                 e.preventDefault();
                 e.stopPropagation();
               }}
-              disabled={block === null}
+              disabled={noProvider}
               placeholder={
-                block === null ? "Choose a provider first" : "Search models"
+                noProvider ? "Choose a provider first" : "Search models"
               }
             />
             <ComboboxContent
@@ -258,6 +263,7 @@ export function ProviderSection({
       <div className="flex justify-end">
         <Button
           type="button"
+          unavailable={noProvider}
           disabled={!dirty || unchosen || saving}
           onClick={onSave}
         >

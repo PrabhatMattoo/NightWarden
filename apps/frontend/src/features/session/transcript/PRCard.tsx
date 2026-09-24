@@ -1,8 +1,5 @@
-import { ExternalLink } from "lucide-react";
-
 import { MetaText, StatusText } from "@/shared/ui/status";
 import { Card, CardContent } from "@/shared/ui/card";
-import { ICON_UI } from "@/shared/lib/iconProps";
 import { asRecord } from "@/shared/lib/toolResult";
 
 interface PullRequestResult {
@@ -51,10 +48,9 @@ export function PRCard({ pr }: { pr: PullRequestResult }): React.JSX.Element {
             href={pr.url}
             target="_blank"
             rel="noreferrer"
-            className="ml-auto inline-flex items-center gap-1 type-heading text-accent-ink no-underline hover:underline"
+            className="ml-auto type-heading link external"
           >
             View on GitHub
-            <ExternalLink {...ICON_UI} />
           </a>
         </CardContent>
         {pr.message !== undefined && (

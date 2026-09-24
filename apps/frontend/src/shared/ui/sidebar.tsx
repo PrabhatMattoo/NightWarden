@@ -13,6 +13,7 @@ import {
   SheetTitle,
 } from "@/shared/ui/sheet";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/shared/ui/tooltip";
+import { GroundProvider } from "@/shared/ui/ground";
 
 const SIDEBAR_COOKIE_NAME = "sidebar_state";
 const SIDEBAR_COOKIE_MAX_AGE = 60 * 60 * 24 * 7;
@@ -126,7 +127,9 @@ function Sidebar({
             <SheetTitle>Navigation</SheetTitle>
             <SheetDescription>Every section of NightWarden.</SheetDescription>
           </SheetHeader>
-          <div className="flex h-full w-full flex-col">{children}</div>
+          <GroundProvider ground="sidebar">
+            <div className="flex h-full w-full flex-col">{children}</div>
+          </GroundProvider>
         </SheetContent>
       </Sheet>
     );
@@ -153,7 +156,7 @@ function Sidebar({
         {...props}
       >
         <div data-slot="sidebar-inner" className="flex size-full flex-col">
-          {children}
+          <GroundProvider ground="sidebar">{children}</GroundProvider>
         </div>
       </div>
     </div>
@@ -184,7 +187,11 @@ function SidebarTrigger({
   );
 }
 
-function SidebarInset({ className, ...props }: React.ComponentProps<"main">) {
+function SidebarInset({
+  className,
+  children,
+  ...props
+}: React.ComponentProps<"main">) {
   return (
     <main
       data-slot="sidebar-inset"
@@ -194,7 +201,9 @@ function SidebarInset({ className, ...props }: React.ComponentProps<"main">) {
         className,
       )}
       {...props}
-    />
+    >
+      <GroundProvider ground="stage">{children}</GroundProvider>
+    </main>
   );
 }
 
@@ -212,7 +221,7 @@ function SidebarFooter({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="sidebar-footer"
-      className={cn("flex flex-col gap-2 p-3", className)}
+      className={cn("flex flex-col gap-2 px-2 py-3", className)}
       {...props}
     />
   );
@@ -235,7 +244,10 @@ function SidebarGroup({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="sidebar-group"
-      className={cn("relative flex w-full min-w-0 flex-col p-3", className)}
+      className={cn(
+        "relative flex w-full min-w-0 flex-col px-2 py-3",
+        className,
+      )}
       {...props}
     />
   );
@@ -261,9 +273,10 @@ function SidebarMenuItem({ className, ...props }: React.ComponentProps<"li">) {
   );
 }
 
-// The selected fill holds under the pointer; only an unselected row answers hover.
+/* One geometry open and closed, so only the rail's width moves. The selected fill
+   holds under the pointer; only an unselected row answers hover. */
 const SIDEBAR_ROW =
-  "group/menu-button flex h-7 w-full items-center overflow-hidden rounded-control px-2 text-left type-item text-ink-muted highlight-motion group-data-[collapsible=icon]:px-1.5 hover:bg-hover hover:text-ink-title disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-active:bg-selected data-active:text-ink-title data-active:hover:bg-selected [&_svg]:size-4 [&_svg]:shrink-0";
+  "group/menu-button flex h-7.5 w-full items-center overflow-hidden rounded-control px-1.5 text-left type-item text-ink-muted highlight-motion hover:bg-hover hover:text-ink-title disabled:pointer-events-none aria-disabled:pointer-events-none data-active:bg-selected data-active:text-ink-title data-active:hover:bg-selected [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-5";
 
 function SidebarMenuButton({
   render,

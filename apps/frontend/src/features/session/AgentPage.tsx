@@ -177,7 +177,7 @@ export function AgentPage(): React.JSX.Element {
                 {/* The API refuses this while a run holds the session, so the
                     menu says so rather than offering an error. */}
                 <DropdownMenuItem
-                  disabled={session?.running === true}
+                  unavailable={session?.running === true}
                   onClick={deletion.confirm}
                 >
                   <Trash2 {...ICON_UI} />
