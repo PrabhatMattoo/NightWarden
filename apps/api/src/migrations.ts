@@ -53,8 +53,9 @@ CREATE TABLE IF NOT EXISTS integrations (
   config        TEXT   NOT NULL,
   secrets       TEXT,
   token_hash    TEXT   UNIQUE,
-  validated_at  TEXT,
   last_used_at  TEXT,
+  rejected_at   TEXT,
+  rejection     TEXT,
   created_at    TEXT   NOT NULL
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_integrations_name ON integrations(name);

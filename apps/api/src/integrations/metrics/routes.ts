@@ -19,6 +19,7 @@ import {
   statusOf,
 } from "./sources.js";
 import { METRICS_PRESETS } from "./presets.js";
+import { withStoredCredential } from "../credential-health.js";
 
 const EndpointSchema = z.object({
   url: z.string().min(1),
@@ -42,10 +43,7 @@ const ConnectSchema = z.object({
 });
 
 async function statusPayload(): Promise<MetricsSourceStatus> {
-  return statusOf(
-    await getMetricsSource(),
-    (await metricsSourceRow())?.validatedAt ?? null,
-  );
+  return statusOf(await metricsSourceRow());
 }
 
 // bad_query maps to 400 explicitly: a Prometheus-compatible source reports
@@ -56,11 +54,7 @@ async function sendMetricsError(
 ): Promise<FastifyReply> {
   if (err instanceof MetricsApiError) {
     const status =
-      err.code === "unauthorized"
-        ? err.status
-        : err.code === "bad_query"
-          ? 400
-          : 502;
+      err.code === "unauthorized" ? 422 : err.code === "bad_query" ? 400 : 502;
     return reply.code(status).send({ error: err.message, code: err.code });
   }
   throw err;
@@ -89,9 +83,9 @@ export async function registerMetricsRoutes(
       const { kind, query, rules } = parsed.data;
       const name = METRICS_PRESETS[kind].label;
       // One source, whatever product: what you point at is already an
-      // aggregate, so a second is a mistake rather than a name to invent.
+      // aggregate, so a second is a mistake; the same one reconnects in place.
       const connected = await getMetricsSource();
-      if (connected !== null) {
+      if (connected !== null && connected.kind !== kind) {
         return reply.code(409).send({
           error: `${connected.label} is already connected. Disconnect it first.`,
         });
@@ -121,6 +115,30 @@ export async function registerMetricsRoutes(
         });
         logger.info({ kind, url: query.url }, "metrics source connected");
         return await reply.code(201).send(await statusPayload());
+      } catch (err) {
+        return await sendMetricsError(reply, err);
+      }
+    },
+  );
+
+  fastify.post(
+    "/integrations/metrics/test",
+    { preHandler: requireSession },
+    async (_request, reply) => {
+      const source = await getMetricsSource();
+      if (source === null) {
+        return reply
+          .code(400)
+          .send({ error: "No metrics source is connected" });
+      }
+      try {
+        await withStoredCredential(source.id, async () => {
+          await instantQuery(source.query, probeSignal(), "up");
+          if (source.rules !== null) {
+            await alertingRules(source.rules, probeSignal());
+          }
+        });
+        return await statusPayload();
       } catch (err) {
         return await sendMetricsError(reply, err);
       }

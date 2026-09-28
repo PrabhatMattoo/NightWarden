@@ -2,6 +2,7 @@ import { z } from "zod";
 import { proxyDir, workspacesDir } from "../../paths.js";
 import { loadConfig } from "../../config/store.js";
 import { getGitHubIntegration } from "../../integrations/store.js";
+import { withStoredCredential } from "../../integrations/credential-health.js";
 import { getSession } from "../../session/store.js";
 import { getTranscriptRows } from "../../session/transcript-store.js";
 import {
@@ -131,43 +132,58 @@ async function workspaceOptionsFor(
     commitAuthor: COMMIT_AUTHOR,
     pullRequests: {
       create: async (req) =>
-        await createPullRequest(
-          await tokenFor(),
-          githubSignal(),
-          repoOwner,
-          repoName,
-          {
-            ...req,
-            head: await branchNameFor(sessionId),
-          },
+        await viaStoredToken(
+          async (token) =>
+            await createPullRequest(
+              token,
+              githubSignal(),
+              repoOwner,
+              repoName,
+              {
+                ...req,
+                head: await branchNameFor(sessionId),
+              },
+            ),
         ),
       findOpenByBranch: async (branch) =>
-        await findOpenPullRequestByBranch(
-          await tokenFor(),
-          githubSignal(),
-          repoOwner,
-          repoName,
-          branch,
+        await viaStoredToken(
+          async (token) =>
+            await findOpenPullRequestByBranch(
+              token,
+              githubSignal(),
+              repoOwner,
+              repoName,
+              branch,
+            ),
         ),
       update: async (prNumber, patch) =>
-        await updatePullRequest(
-          await tokenFor(),
-          githubSignal(),
-          repoOwner,
-          repoName,
-          prNumber,
-          patch,
+        await viaStoredToken(
+          async (token) =>
+            await updatePullRequest(
+              token,
+              githubSignal(),
+              repoOwner,
+              repoName,
+              prNumber,
+              patch,
+            ),
         ),
     },
     log: logger,
   };
 
-  async function tokenFor(): Promise<string> {
+  // Read at call time, since the token may be replaced while the sandbox lives.
+  async function viaStoredToken<T>(
+    call: (token: string) => Promise<T>,
+  ): Promise<T> {
     const row = await getGitHubIntegration();
     if (row === null) {
       throw new SandboxUnavailableError("GitHub integration was disconnected");
     }
-    return row.token;
+    return await withStoredCredential(
+      row.id,
+      async () => await call(row.token),
+    );
   }
 }
 

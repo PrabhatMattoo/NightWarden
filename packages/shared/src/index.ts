@@ -224,6 +224,7 @@ export type {
   GitHubRepoSummary,
   GitHubRepoPage,
   GitHubErrorBody,
+  CredentialRejection,
   LokiErrorCode,
   LokiIntegrationStatus,
   SentryErrorCode,

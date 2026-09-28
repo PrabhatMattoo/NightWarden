@@ -5,13 +5,11 @@ import {
   useSuspenseQuery,
 } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import { AlertCircle } from "lucide-react";
 
 import { authCall, authClient } from "@/shared/api/authClient";
 import { Button } from "@/shared/ui/button";
 import { Field, FieldError, FieldLabel } from "@/shared/ui/field";
 import { Input } from "@/shared/ui/input";
-import { IconLine } from "@/shared/ui/icon-line";
 import { authStatusQuery } from "@/features/auth/queries";
 
 const MIN_PASSWORD = 12;
@@ -62,14 +60,6 @@ function FormHeading({
   children: React.ReactNode;
 }): React.JSX.Element {
   return <h1 className="m-0 type-title text-ink-base">{children}</h1>;
-}
-
-function ServerError({ message }: { message: string }): React.JSX.Element {
-  return (
-    <IconLine icon={AlertCircle} role="alert" className="type-body text-fail">
-      <span>{message}</span>
-    </IconLine>
-  );
 }
 
 // Signed in: the status is read again so the app layout finds the session, then the app opens.
@@ -163,7 +153,7 @@ function SetupForm(): React.JSX.Element {
         onBlur={(v) => validateConfirm(v, password)}
       />
       <div className="flex flex-col gap-2">
-        {signUp.error && <ServerError message={signUp.error.message} />}
+        {signUp.error && <FieldError>{signUp.error.message}</FieldError>}
         <Button type="submit" className="w-full" disabled={signUp.isPending}>
           Create account
         </Button>
@@ -204,7 +194,7 @@ function LoginForm(): React.JSX.Element {
         onChange={setPassword}
       />
       <div className="flex flex-col gap-2">
-        {signIn.error && <ServerError message={signIn.error.message} />}
+        {signIn.error && <FieldError>{signIn.error.message}</FieldError>}
         <Button type="submit" className="w-full" disabled={signIn.isPending}>
           Log in
         </Button>

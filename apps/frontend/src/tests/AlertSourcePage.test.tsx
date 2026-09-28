@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -147,9 +147,9 @@ describe("AlertSourcePage", () => {
 
     await screen.findByText(new RegExp(ROTATED_TOKEN));
     expect(screen.getByText(/not shown again/i)).toBeInTheDocument();
-    // Mid-setup is steps, not a status report: no waiting badge yet.
+    // Mid-setup is a step to finish, so the actions wait until it is saved.
     expect(
-      screen.queryByText(/waiting for first alert/i),
+      screen.queryByRole("button", { name: "Rotate secret" }),
     ).not.toBeInTheDocument();
   });
 
@@ -175,8 +175,30 @@ describe("AlertSourcePage", () => {
       screen.queryByRole("button", { name: /show token/i }),
     ).not.toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: /^rotate$/i }),
+      screen.getByRole("button", { name: "Rotate secret" }),
     ).toBeInTheDocument();
+  });
+
+  /* The URL is handed over as text with its button beside it, and the button says
+     "Copied" only once the clipboard holds it, or says so when it could not. */
+  it("copies the webhook URL and reports what actually happened", async () => {
+    const user = userEvent.setup();
+    const { clipboardWrite } = setup({ configured: true });
+
+    expect(await screen.findByText(INGEST_URL)).toBeInTheDocument();
+    await user.click(
+      screen.getByRole("button", { name: "Copy the webhook URL" }),
+    );
+    expect(clipboardWrite).toHaveBeenCalledWith(INGEST_URL);
+    expect(await screen.findByRole("status")).toHaveTextContent("Copied");
+
+    clipboardWrite.mockRejectedValueOnce(new Error("denied"));
+    await user.click(
+      screen.getByRole("button", { name: "Copy the webhook URL" }),
+    );
+    await waitFor(() =>
+      expect(screen.getByRole("status")).toHaveTextContent("Could not copy"),
+    );
   });
 
   // One page serves every sender, so the setup and the settings that fail
@@ -212,8 +234,8 @@ describe("AlertSourcePage", () => {
       lastReceivedAt: new Date(Date.now() - 2 * 3_600_000).toISOString(),
     });
 
-    expect(await screen.findByText(/receiving/i)).toBeInTheDocument();
-    expect(screen.getByText(/last alert 2h ago/i)).toBeInTheDocument();
+    expect(await screen.findByText("Receiving")).toHaveClass("text-ok");
+    expect(screen.getByText("Last alert 2h ago")).toBeInTheDocument();
   });
 
   it("rotating confirms in a dialog, then shows the new credential once", async () => {
@@ -221,7 +243,9 @@ describe("AlertSourcePage", () => {
     setup({ configured: true, lastReceivedAt: "2026-07-17T01:00:00.000Z" });
 
     // The consequence lives in the dialog; nothing mints until confirmed.
-    await user.click(await screen.findByRole("button", { name: /^rotate$/i }));
+    await user.click(
+      await screen.findByRole("button", { name: "Rotate secret" }),
+    );
     expect(
       await screen.findByText(/stops delivering until you paste/i),
     ).toBeInTheDocument();
@@ -233,9 +257,9 @@ describe("AlertSourcePage", () => {
 
     await screen.findByText(new RegExp(ROTATED_TOKEN));
     expect(screen.getByText(/not shown again/i)).toBeInTheDocument();
-    // Post-rotate the user is mid-setup again: steps, no status line.
+    // Post-rotate the user is mid-setup again, so the actions wait.
     expect(
-      screen.queryByText(/waiting for first alert/i),
+      screen.queryByRole("button", { name: "Rotate secret" }),
     ).not.toBeInTheDocument();
   });
 
@@ -243,10 +267,11 @@ describe("AlertSourcePage", () => {
     const user = userEvent.setup();
     const { fetchMock } = setup({ configured: true });
 
+    await user.click(await screen.findByRole("button", { name: "Disconnect" }));
+    const dialog = await screen.findByRole("alertdialog");
     await user.click(
-      await screen.findByRole("button", { name: /disconnect/i }),
+      within(dialog).getByRole("button", { name: /^disconnect$/i }),
     );
-    await user.click(screen.getByRole("button", { name: /^disconnect$/i }));
 
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(

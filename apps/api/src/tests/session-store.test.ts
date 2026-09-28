@@ -16,7 +16,10 @@ import type {
   SessionMeta,
 } from "@nightwarden/shared";
 import { connectTestMetrics, useTempDb } from "./temp-db.js";
-import { deleteMetricsSource } from "../integrations/metrics/store.js";
+import {
+  deleteMetricsSource,
+  metricsSourceRow,
+} from "../integrations/metrics/store.js";
 
 import {
   appendSessionAlert,
@@ -714,6 +717,22 @@ describe("API-local session store", () => {
         );
         await expect(verifyRecovery(sessionId)).resolves.toBe("unconfirmed");
         expect(await statusOf(sessionId)).toBe("completed");
+        expect((await metricsSourceRow())?.rejection).toBeNull();
+      });
+
+      // A revoked rules credential would otherwise leave every incident open in silence.
+      it("records a refused rules credential on the metrics source", async () => {
+        const sessionId = await investigation();
+        await seedCompleteReport(sessionId);
+
+        vi.stubGlobal(
+          "fetch",
+          vi.fn(() => Promise.resolve(new Response("denied", { status: 401 }))),
+        );
+        await expect(verifyRecovery(sessionId)).resolves.toBe("unconfirmed");
+        expect((await metricsSourceRow())?.rejection?.reason).toContain(
+          "rejected the credential",
+        );
       });
 
       it("never reads a rule Prometheus does not know as recovery", async () => {

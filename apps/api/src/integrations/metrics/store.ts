@@ -1,4 +1,7 @@
-import type { MetricsSourceKind } from "@nightwarden/shared";
+import type {
+  CredentialRejection,
+  MetricsSourceKind,
+} from "@nightwarden/shared";
 import {
   allIntegrations,
   deleteIntegrationById,
@@ -20,7 +23,7 @@ export interface MetricsSourceRow {
   rulesUrl: string | null;
   rulesAuthorization: string | null;
   rulesOrgId: string | null;
-  validatedAt: string;
+  rejection: CredentialRejection | null;
   createdAt: string;
 }
 
@@ -46,7 +49,7 @@ function toSource(row: IntegrationRow): MetricsSourceRow {
     rulesUrl: config.rules?.url ?? null,
     rulesAuthorization: row.secrets["rules"] ?? null,
     rulesOrgId: config.rules?.orgId ?? null,
-    validatedAt: row.validatedAt ?? row.createdAt,
+    rejection: row.rejection,
     createdAt: row.createdAt,
   };
 }

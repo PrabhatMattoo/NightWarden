@@ -11,6 +11,7 @@ import {
   type LokiMetricData,
   type LokiMetricSeries,
 } from "../../integrations/loki.js";
+import { withStoredCredential } from "../../integrations/credential-health.js";
 import { alertAnchorFor } from "./alert-anchor.js";
 import { apiTool, optionalText } from "./schema.js";
 import type { Tool, ToolExecuteResult } from "./types.js";
@@ -284,79 +285,84 @@ export const LOKI_TOOLS: Tool[] = [
           : aimedWindow(new Date(input.until), lookbackMinutes);
 
       try {
-        const data = await queryLogRange(
-          integration.baseUrl,
-          integration.authorization,
-          integration.orgId,
-          ctx.signal,
-          query,
-          start,
-          end,
-          limit,
-        );
+        return await withStoredCredential(
+          integration.id,
+          async (): Promise<ToolExecuteResult> => {
+            const data = await queryLogRange(
+              integration.baseUrl,
+              integration.authorization,
+              integration.orgId,
+              ctx.signal,
+              query,
+              start,
+              end,
+              limit,
+            );
 
-        let returnedLines = 0;
-        let linesTruncated = 0;
-        let linesDropped = 0;
-        let spent = 0;
-        // Whole lines are dropped rather than the text cut mid-result, so what
-        // does arrive is every character of the lines it claims to carry.
-        const streams: LokiLogStream[] = [];
-        for (const s of data.streams) {
-          const lines: LokiLogLine[] = [];
-          for (const [ns, raw] of s.values) {
-            const truncated = raw.length > MAX_LINE_CHARS;
-            const line = truncated
-              ? raw.slice(0, MAX_LINE_CHARS) + " [cut: line continues]"
-              : raw;
-            if (spent + line.length > ITEM_BUDGET_CHARS) {
-              linesDropped++;
-              continue;
+            let returnedLines = 0;
+            let linesTruncated = 0;
+            let linesDropped = 0;
+            let spent = 0;
+            // Whole lines are dropped rather than the text cut mid-result, so what
+            // does arrive is every character of the lines it claims to carry.
+            const streams: LokiLogStream[] = [];
+            for (const s of data.streams) {
+              const lines: LokiLogLine[] = [];
+              for (const [ns, raw] of s.values) {
+                const truncated = raw.length > MAX_LINE_CHARS;
+                const line = truncated
+                  ? raw.slice(0, MAX_LINE_CHARS) + " [cut: line continues]"
+                  : raw;
+                if (spent + line.length > ITEM_BUDGET_CHARS) {
+                  linesDropped++;
+                  continue;
+                }
+                spent += line.length;
+                returnedLines++;
+                if (truncated) linesTruncated++;
+                lines.push({ ts: nsToIso(ns), line });
+              }
+              if (lines.length > 0) streams.push({ labels: s.labels, lines });
             }
-            spent += line.length;
-            returnedLines++;
-            if (truncated) linesTruncated++;
-            lines.push({ ts: nsToIso(ns), line });
-          }
-          if (lines.length > 0) streams.push({ labels: s.labels, lines });
-        }
 
-        const hitLimit = returnedLines >= limit;
-        const notes: string[] = [];
-        if (returnedLines === 0) {
-          notes.push(
-            "No log lines matched in the window. Check the selector with DiscoverLogLabels, or widen lookbackMinutes.",
-          );
-        }
-        if (hitLimit) {
-          notes.push(
-            `Hit the ${limit}-line limit (newest first); older matching lines may exist - narrow the query or raise limit.`,
-          );
-        }
-        if (linesTruncated > 0) {
-          notes.push(
-            `${linesTruncated} line(s) truncated to ${MAX_LINE_CHARS} chars.`,
-          );
-        }
-        if (linesDropped > 0) {
-          const oldest = streams.at(-1)?.lines.at(-1)?.ts;
-          notes.push(
-            `${linesDropped} matching line(s) are NOT in this result: it reached its ${ITEM_BUDGET_CHARS}-character budget. Lines come back newest first, so the ones missing are older than what you see. Prefer narrowing the selector, or counting them with QueryLogMetrics, over reading them all${oldest === undefined ? "" : `; to read the next ones, call again with until="${oldest}"`}. Do not read the absence of a line as evidence it did not occur.`,
-          );
-        }
+            const hitLimit = returnedLines >= limit;
+            const notes: string[] = [];
+            if (returnedLines === 0) {
+              notes.push(
+                "No log lines matched in the window. Check the selector with DiscoverLogLabels, or widen lookbackMinutes.",
+              );
+            }
+            if (hitLimit) {
+              notes.push(
+                `Hit the ${limit}-line limit (newest first); older matching lines may exist - narrow the query or raise limit.`,
+              );
+            }
+            if (linesTruncated > 0) {
+              notes.push(
+                `${linesTruncated} line(s) truncated to ${MAX_LINE_CHARS} chars.`,
+              );
+            }
+            if (linesDropped > 0) {
+              const oldest = streams.at(-1)?.lines.at(-1)?.ts;
+              notes.push(
+                `${linesDropped} matching line(s) are NOT in this result: it reached its ${ITEM_BUDGET_CHARS}-character budget. Lines come back newest first, so the ones missing are older than what you see. Prefer narrowing the selector, or counting them with QueryLogMetrics, over reading them all${oldest === undefined ? "" : `; to read the next ones, call again with until="${oldest}"`}. Do not read the absence of a line as evidence it did not occur.`,
+              );
+            }
 
-        const result: LokiLogsResult = {
-          streams,
-          returnedLines,
-          limit,
-          hitLimit,
-          linesTruncated,
-          linesDropped,
-          windowStart: start.toISOString(),
-          windowEnd: end.toISOString(),
-          note: notes.join(" "),
-        };
-        return { content: result };
+            const result: LokiLogsResult = {
+              streams,
+              returnedLines,
+              limit,
+              hitLimit,
+              linesTruncated,
+              linesDropped,
+              windowStart: start.toISOString(),
+              windowEnd: end.toISOString(),
+              note: notes.join(" "),
+            };
+            return { content: result };
+          },
+        );
       } catch (err) {
         return corrective(err);
       }
@@ -397,24 +403,29 @@ export const LOKI_TOOLS: Tool[] = [
       );
 
       try {
-        const data = await queryMetricRange(
-          integration.baseUrl,
-          integration.authorization,
-          integration.orgId,
-          ctx.signal,
-          query,
-          start,
-          end,
-          step,
+        return await withStoredCredential(
+          integration.id,
+          async (): Promise<ToolExecuteResult> => {
+            const data = await queryMetricRange(
+              integration.baseUrl,
+              integration.authorization,
+              integration.orgId,
+              ctx.signal,
+              query,
+              start,
+              end,
+              step,
+            );
+            const result: LokiMetricsResult = {
+              resultType: data.resultType,
+              ...capMetricSeries(data),
+              windowStart: start.toISOString(),
+              windowEnd: end.toISOString(),
+              stepSeconds: step,
+            };
+            return { content: result };
+          },
         );
-        const result: LokiMetricsResult = {
-          resultType: data.resultType,
-          ...capMetricSeries(data),
-          windowStart: start.toISOString(),
-          windowEnd: end.toISOString(),
-          stepSeconds: step,
-        };
-        return { content: result };
       } catch (err) {
         return corrective(err);
       }
@@ -444,100 +455,106 @@ export const LOKI_TOOLS: Tool[] = [
       const windowEnd = end.toISOString();
 
       try {
-        const { selector } = input;
-        if (selector !== undefined) {
-          const all = await series(
-            baseUrl,
-            auth,
-            orgId,
-            ctx.signal,
-            selector,
-            start,
-            end,
-          );
-          const { items: matches, coverage } = fitList(all, {
-            keep: "start",
-            max: MAX_SERIES_MATCHES,
-            kept: "first",
-            noun: "streams",
-            reach: "Add a label to the selector to narrow the streams.",
-          });
-          const result: LogLabelsResult = {
-            mode: "series",
-            windowStart,
-            windowEnd,
-            selector,
-            matches,
-            ...(coverage && { coverage }),
-            note:
-              all.length === 0
-                ? "No streams matched that selector in the window."
-                : `${all.length} stream(s) matched; pick labels from these to build a QueryLogs selector.`,
-          };
-          return { content: result };
-        }
+        return await withStoredCredential(
+          integration.id,
+          async (): Promise<ToolExecuteResult> => {
+            const { selector } = input;
+            if (selector !== undefined) {
+              const all = await series(
+                baseUrl,
+                auth,
+                orgId,
+                ctx.signal,
+                selector,
+                start,
+                end,
+              );
+              const { items: matches, coverage } = fitList(all, {
+                keep: "start",
+                max: MAX_SERIES_MATCHES,
+                kept: "first",
+                noun: "streams",
+                reach: "Add a label to the selector to narrow the streams.",
+              });
+              const result: LogLabelsResult = {
+                mode: "series",
+                windowStart,
+                windowEnd,
+                selector,
+                matches,
+                ...(coverage && { coverage }),
+                note:
+                  all.length === 0
+                    ? "No streams matched that selector in the window."
+                    : `${all.length} stream(s) matched; pick labels from these to build a QueryLogs selector.`,
+              };
+              return { content: result };
+            }
 
-        const { label } = input;
-        if (label !== undefined) {
-          const all = await labelValues(
-            baseUrl,
-            auth,
-            orgId,
-            ctx.signal,
-            label,
-            start,
-            end,
-          );
-          const { items: values, coverage } = fitList(all, {
-            keep: "start",
-            max: MAX_LABELS,
-            kept: "first",
-            noun: "values",
-            reach:
-              "Match a value with a regex in the QueryLogs selector instead.",
-          });
-          const result: LogLabelsResult = {
-            mode: "values",
-            windowStart,
-            windowEnd,
-            label,
-            values,
-            ...(coverage && { coverage }),
-            note:
-              all.length === 0
-                ? `No values for label '${label}' in the window.`
-                : `Values for '${label}'. Use one in a QueryLogs selector, e.g. {${label}="..."}.`,
-          };
-          return { content: result };
-        }
+            const { label } = input;
+            if (label !== undefined) {
+              const all = await labelValues(
+                baseUrl,
+                auth,
+                orgId,
+                ctx.signal,
+                label,
+                start,
+                end,
+              );
+              const { items: values, coverage } = fitList(all, {
+                keep: "start",
+                max: MAX_LABELS,
+                kept: "first",
+                noun: "values",
+                reach:
+                  "Match a value with a regex in the QueryLogs selector instead.",
+              });
+              const result: LogLabelsResult = {
+                mode: "values",
+                windowStart,
+                windowEnd,
+                label,
+                values,
+                ...(coverage && { coverage }),
+                note:
+                  all.length === 0
+                    ? `No values for label '${label}' in the window.`
+                    : `Values for '${label}'. Use one in a QueryLogs selector, e.g. {${label}="..."}.`,
+              };
+              return { content: result };
+            }
 
-        const all = await labelNames(
-          baseUrl,
-          auth,
-          orgId,
-          ctx.signal,
-          start,
-          end,
+            const all = await labelNames(
+              baseUrl,
+              auth,
+              orgId,
+              ctx.signal,
+              start,
+              end,
+            );
+            const { items: labels, coverage } = fitList(all, {
+              keep: "start",
+              max: MAX_LABELS,
+              kept: "first",
+              noun: "labels",
+              reach:
+                "Pass a selector to list only the labels on those streams.",
+            });
+            const result: LogLabelsResult = {
+              mode: "labels",
+              windowStart,
+              windowEnd,
+              labels,
+              ...(coverage && { coverage }),
+              note:
+                all.length === 0
+                  ? "No labels present in the window - is the Loki URL correct and are logs flowing?"
+                  : "Label names present around the alert. Call again with 'label' to see a label's values.",
+            };
+            return { content: result };
+          },
         );
-        const { items: labels, coverage } = fitList(all, {
-          keep: "start",
-          max: MAX_LABELS,
-          kept: "first",
-          noun: "labels",
-          reach: "Pass a selector to list only the labels on those streams.",
-        });
-        const result: LogLabelsResult = {
-          mode: "labels",
-          windowStart,
-          windowEnd,
-          labels,
-          ...(coverage && { coverage }),
-          note:
-            all.length === 0
-              ? "No labels present in the window - is the Loki URL correct and are logs flowing?"
-              : "Label names present around the alert. Call again with 'label' to see a label's values.",
-        };
-        return { content: result };
       } catch (err) {
         return corrective(err);
       }

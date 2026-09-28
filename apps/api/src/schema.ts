@@ -129,8 +129,10 @@ interface IntegrationsTable {
   secrets: string | null;
   // Set only for a sender that presents a credential to us.
   token_hash: string | null;
-  validated_at: string | null;
   last_used_at: string | null;
+  // When the third party last refused the stored credential, and its reason.
+  rejected_at: string | null;
+  rejection: string | null;
   created_at: string;
 }
 

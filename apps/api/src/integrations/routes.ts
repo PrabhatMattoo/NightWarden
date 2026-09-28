@@ -27,6 +27,10 @@ import {
   ownerIsOrganization,
   validateRepoAccess,
 } from "./github.js";
+import {
+  isCredentialRejection,
+  withStoredCredential,
+} from "./credential-health.js";
 import { LokiApiError, probeLoki } from "./loki.js";
 import { SentryApiError, probeSentry } from "./sentry.js";
 import { preflight } from "../sandbox/preflight.js";
@@ -73,14 +77,14 @@ async function statusPayload(): Promise<GitHubIntegrationStatus> {
       configured: false,
       repo: null,
       expiresAt: null,
-      validatedAt: null,
+      rejection: null,
     };
   }
   return {
     configured: true,
     repo: `${row.repoOwner}/${row.repoName}`,
     expiresAt: row.tokenExpiresAt,
-    validatedAt: row.validatedAt,
+    rejection: row.rejection,
   };
 }
 
@@ -89,7 +93,12 @@ async function sendGitHubError(
   err: unknown,
 ): Promise<FastifyReply> {
   if (err instanceof GitHubApiError) {
-    const status = err.code === "network" ? 502 : err.status;
+    const status =
+      err.code === "network"
+        ? 502
+        : isCredentialRejection(err)
+          ? 422
+          : err.status;
     return reply.code(status).send({ error: err.message, code: err.code });
   }
   throw err;
@@ -103,7 +112,7 @@ async function lokiStatusPayload(): Promise<LokiIntegrationStatus> {
       url: null,
       hasAuth: false,
       hasOrgId: false,
-      validatedAt: null,
+      rejection: null,
     };
   }
   return {
@@ -111,7 +120,7 @@ async function lokiStatusPayload(): Promise<LokiIntegrationStatus> {
     url: row.baseUrl,
     hasAuth: row.authorization !== null,
     hasOrgId: row.orgId !== null,
-    validatedAt: row.validatedAt,
+    rejection: row.rejection,
   };
 }
 
@@ -121,11 +130,7 @@ async function sendLokiError(
 ): Promise<FastifyReply> {
   if (err instanceof LokiApiError) {
     const status =
-      err.code === "unauthorized"
-        ? err.status
-        : err.code === "bad_query"
-          ? 400
-          : 502;
+      err.code === "unauthorized" ? 422 : err.code === "bad_query" ? 400 : 502;
     return reply.code(status).send({ error: err.message, code: err.code });
   }
   throw err;
@@ -138,25 +143,30 @@ async function sentryStatusPayload(): Promise<SentryIntegrationStatus> {
       configured: false,
       url: null,
       orgSlug: null,
-      validatedAt: null,
+      rejection: null,
     };
   }
   return {
     configured: true,
     url: row.baseUrl,
     orgSlug: row.orgSlug,
-    validatedAt: row.validatedAt,
+    rejection: row.rejection,
   };
 }
 
-/* Sentry's own status is carried through rather than flattened to 502: a
-   missing scope and a bad slug are both fixed by the user, in different places. */
+/* A refused credential answers 422 rather than the upstream 401, which the
+   browser would read as its own session ending; a bad slug keeps its 404. */
 async function sendSentryError(
   reply: FastifyReply,
   err: unknown,
 ): Promise<FastifyReply> {
   if (err instanceof SentryApiError) {
-    const status = err.code === "network" ? 502 : err.status;
+    const status =
+      err.code === "network"
+        ? 502
+        : isCredentialRejection(err)
+          ? 422
+          : err.status;
     return reply.code(status).send({ error: err.message, code: err.code });
   }
   throw err;
@@ -192,18 +202,26 @@ export async function registerIntegrationRoutes(
         return reply.code(400).send({ error: readable(parsed.error) });
       }
       const stored = await getGitHubIntegration();
-      const token = parsed.data.token ?? stored?.token ?? null;
-      if (!token) {
+      const page = parsed.data.page ?? 1;
+      const token = parsed.data.token;
+      const list = async (t: string) => await listRepos(t, probeSignal(), page);
+      const fetchPage =
+        token !== undefined
+          ? async () => await list(token)
+          : stored !== null
+            ? async () =>
+                await withStoredCredential(
+                  stored.id,
+                  async () => await list(stored.token),
+                )
+            : null;
+      if (fetchPage === null) {
         return reply
           .code(400)
           .send({ error: "No token provided and no integration configured" });
       }
       try {
-        const { repos, hasMore } = await listRepos(
-          token,
-          probeSignal(),
-          parsed.data.page ?? 1,
-        );
+        const { repos, hasMore } = await fetchPage();
         return { repos, hasMore };
       } catch (err) {
         return await sendGitHubError(reply, err);
@@ -274,8 +292,11 @@ export async function registerIntegrationRoutes(
       }
       const [owner, name] = parsed.data.repo.split("/") as [string, string];
       try {
-        const token = stored.token;
-        await validateRepoAccess(token, probeSignal(), owner, name);
+        await withStoredCredential(
+          stored.id,
+          async () =>
+            await validateRepoAccess(stored.token, probeSignal(), owner, name),
+        );
         await updateGitHubIntegrationRepo(owner, name);
         logger.info(
           { repo: parsed.data.repo },
@@ -296,6 +317,33 @@ export async function registerIntegrationRoutes(
             ...(orgApprovalUrl !== undefined && { orgApprovalUrl }),
           });
         }
+        return await sendGitHubError(reply, err);
+      }
+    },
+  );
+
+  // Test connection: the stored token must still reach the bound repository.
+  fastify.post(
+    "/integrations/github/test",
+    { preHandler: requireSession },
+    async (_request, reply) => {
+      const stored = await getGitHubIntegration();
+      if (!stored) {
+        return reply.code(400).send({ error: "GitHub is not connected" });
+      }
+      try {
+        await withStoredCredential(
+          stored.id,
+          async () =>
+            await validateRepoAccess(
+              stored.token,
+              probeSignal(),
+              stored.repoOwner,
+              stored.repoName,
+            ),
+        );
+        return await statusPayload();
+      } catch (err) {
         return await sendGitHubError(reply, err);
       }
     },
@@ -346,6 +394,32 @@ export async function registerIntegrationRoutes(
     },
   );
 
+  fastify.post(
+    "/integrations/loki/test",
+    { preHandler: requireSession },
+    async (_request, reply) => {
+      const stored = await getLokiIntegration();
+      if (!stored) {
+        return reply.code(400).send({ error: "Loki is not connected" });
+      }
+      try {
+        await withStoredCredential(
+          stored.id,
+          async () =>
+            await probeLoki(
+              stored.baseUrl,
+              stored.authorization,
+              stored.orgId,
+              probeSignal(),
+            ),
+        );
+        return await lokiStatusPayload();
+      } catch (err) {
+        return await sendLokiError(reply, err);
+      }
+    },
+  );
+
   fastify.delete(
     "/integrations/loki",
     { preHandler: requireSession },
@@ -378,6 +452,26 @@ export async function registerIntegrationRoutes(
         await saveSentryIntegration({ baseUrl: url, orgSlug, token });
         logger.info({ url, orgSlug }, "sentry integration configured");
         return await reply.code(201).send(await sentryStatusPayload());
+      } catch (err) {
+        return await sendSentryError(reply, err);
+      }
+    },
+  );
+
+  fastify.post(
+    "/integrations/sentry/test",
+    { preHandler: requireSession },
+    async (_request, reply) => {
+      const stored = await getSentryIntegration();
+      if (!stored) {
+        return reply.code(400).send({ error: "Sentry is not connected" });
+      }
+      try {
+        await withStoredCredential(
+          stored.id,
+          async () => await probeSentry(stored, probeSignal()),
+        );
+        return await sentryStatusPayload();
       } catch (err) {
         return await sendSentryError(reply, err);
       }

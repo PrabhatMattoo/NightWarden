@@ -147,6 +147,13 @@
   letter-spacing: -0.01em;
   color: var(--ink-title);
 }
+/* The name of the thing a page is about, sized to sit beside its logo. */
+@utility type-name {
+  font-size: 1.125rem;
+  line-height: 1.5rem;
+  font-weight: 500;
+  color: var(--ink-title);
+}
 @utility type-heading {
   font-size: 1rem;
   line-height: 1.5rem;
@@ -177,6 +184,11 @@
   font-weight: 450;
   color: var(--ink-base);
 }
+/* Sonner inks a description for its own light theme; ours follows the page's. */
+[data-sonner-toaster] [data-sonner-toast].cn-toast [data-description] {
+  color: var(--ink-base);
+}
+
 @utility type-small {
   font-size: 0.75rem;
   line-height: 1rem;

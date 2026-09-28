@@ -1,11 +1,27 @@
+import { Fragment } from "react";
 import { useSuspenseQueries } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import type { AlertSourceKind, AlertSourceStatus } from "@nightwarden/shared";
+import type {
+  AlertSourceKind,
+  AlertSourceStatus,
+  CredentialRejection,
+} from "@nightwarden/shared";
 import { METRICS_SOURCE_KINDS } from "@nightwarden/shared";
 
+import { Card } from "@/shared/ui/card";
+import {
+  Item,
+  ItemActions,
+  ItemContent,
+  ItemDescription,
+  ItemGroup,
+  ItemMedia,
+  ItemSeparator,
+  ItemTitle,
+} from "@/shared/ui/item";
 import { Page } from "@/shared/ui/Page";
-import { StatusText } from "@/shared/ui/status";
-import { IntegrationLogo } from "@/features/integrations/IntegrationHeader";
+import { StatusText, type StatusTone } from "@/shared/ui/status";
+import { IntegrationLogo } from "./IntegrationPage";
 import { INTEGRATION_CATALOG } from "./catalog";
 import { connectedOn } from "./runners/connectedOn";
 import {
@@ -35,60 +51,99 @@ interface IntegrationRow {
   category: Category;
   logo: string;
   to: string;
-  // null renders no status line at all: six repetitions of "Not connected"
-  // crowd out the ones that matter. "muted" is configured but not yet proven.
-  status: string | null;
-  statusVariant?: "success" | "muted";
+  // Null renders no status line: repeated "Not connected" crowds out the ones that matter.
+  status: { text: string; tone: StatusTone } | null;
   // Shown but not actionable: the one slot is filled by another product.
   unavailable?: boolean;
 }
 
-/* Each card is the link. When connected, title + status sit as a group beside
-   the logo, vertically centred.  When not, the title alone centres. */
-function CatalogCard({ row }: { row: IntegrationRow }): React.JSX.Element {
-  const body = (
-    <>
-      {/* Icon row: logo + title (+ status when connected) */}
-      <span className="flex items-center gap-3">
-        <IntegrationLogo logo={row.logo} className="size-8" />
-        <span className="flex min-w-0 flex-1 flex-col">
-          <span className="type-body text-ink-base">{row.title}</span>
-          {row.status !== null && (
-            <StatusText tone={row.statusVariant === "muted" ? "muted" : "ok"}>
-              {row.status}
-            </StatusText>
-          )}
-        </span>
-      </span>
-      {/* Description, aligned with the logo's left edge. */}
-      <span className="type-body text-ink-base">{row.description}</span>
-    </>
-  );
-  const shape = "tile flex flex-col gap-1.5 p-4 highlight-motion";
-  return row.unavailable === true ? (
-    <div aria-label={row.title} className={`${shape} opacity-55`}>
-      {body}
-    </div>
-  ) : (
-    <Link
-      to={row.to}
-      aria-label={row.title}
-      className={`group/card ${shape} no-underline hover:bg-hover`}
-    >
-      {body}
-    </Link>
+function RowStatus({ row }: { row: IntegrationRow }): React.JSX.Element | null {
+  return row.status === null ? null : (
+    <StatusText tone={row.status.tone}>{row.status.text}</StatusText>
   );
 }
 
-// Delivery, not configuration: a card reading Connected on a sender that has
+function CatalogRow({ row }: { row: IntegrationRow }): React.JSX.Element {
+  const body = (
+    <>
+      <ItemMedia>
+        <IntegrationLogo logo={row.logo} />
+      </ItemMedia>
+      <ItemContent>
+        <ItemTitle>{row.title}</ItemTitle>
+        <ItemDescription className="max-sm:hidden">
+          {row.description}
+        </ItemDescription>
+      </ItemContent>
+      <ItemActions>
+        <RowStatus row={row} />
+      </ItemActions>
+    </>
+  );
+  return row.unavailable === true ? (
+    <Item aria-label={row.title} data-unavailable>
+      {body}
+    </Item>
+  ) : (
+    // The list item wraps the link, so the row keeps the link's own role.
+    <div role="listitem">
+      <Item
+        render={<Link to={row.to} />}
+        role={undefined}
+        aria-label={row.title}
+        className="no-underline"
+      >
+        {body}
+      </Item>
+    </div>
+  );
+}
+
+// One card per section, its rows ruled edge to edge, at every width.
+function CatalogSection({
+  label,
+  rows,
+}: {
+  label: string;
+  rows: IntegrationRow[];
+}): React.JSX.Element {
+  return (
+    <section className="flex flex-col gap-3">
+      <h2 className="type-label">{label}</h2>
+      <Card>
+        <ItemGroup>
+          {rows.map((row, i) => (
+            <Fragment key={row.title}>
+              {i > 0 && <ItemSeparator />}
+              <CatalogRow row={row} />
+            </Fragment>
+          ))}
+        </ItemGroup>
+      </Card>
+    </section>
+  );
+}
+
+// A refused credential outranks everything else a row could say.
+function credentialStatus(
+  configured: boolean,
+  rejection: CredentialRejection | null,
+): IntegrationRow["status"] {
+  if (!configured) return null;
+  return rejection === null
+    ? { text: "Connected", tone: "ok" }
+    : { text: "Needs attention", tone: "warn" };
+}
+
+// Delivery, not configuration: a row reading Connected on a sender that has
 // never delivered is the failure this surface exists to catch.
-function alertSourceCard(
+function alertSourceRow(
   kind: AlertSourceKind,
   status: AlertSourceStatus,
 ): IntegrationRow {
   const identity = INTEGRATION_CATALOG[kind];
   return {
-    title: identity.label,
+    title: identity.name,
     description: identity.description,
     category: "Alerting",
     logo: identity.logo,
@@ -96,9 +151,8 @@ function alertSourceCard(
     status: !status.configured
       ? null
       : status.lastReceivedAt !== null
-        ? "Receiving"
-        : "Waiting for first alert",
-    statusVariant: status.lastReceivedAt !== null ? "success" : "muted",
+        ? { text: "Receiving", tone: "ok" }
+        : { text: "Waiting for first alert", tone: "muted" },
   };
 }
 
@@ -127,30 +181,37 @@ export function IntegrationsPage(): React.JSX.Element {
 
   // Two entries, because the two install and are addressed differently. An
   // empty platform routes straight to setup rather than an empty list.
-  function platformCard(
+  function platformRow(
     platform: "docker" | "kubernetes",
     noun: string,
   ): IntegrationRow {
     const identity = INTEGRATION_CATALOG[platform];
-    const count = connectedOn(runners, platform).length;
+    const hosts = connectedOn(runners, platform);
+    const offline = hosts.filter((r) => !r.online).length;
+    const count = `${hosts.length} ${hosts.length === 1 ? noun : `${noun}s`}`;
     return {
-      title: identity.label,
+      title: identity.name,
       description: identity.description,
       category: "Fleet",
       logo: identity.logo,
       to:
-        count > 0
+        hosts.length > 0
           ? `/integrations/${platform}`
           : `/integrations/${platform}/add`,
-      status: count > 0 ? `${count} ${count === 1 ? noun : `${noun}s`}` : null,
+      status:
+        hosts.length === 0
+          ? null
+          : offline > 0
+            ? { text: `${count} · ${offline} offline`, tone: "warn" }
+            : { text: count, tone: "ok" },
     };
   }
 
   const rows: IntegrationRow[] = [
-    platformCard("docker", "host"),
-    platformCard("kubernetes", "cluster"),
-    alertSourceCard("alertmanager", alertmanager),
-    alertSourceCard("grafana", grafana),
+    platformRow("docker", "host"),
+    platformRow("kubernetes", "cluster"),
+    alertSourceRow("alertmanager", alertmanager),
+    alertSourceRow("grafana", grafana),
     ...METRICS_SOURCE_KINDS.map((kind): IntegrationRow => {
       const identity = INTEGRATION_CATALOG[kind];
       const connected = metrics.configured && metrics.kind === kind;
@@ -161,64 +222,57 @@ export function IntegrationsPage(): React.JSX.Element {
          a recovery, so the row says which rather than a flat "Connected". */
       const blind = connected && metrics.rules === null;
       return {
-        title: identity.label,
+        title: identity.name,
         description: identity.description,
         category: "Metrics",
         logo: identity.logo,
         to: `/integrations/metrics/${kind}`,
         unavailable: heldByAnother,
-        status: !connected
-          ? heldByAnother
-            ? `${metrics.label} is connected`
-            : null
-          : blind
-            ? "Connected, no rules endpoint"
-            : "Connected",
-        statusVariant: blind || heldByAnother ? "muted" : "success",
+        status: heldByAnother
+          ? { text: `${metrics.label} is connected`, tone: "muted" }
+          : connected && metrics.rejection === null && blind
+            ? { text: "Connected, no rules endpoint", tone: "muted" }
+            : credentialStatus(connected, metrics.rejection),
       };
     }),
     {
-      title: INTEGRATION_CATALOG.loki.label,
+      title: INTEGRATION_CATALOG.loki.name,
       description: INTEGRATION_CATALOG.loki.description,
       logo: INTEGRATION_CATALOG.loki.logo,
       category: "Logs",
       to: "/integrations/loki",
-      status: loki.configured ? "Connected" : null,
+      status: credentialStatus(loki.configured, loki.rejection),
     },
     {
-      title: INTEGRATION_CATALOG.sentry.label,
+      title: INTEGRATION_CATALOG.sentry.name,
       description: INTEGRATION_CATALOG.sentry.description,
       logo: INTEGRATION_CATALOG.sentry.logo,
       category: "Error tracking",
       to: "/integrations/sentry",
-      status: sentry.configured ? "Connected" : null,
+      status: credentialStatus(sentry.configured, sentry.rejection),
     },
     {
-      title: INTEGRATION_CATALOG.github.label,
+      title: INTEGRATION_CATALOG.github.name,
       description: INTEGRATION_CATALOG.github.description,
       logo: INTEGRATION_CATALOG.github.logo,
       category: "Code",
       to: "/integrations/github",
-      status: github.configured ? "Connected" : null,
+      status: credentialStatus(github.configured, github.rejection),
     },
   ];
 
-  // Read in capability order whatever order the rows were built in.
-  const shown = [...rows].sort(
-    (a, b) => CATEGORIES.indexOf(a.category) - CATEGORIES.indexOf(b.category),
-  );
-
   return (
     <Page
-      measure="wide"
       title="Integrations"
       subtitle="Connect your monitoring, error tracking, and developer platforms to NightWarden."
     >
-      <div className="grid grid-cols-3 gap-3">
-        {shown.map((row) => (
-          <CatalogCard key={row.title} row={row} />
-        ))}
-      </div>
+      {/* A section appears with its first row: an empty heading reads as unfinished. */}
+      {CATEGORIES.map((category) => {
+        const inSection = rows.filter((row) => row.category === category);
+        return inSection.length === 0 ? null : (
+          <CatalogSection key={category} label={category} rows={inSection} />
+        );
+      })}
     </Page>
   );
 }

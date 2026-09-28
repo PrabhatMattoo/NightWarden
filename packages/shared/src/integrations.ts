@@ -9,6 +9,12 @@ export type GitHubErrorCode =
   // A payload we cannot read, which no retry and no credential change fixes.
   | "bad_response";
 
+// A third party refused the stored credential; cleared by the next call it accepts.
+export interface CredentialRejection {
+  reason: string;
+  at: string;
+}
+
 // One alert sender's credential and its delivery proof, never its configuration alone.
 export interface AlertSourceStatus {
   configured: boolean;
@@ -21,7 +27,7 @@ export interface GitHubIntegrationStatus {
   configured: boolean;
   repo: string | null;
   expiresAt: string | null;
-  validatedAt: string | null;
+  rejection: CredentialRejection | null;
 }
 
 export interface GitHubRepoSummary {
@@ -54,7 +60,7 @@ export interface LokiIntegrationStatus {
   hasAuth: boolean;
   // Whether a multi-tenant X-Scope-OrgID tenant is stored.
   hasOrgId: boolean;
-  validatedAt: string | null;
+  rejection: CredentialRejection | null;
 }
 
 /* Separate from `unauthorized` because Sentry answers 403 for a live token
@@ -67,5 +73,5 @@ export interface SentryIntegrationStatus {
   url: string | null;
   // The organization slug every Sentry path is scoped by; not a secret.
   orgSlug: string | null;
-  validatedAt: string | null;
+  rejection: CredentialRejection | null;
 }

@@ -15,6 +15,7 @@ import {
   getMetricsSource,
   type MetricsSource,
 } from "../../integrations/metrics/sources.js";
+import { withStoredCredential } from "../../integrations/credential-health.js";
 import { alertAnchorFor } from "./alert-anchor.js";
 import { apiTool, optionalText } from "./schema.js";
 import type { Tool, ToolExecuteResult } from "./types.js";
@@ -59,9 +60,8 @@ const MAX_METRIC_NAMES = 100;
 const NAME_WINDOW_MINUTES = 10_080;
 const MAX_ALERT_RULES = 50;
 
-/* Prometheus answers a division by zero with these rather than with an error, and
-   they arrive as strings, so nothing else in the pipeline can tell them apart
-   from a reading. Read as one, "+Inf" says "enormous" where it means "no limit". */
+/* Prometheus answers a division by zero with these strings, which read like values;
+   read as one, "+Inf" says "enormous" where it means "no limit". */
 const NON_FINITE = new Set(["+Inf", "-Inf", "NaN"]);
 
 function nonFiniteIn(series: MetricsSeries[]): string[] {
@@ -241,24 +241,29 @@ export const METRICS_TOOLS: Tool[] = [
       if (!isSource(source)) return source;
       const { query } = input;
       try {
-        const data = await instantQuery(
-          source.query,
-          ctx.signal,
-          query,
-          input.at === "alert"
-            ? (await alertAnchorFor(ctx.sessionId)).toISOString()
-            : undefined,
+        return await withStoredCredential(
+          source.id,
+          async (): Promise<ToolExecuteResult> => {
+            const data = await instantQuery(
+              source.query,
+              ctx.signal,
+              query,
+              input.at === "alert"
+                ? (await alertAnchorFor(ctx.sessionId)).toISOString()
+                : undefined,
+            );
+            const result: MetricsQueryResult = capSeries(data);
+            if (result.series.length === 0) {
+              return {
+                content: {
+                  ...result,
+                  note: withEmpty(result, query, source.label),
+                },
+              };
+            }
+            return { content: result };
+          },
         );
-        const result: MetricsQueryResult = capSeries(data);
-        if (result.series.length === 0) {
-          return {
-            content: {
-              ...result,
-              note: withEmpty(result, query, source.label),
-            },
-          };
-        }
-        return { content: result };
       } catch (err) {
         return corrective(err);
       }
@@ -303,29 +308,34 @@ export const METRICS_TOOLS: Tool[] = [
       );
 
       try {
-        const data = await rangeQuery(
-          source.query,
-          ctx.signal,
-          query,
-          start.toISOString(),
-          end.toISOString(),
-          step,
+        return await withStoredCredential(
+          source.id,
+          async (): Promise<ToolExecuteResult> => {
+            const data = await rangeQuery(
+              source.query,
+              ctx.signal,
+              query,
+              start.toISOString(),
+              end.toISOString(),
+              step,
+            );
+            const result: MetricsRangeResult = {
+              ...capSeries(data),
+              windowStart: start.toISOString(),
+              windowEnd: end.toISOString(),
+              stepSeconds: step,
+            };
+            if (result.series.length === 0) {
+              return {
+                content: {
+                  ...result,
+                  note: withEmpty(result, query, source.label),
+                },
+              };
+            }
+            return { content: result };
+          },
         );
-        const result: MetricsRangeResult = {
-          ...capSeries(data),
-          windowStart: start.toISOString(),
-          windowEnd: end.toISOString(),
-          stepSeconds: step,
-        };
-        if (result.series.length === 0) {
-          return {
-            content: {
-              ...result,
-              note: withEmpty(result, query, source.label),
-            },
-          };
-        }
-        return { content: result };
       } catch (err) {
         return corrective(err);
       }
@@ -347,34 +357,41 @@ export const METRICS_TOOLS: Tool[] = [
       if (!isSource(source)) return source;
       const contains = input.contains ?? null;
       try {
-        const end = new Date();
-        const start = new Date(end.getTime() - NAME_WINDOW_MINUTES * 60_000);
-        const names = await metricNames(
-          source.query,
-          ctx.signal,
-          contains,
-          start.toISOString(),
-          end.toISOString(),
+        return await withStoredCredential(
+          source.id,
+          async (): Promise<ToolExecuteResult> => {
+            const end = new Date();
+            const start = new Date(
+              end.getTime() - NAME_WINDOW_MINUTES * 60_000,
+            );
+            const names = await metricNames(
+              source.query,
+              ctx.signal,
+              contains,
+              start.toISOString(),
+              end.toISOString(),
+            );
+            const searched = `Names stored between ${start.toISOString()} and ${end.toISOString()} were searched. A metric last written before that window is not listed here, which is not the same as it never existing.`;
+            if (names.length === 0) {
+              return {
+                content: `No metric names matched. ${searched} Widen the substring, or drop it to see what this source stores at all.`,
+              };
+            }
+            const { items: shown, coverage } = fitList(names, {
+              keep: "start",
+              max: MAX_METRIC_NAMES,
+              kept: "first",
+              noun: "metric names",
+              reach: "Narrow the substring to list the ones left out.",
+            });
+            const result: MetricNamesResult = {
+              names: shown,
+              ...(coverage && { coverage }),
+              note: searched,
+            };
+            return { content: result };
+          },
         );
-        const searched = `Names stored between ${start.toISOString()} and ${end.toISOString()} were searched. A metric last written before that window is not listed here, which is not the same as it never existing.`;
-        if (names.length === 0) {
-          return {
-            content: `No metric names matched. ${searched} Widen the substring, or drop it to see what this source stores at all.`,
-          };
-        }
-        const { items: shown, coverage } = fitList(names, {
-          keep: "start",
-          max: MAX_METRIC_NAMES,
-          kept: "first",
-          noun: "metric names",
-          reach: "Narrow the substring to list the ones left out.",
-        });
-        const result: MetricNamesResult = {
-          names: shown,
-          ...(coverage && { coverage }),
-          note: searched,
-        };
-        return { content: result };
       } catch (err) {
         return corrective(err);
       }
@@ -403,17 +420,22 @@ export const METRICS_TOOLS: Tool[] = [
         };
       }
       try {
-        const meta = await metricMetadata(
-          source.query,
-          ctx.signal,
-          metric.trim(),
+        return await withStoredCredential(
+          source.id,
+          async (): Promise<ToolExecuteResult> => {
+            const meta = await metricMetadata(
+              source.query,
+              ctx.signal,
+              metric.trim(),
+            );
+            if (meta === null) {
+              return {
+                content: `No exporter declared metadata for "${metric.trim()}" on ${source.label}. The metric may still exist and be queryable.`,
+              };
+            }
+            return { content: meta };
+          },
         );
-        if (meta === null) {
-          return {
-            content: `No exporter declared metadata for "${metric.trim()}" on ${source.label}. The metric may still exist and be queryable.`,
-          };
-        }
-        return { content: meta };
       } catch (err) {
         return corrective(err);
       }
@@ -441,34 +463,40 @@ export const METRICS_TOOLS: Tool[] = [
           isError: true,
         };
       }
+      const endpoint = source.rules;
       const contains = input.contains ?? null;
       const needle = contains ? contains.toLowerCase() : null;
       try {
-        const rules = await alertingRules(source.rules, ctx.signal);
-        const matched =
-          needle === null
-            ? rules
-            : rules.filter((r) => r.name.toLowerCase().includes(needle));
-        if (matched.length === 0) {
-          return {
-            content:
+        return await withStoredCredential(
+          source.id,
+          async (): Promise<ToolExecuteResult> => {
+            const rules = await alertingRules(endpoint, ctx.signal);
+            const matched =
               needle === null
-                ? `${source.label} returned no alerting rules. That is not proof it evaluates none: a VictoriaMetrics query endpoint answers this the same way, with an empty list, when the rules actually live in vmalert.`
-                : `No alerting rule name contains "${contains}".`,
-          };
-        }
-        const { items: kept, coverage } = fitList(matched, {
-          keep: "start",
-          max: MAX_ALERT_RULES,
-          kept: "first",
-          noun: "alerting rules",
-          reach: "Pass contains to narrow the rules to the one that fired.",
-        });
-        const result: AlertRulesResult = {
-          rules: kept,
-          ...(coverage && { coverage }),
-        };
-        return { content: result };
+                ? rules
+                : rules.filter((r) => r.name.toLowerCase().includes(needle));
+            if (matched.length === 0) {
+              return {
+                content:
+                  needle === null
+                    ? `${source.label} returned no alerting rules. That is not proof it evaluates none: a VictoriaMetrics query endpoint answers this the same way, with an empty list, when the rules actually live in vmalert.`
+                    : `No alerting rule name contains "${contains}".`,
+              };
+            }
+            const { items: kept, coverage } = fitList(matched, {
+              keep: "start",
+              max: MAX_ALERT_RULES,
+              kept: "first",
+              noun: "alerting rules",
+              reach: "Pass contains to narrow the rules to the one that fired.",
+            });
+            const result: AlertRulesResult = {
+              rules: kept,
+              ...(coverage && { coverage }),
+            };
+            return { content: result };
+          },
+        );
       } catch (err) {
         return corrective(err);
       }

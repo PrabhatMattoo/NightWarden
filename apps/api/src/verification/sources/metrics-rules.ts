@@ -1,6 +1,7 @@
 import { probeSignal } from "../../integrations/reachability.js";
 import { getMetricsSource } from "../../integrations/metrics/sources.js";
 import { firingInstancesOf } from "../../integrations/metrics/client.js";
+import { withStoredCredential } from "../../integrations/credential-health.js";
 import { logger } from "../../logger.js";
 import type { ConditionState, VerificationSource } from "../source.js";
 
@@ -16,13 +17,14 @@ export const metricsRulesSource: VerificationSource = {
   },
 
   async checkCondition(alert): Promise<ConditionState> {
-    const rules = (await getMetricsSource())?.rules;
-    if (rules == null) return "unknown";
+    const source = await getMetricsSource();
+    const rules = source?.rules;
+    if (source == null || rules == null) return "unknown";
     try {
-      const instances = await firingInstancesOf(
-        rules,
-        probeSignal(),
-        alert.alertType,
+      const instances = await withStoredCredential(
+        source.id,
+        async () =>
+          await firingInstancesOf(rules, probeSignal(), alert.alertType),
       );
       // The source knows no rule by that name, so it cannot speak to this
       // alert. Silence is never a recovery.

@@ -3,8 +3,10 @@
 import * as React from "react";
 import { useMemo } from "react";
 import { cva, type VariantProps } from "class-variance-authority";
+import { CircleAlert } from "lucide-react";
 
 import { cn } from "@/shared/lib/utils";
+import { IconLine } from "@/shared/ui/icon-line";
 import { Label } from "@/shared/ui/label";
 const fieldVariants = cva(
   "group/field flex w-full gap-2 data-[invalid=true]:text-fail",
@@ -126,18 +128,17 @@ function FieldError({
     return null;
   }
 
+  // The icon is drawn here, so no caller places one and every error line matches.
   return (
-    <div
+    <IconLine
+      icon={CircleAlert}
       role="alert"
       data-slot="field-error"
-      className={cn(
-        "flex items-start gap-1 type-small text-fail [&>svg]:shrink-0",
-        className,
-      )}
+      className={cn("type-small text-fail", className)}
       {...props}
     >
-      {content}
-    </div>
+      <div className="min-w-0">{content}</div>
+    </IconLine>
   );
 }
 

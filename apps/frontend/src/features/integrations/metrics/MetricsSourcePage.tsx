@@ -13,12 +13,7 @@ import type {
 } from "@nightwarden/shared";
 
 import { Alert, AlertDescription, AlertTitle } from "@/shared/ui/alert";
-import { StatusText } from "@/shared/ui/status";
-import { Button } from "@/shared/ui/button";
-import { Checkbox } from "@/shared/ui/checkbox";
 import { Input } from "@/shared/ui/input";
-import { Label } from "@/shared/ui/label";
-import { Field, FieldLabel, FieldDescription } from "@/shared/ui/field";
 import {
   Select,
   SelectContent,
@@ -26,15 +21,30 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/shared/ui/select";
-import { Page, Section } from "@/shared/ui/Page";
+import { Switch } from "@/shared/ui/switch";
 import { ConfirmDialog } from "@/shared/ui/ConfirmDialog";
 import { IconLine } from "@/shared/ui/icon-line";
-import { IntegrationHeader } from "@/features/integrations/IntegrationHeader";
-import { ConnectedState, type Fact } from "@/features/integrations/FactGrid";
-import { IntegrationWarnings } from "@/features/integrations/IntegrationWarnings";
 import { toast } from "@/shared/lib/toast";
-import { ApiError, apiFetch } from "@/shared/api/client";
-import { useDisconnect } from "../useIntegration";
+import { apiFetch } from "@/shared/api/client";
+import {
+  rowLabel,
+  SettingsGroup,
+  SettingsRow,
+} from "@/features/settings/SettingsRow";
+import { IntegrationWarnings } from "../IntegrationWarnings";
+import {
+  ConnectFooter,
+  CredentialActions,
+  credentialState,
+  IntegrationPage,
+  metaFacts,
+  ValueRow,
+} from "../IntegrationPage";
+import {
+  connectMessage,
+  useDisconnect,
+  useTestConnection,
+} from "../useIntegration";
 import {
   AUTH_LABEL,
   METRICS_SOURCE_CONTENT,
@@ -114,148 +124,104 @@ function endpointOf(
   }
 }
 
-function CredentialFields({
-  idPrefix,
-  credential,
-  onChange,
-}: {
-  idPrefix: string;
-  credential: Credential;
-  onChange: (next: Credential) => void;
-}): React.JSX.Element | null {
+/* Rows rather than a component, so the group they join draws a rule between
+   each: a component would reach the group as one child. */
+function credentialRows(
+  idPrefix: string,
+  credential: Credential,
+  onChange: (next: Credential) => void,
+): React.JSX.Element[] {
   const set = (patch: Partial<Credential>): void =>
     onChange({ ...credential, ...patch });
-
-  if (credential.method === "none") return null;
-
-  if (credential.method === "bearer") {
+  const row = (
+    key: keyof Credential,
+    suffix: string,
+    title: string,
+    options: { secret?: boolean; placeholder?: string; description?: string },
+  ): React.JSX.Element => {
+    const id = `${idPrefix}-${suffix}`;
     return (
-      <Field>
-        <FieldLabel htmlFor={`${idPrefix}-bearer`}>
-          Authorization header
-        </FieldLabel>
-        <FieldDescription>
-          The whole header value, scheme included.
-        </FieldDescription>
+      <SettingsRow
+        key={id}
+        id={id}
+        title={title}
+        {...(options.description !== undefined && {
+          description: options.description,
+        })}
+      >
         <Input
-          id={`${idPrefix}-bearer`}
-          type="password"
-          measure="field"
-          placeholder="Bearer ..."
-          value={credential.bearer}
-          onChange={(e) => set({ bearer: e.currentTarget.value })}
+          aria-labelledby={rowLabel(id)}
+          measure="beside"
+          {...(options.secret === true && { type: "password" })}
+          {...(options.placeholder !== undefined && {
+            placeholder: options.placeholder,
+          })}
+          value={credential[key]}
+          onChange={(e) => set({ [key]: e.currentTarget.value })}
         />
-      </Field>
+      </SettingsRow>
     );
-  }
+  };
 
-  if (credential.method === "basic") {
-    /* One credential, so one row: a pair entered together and sent together
-       reads as two unrelated questions when it is stacked. */
-    return (
-      <div className="flex flex-wrap gap-4">
-        <Field className="w-auto">
-          <FieldLabel htmlFor={`${idPrefix}-user`}>Username</FieldLabel>
-          <Input
-            id={`${idPrefix}-user`}
-            measure="short"
-            value={credential.username}
-            onChange={(e) => set({ username: e.currentTarget.value })}
-          />
-        </Field>
-        <Field className="w-auto">
-          <FieldLabel htmlFor={`${idPrefix}-pass`}>Password</FieldLabel>
-          <Input
-            id={`${idPrefix}-pass`}
-            type="password"
-            measure="short"
-            value={credential.password}
-            onChange={(e) => set({ password: e.currentTarget.value })}
-          />
-        </Field>
-      </div>
-    );
+  switch (credential.method) {
+    case "none":
+      return [];
+    case "bearer":
+      return [
+        row("bearer", "bearer", "Authorization header", {
+          secret: true,
+          placeholder: "Bearer ...",
+          description: "The whole header value, scheme included.",
+        }),
+      ];
+    case "basic":
+      return [
+        row("username", "user", "Username", {}),
+        row("password", "pass", "Password", { secret: true }),
+      ];
+    case "aws":
+      return [
+        row("accessKeyId", "access-key", "Access key ID", {
+          placeholder: "AKIA...",
+        }),
+        row("secretAccessKey", "secret-key", "Secret access key", {
+          secret: true,
+        }),
+        row("region", "region", "Region", { placeholder: "us-east-1" }),
+        row("sessionToken", "session-token", "Session token", {
+          secret: true,
+          description: "Only for temporary STS credentials.",
+        }),
+      ];
   }
-
-  return (
-    <>
-      <Field>
-        <FieldLabel htmlFor={`${idPrefix}-access-key`}>
-          Access key ID
-        </FieldLabel>
-        <Input
-          id={`${idPrefix}-access-key`}
-          measure="short"
-          placeholder="AKIA..."
-          value={credential.accessKeyId}
-          onChange={(e) => set({ accessKeyId: e.currentTarget.value })}
-        />
-      </Field>
-      <Field>
-        <FieldLabel htmlFor={`${idPrefix}-secret-key`}>
-          Secret access key
-        </FieldLabel>
-        <Input
-          id={`${idPrefix}-secret-key`}
-          type="password"
-          measure="field"
-          value={credential.secretAccessKey}
-          onChange={(e) => set({ secretAccessKey: e.currentTarget.value })}
-        />
-      </Field>
-      <Field>
-        <FieldLabel htmlFor={`${idPrefix}-region`}>Region</FieldLabel>
-        <Input
-          id={`${idPrefix}-region`}
-          measure="short"
-          placeholder="us-east-1"
-          value={credential.region}
-          onChange={(e) => set({ region: e.currentTarget.value })}
-        />
-      </Field>
-      <Field>
-        <FieldLabel htmlFor={`${idPrefix}-session-token`}>
-          Session token
-        </FieldLabel>
-        <FieldDescription>Only for temporary STS credentials.</FieldDescription>
-        <Input
-          id={`${idPrefix}-session-token`}
-          type="password"
-          measure="field"
-          value={credential.sessionToken}
-          onChange={(e) => set({ sessionToken: e.currentTarget.value })}
-        />
-      </Field>
-    </>
-  );
 }
 
-function AuthPicker({
-  id,
-  methods,
-  help,
-  value,
-  onChange,
-}: {
-  id: string;
-  methods: AuthMethod[];
-  help: string;
-  value: AuthMethod;
-  onChange: (next: AuthMethod) => void;
-}): React.JSX.Element | null {
-  // A product that offers one way in is not asking a question.
+// A product that offers one way in is not asking a question.
+function authRow(
+  id: string,
+  methods: AuthMethod[],
+  help: string,
+  value: AuthMethod,
+  onChange: (next: AuthMethod) => void,
+): React.JSX.Element | null {
   if (methods.length < 2) return null;
   const items = Object.fromEntries(methods.map((m) => [m, AUTH_LABEL[m]]));
   return (
-    <Field>
-      <FieldLabel htmlFor={id}>Authentication</FieldLabel>
-      {help !== "" && <FieldDescription>{help}</FieldDescription>}
+    <SettingsRow
+      key={id}
+      id={id}
+      title="Authentication"
+      {...(help !== "" && { description: help })}
+    >
       <Select
         items={items}
         value={value}
-        onValueChange={(next) => onChange(next as AuthMethod)}
+        onValueChange={(next) => {
+          const method = methods.find((m) => m === next);
+          if (method !== undefined) onChange(method);
+        }}
       >
-        <SelectTrigger id={id}>
+        <SelectTrigger aria-labelledby={rowLabel(id)}>
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
@@ -266,22 +232,31 @@ function AuthPicker({
           ))}
         </SelectContent>
       </Select>
-    </Field>
+    </SettingsRow>
   );
 }
 
-function ConnectForm({ kind }: { kind: MetricsSourceKind }): React.JSX.Element {
+function ConnectForm({
+  kind,
+  status,
+  onDone,
+}: {
+  kind: MetricsSourceKind;
+  status: MetricsSourceStatus;
+  onDone?: () => void;
+}): React.JSX.Element {
   const content = METRICS_SOURCE_CONTENT[kind];
   const identity = INTEGRATION_CATALOG[kind];
   const queryClient = useQueryClient();
   const defaultMethod = content.auth[0] ?? "none";
 
-  const [queryUrl, setQueryUrl] = useState("");
+  // The addresses come back on an update; every credential is typed again.
+  const [queryUrl, setQueryUrl] = useState(status.query?.url ?? "");
   const [queryCredential, setQueryCredential] = useState(
     emptyCredential(defaultMethod),
   );
   const [orgId, setOrgId] = useState("");
-  const [rulesUrl, setRulesUrl] = useState("");
+  const [rulesUrl, setRulesUrl] = useState(status.rules?.url ?? "");
   const [sameCredential, setSameCredential] = useState(true);
   const [rulesCredential, setRulesCredential] = useState(
     emptyCredential(defaultMethod),
@@ -294,7 +269,7 @@ function ConnectForm({ kind }: { kind: MetricsSourceKind }): React.JSX.Element {
         kind,
         query: endpointOf(queryUrl, queryCredential, orgId),
         // Absent rather than empty: a source with no rules endpoint is a
-        // supported configuration, and the row above says what it costs.
+        // supported configuration, and the Recovery row says what it costs.
         ...(trim(rulesUrl) !== "" && {
           rules: endpointOf(
             rulesUrl,
@@ -311,170 +286,169 @@ function ConnectForm({ kind }: { kind: MetricsSourceKind }): React.JSX.Element {
     },
     onMutate: () => setError(null),
     onSuccess: async () => {
-      toast.success(`${identity.label} connected`);
+      toast.success(
+        `${identity.label} ${status.configured ? "updated" : "connected"}`,
+      );
       await queryClient.invalidateQueries({
         queryKey: metricsSourceQuery().queryKey,
       });
+      onDone?.();
     },
-    onError: (err) =>
-      setError(
-        err instanceof ApiError ? err.message : "Could not reach the API",
-      ),
+    onError: (err) => setError(connectMessage(err)),
   });
 
   return (
-    <div className="flex flex-col gap-6">
-      <Section title="Querying" lead={QUERY_LEAD} className="gap-4">
-        <Field>
-          <FieldLabel htmlFor="metrics-query-url">Query URL</FieldLabel>
-          {content.queryHelp !== "" && (
-            <FieldDescription>{content.queryHelp}</FieldDescription>
-          )}
+    <div className="flex flex-col gap-8">
+      <SettingsGroup title="Query" lead={QUERY_LEAD}>
+        <SettingsRow
+          id="metrics-query-url"
+          title="Query URL"
+          {...(content.queryHelp !== "" && { description: content.queryHelp })}
+        >
           <Input
-            id="metrics-query-url"
-            measure="field"
+            aria-labelledby={rowLabel("metrics-query-url")}
+            measure="beside"
             placeholder={content.queryPlaceholder}
             value={queryUrl}
             onChange={(e) => setQueryUrl(e.currentTarget.value)}
           />
-        </Field>
-        <AuthPicker
-          id="metrics-query-auth"
-          methods={content.auth}
-          help={content.authHelp}
-          value={queryCredential.method}
-          onChange={(method) =>
-            setQueryCredential({ ...queryCredential, method })
-          }
-        />
-        <CredentialFields
-          idPrefix="metrics-query"
-          credential={queryCredential}
-          onChange={setQueryCredential}
-        />
+        </SettingsRow>
+        {authRow(
+          "metrics-query-auth",
+          content.auth,
+          content.authHelp,
+          queryCredential.method,
+          (method) => setQueryCredential({ ...queryCredential, method }),
+        )}
+        {credentialRows("metrics-query", queryCredential, setQueryCredential)}
         {content.tenant && (
-          <Field>
-            <FieldLabel htmlFor="metrics-tenant">Tenant</FieldLabel>
-            <FieldDescription>
-              The tenant to query, sent as X-Scope-OrgID.
-            </FieldDescription>
+          <SettingsRow
+            id="metrics-tenant"
+            title="Tenant"
+            description="The tenant to query, sent as X-Scope-OrgID."
+          >
             <Input
-              id="metrics-tenant"
-              measure="short"
+              aria-labelledby={rowLabel("metrics-tenant")}
+              measure="beside"
               value={orgId}
               onChange={(e) => setOrgId(e.currentTarget.value)}
             />
-          </Field>
+          </SettingsRow>
         )}
-      </Section>
+      </SettingsGroup>
 
-      <Section title="Recovery" lead={RULES_LEAD} className="gap-4">
-        <Field>
-          <FieldLabel htmlFor="metrics-rules-url">Rules URL</FieldLabel>
-          <FieldDescription>{content.rulesHelp}</FieldDescription>
-          <Input
+      <div className="flex flex-col gap-3">
+        <SettingsGroup title="Recovery" lead={RULES_LEAD}>
+          <SettingsRow
             id="metrics-rules-url"
-            measure="field"
-            placeholder={content.rulesPlaceholder}
-            value={rulesUrl}
-            onChange={(e) => setRulesUrl(e.currentTarget.value)}
-          />
-        </Field>
-        {trim(rulesUrl) !== "" && (
-          <>
-            <Field orientation="horizontal">
-              <Checkbox
-                id="metrics-rules-same"
+            title="Rules URL"
+            description={content.rulesHelp}
+          >
+            <Input
+              aria-labelledby={rowLabel("metrics-rules-url")}
+              measure="beside"
+              placeholder={content.rulesPlaceholder}
+              value={rulesUrl}
+              onChange={(e) => setRulesUrl(e.currentTarget.value)}
+            />
+          </SettingsRow>
+          {trim(rulesUrl) !== "" && (
+            <SettingsRow
+              id="metrics-rules-same"
+              title="Use the same credentials"
+              description="Off when the rules endpoint takes its own."
+            >
+              <Switch
+                aria-labelledby={rowLabel("metrics-rules-same")}
                 checked={sameCredential}
-                onCheckedChange={(next) => setSameCredential(next === true)}
+                onCheckedChange={setSameCredential}
               />
-              <Label htmlFor="metrics-rules-same">
-                Use the same credentials
-              </Label>
-            </Field>
-            {!sameCredential && (
-              <>
-                <AuthPicker
-                  id="metrics-rules-auth"
-                  methods={content.auth}
-                  help=""
-                  value={rulesCredential.method}
-                  onChange={(method) =>
-                    setRulesCredential({ ...rulesCredential, method })
-                  }
-                />
-                <CredentialFields
-                  idPrefix="metrics-rules"
-                  credential={rulesCredential}
-                  onChange={setRulesCredential}
-                />
-              </>
+            </SettingsRow>
+          )}
+          {trim(rulesUrl) !== "" &&
+            !sameCredential &&
+            authRow(
+              "metrics-rules-auth",
+              content.auth,
+              "",
+              rulesCredential.method,
+              (method) => setRulesCredential({ ...rulesCredential, method }),
             )}
-          </>
-        )}
-      </Section>
+          {trim(rulesUrl) !== "" &&
+            !sameCredential &&
+            credentialRows(
+              "metrics-rules",
+              rulesCredential,
+              setRulesCredential,
+            )}
+        </SettingsGroup>
 
-      <IntegrationWarnings warnings={content.warnings} />
+        <IntegrationWarnings warnings={content.warnings} />
 
-      {error !== null && (
-        <Alert variant="destructive">
-          <AlertTitle>Could not connect</AlertTitle>
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
-      )}
-
-      <Button
-        className="self-start"
-        disabled={trim(queryUrl) === "" || connect.isPending}
-        onClick={() => connect.mutate()}
-      >
-        Connect
-      </Button>
+        <ConnectFooter
+          error={error}
+          label={status.configured ? "Update" : "Connect"}
+          disabled={trim(queryUrl) === "" || connect.isPending}
+          onConnect={() => connect.mutate()}
+          {...(onDone !== undefined && { onCancel: onDone })}
+        />
+      </div>
     </div>
   );
 }
 
 function ConnectedSource({
-  source,
-  onRemove,
+  status,
+  actions,
 }: {
-  source: MetricsSourceStatus;
-  onRemove: () => void;
+  status: MetricsSourceStatus;
+  actions: React.ReactNode;
 }): React.JSX.Element {
-  const facts: Fact[] = [
-    { label: "Status", value: <StatusText tone="ok">Connected</StatusText> },
-    { label: "Endpoint", value: source.query?.url },
-    {
-      label: "Auth",
-      value: source.query?.hasAuth === true ? "Configured" : "None",
-    },
-  ];
-  if (source.query?.hasOrgId === true)
-    facts.push({ label: "Tenant", value: "Configured" });
-  if (source.rules !== null)
-    facts.push({ label: "Rules", value: source.rules.url });
-
+  const auth = (hasAuth: boolean | undefined): string =>
+    hasAuth === true ? "Credential stored" : "None";
   return (
-    <ConnectedState
-      facts={facts}
-      note={
-        source.rules === null ? (
-          /* Said here rather than discovered at 3am: this is the difference
+    <>
+      <SettingsGroup title="Query" lead={QUERY_LEAD}>
+        <ValueRow id="metrics-query-endpoint" title="Endpoint">
+          {status.query?.url}
+        </ValueRow>
+        <ValueRow id="metrics-query-credential" title="Authentication">
+          {auth(status.query?.hasAuth)}
+        </ValueRow>
+        {status.query?.hasOrgId === true && (
+          <ValueRow id="metrics-query-tenant" title="Tenant">
+            Stored
+          </ValueRow>
+        )}
+      </SettingsGroup>
+
+      <div className="flex flex-col gap-3">
+        <SettingsGroup title="Recovery" lead={RULES_LEAD}>
+          {status.rules === null ? (
+            /* Said here rather than discovered at 3am: this is the difference
              between an investigation that can close itself and one that cannot. */
-          <IconLine icon={TriangleAlert} className="type-body text-warn">
-            <span>
-              No rules endpoint. This source reaches Resolved only when your
-              alert source sends a resolved notification.
-            </span>
-          </IconLine>
-        ) : undefined
-      }
-      actions={
-        <Button size="sm" variant="secondary" onClick={onRemove}>
-          Disconnect
-        </Button>
-      }
-    />
+            <ValueRow id="metrics-rules-endpoint" title="Rules endpoint">
+              <IconLine icon={TriangleAlert} className="text-warn">
+                <span>
+                  None, so this source reaches Resolved only when your alert
+                  source sends a resolved notification.
+                </span>
+              </IconLine>
+            </ValueRow>
+          ) : (
+            <ValueRow id="metrics-rules-endpoint" title="Rules endpoint">
+              {status.rules.url}
+            </ValueRow>
+          )}
+          {status.rules !== null && (
+            <ValueRow id="metrics-rules-credential" title="Authentication">
+              {auth(status.rules.hasAuth)}
+            </ValueRow>
+          )}
+        </SettingsGroup>
+        {actions}
+      </div>
+    </>
   );
 }
 
@@ -484,6 +458,7 @@ export function MetricsSourcePage({
   kind: MetricsSourceKind;
 }): React.JSX.Element {
   const identity = INTEGRATION_CATALOG[kind];
+  const [updating, setUpdating] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState(false);
 
   const { data: status } = useSuspenseQuery(metricsSourceQuery());
@@ -498,31 +473,50 @@ export function MetricsSourcePage({
     queryKey: metricsSourceQuery().queryKey,
     endpoint: () => "/api/integrations/metrics",
   });
+  const test = useTestConnection({
+    label: identity.label,
+    queryKey: metricsSourceQuery().queryKey,
+    endpoint: "/api/integrations/metrics/test",
+  });
 
   return (
-    <Page measure="wide" back={{ to: "/integrations", label: "Integrations" }}>
-      <div className="flex flex-col gap-8">
-        <IntegrationHeader identity={identity} />
+    <IntegrationPage
+      identity={identity}
+      facts={metaFacts(identity)}
+      state={credentialState(connected, status.rejection)}
+      rejection={connected ? status.rejection : null}
+    >
+      {heldByAnother && (
+        <Alert variant="warning">
+          <AlertTitle>Another metrics source is connected</AlertTitle>
+          <AlertDescription>
+            NightWarden queries one metrics source. Disconnect {status.label}{" "}
+            first to connect {identity.label} instead.
+          </AlertDescription>
+        </Alert>
+      )}
 
-        {connected && (
-          <ConnectedSource
-            source={status}
-            onRemove={() => setConfirmRemove(true)}
-          />
-        )}
+      {connected && !updating && (
+        <ConnectedSource
+          status={status}
+          actions={
+            <CredentialActions
+              testing={test.isPending}
+              onTest={() => test.mutate()}
+              onUpdate={() => setUpdating(true)}
+              onDisconnect={() => setConfirmRemove(true)}
+            />
+          }
+        />
+      )}
 
-        {heldByAnother && status.configured && (
-          <Alert variant="warning">
-            <AlertTitle>Another metrics source is connected</AlertTitle>
-            <AlertDescription>
-              NightWarden queries one metrics source. Disconnect {status.label}{" "}
-              first to connect {identity.label} instead.
-            </AlertDescription>
-          </Alert>
-        )}
-
-        {!connected && !heldByAnother && <ConnectForm kind={kind} />}
-      </div>
+      {((!connected && !heldByAnother) || (connected && updating)) && (
+        <ConnectForm
+          kind={kind}
+          status={connected ? status : UNCONNECTED}
+          {...(updating && { onDone: () => setUpdating(false) })}
+        />
+      )}
 
       <ConfirmDialog
         open={confirmRemove}
@@ -533,6 +527,16 @@ export function MetricsSourcePage({
         destructive
         onConfirm={() => disconnect.mutate()}
       />
-    </Page>
+    </IntegrationPage>
   );
 }
+
+// What the form starts from when this product holds nothing yet.
+const UNCONNECTED: MetricsSourceStatus = {
+  configured: false,
+  kind: null,
+  label: null,
+  query: null,
+  rules: null,
+  rejection: null,
+};

@@ -1,6 +1,8 @@
 // One client, no per-product adapter: what differs is where the rules live,
 // how the credential is presented, and what the source cannot answer.
 
+import type { CredentialRejection } from "./integrations.js";
+
 export const METRICS_SOURCE_KINDS = [
   "prometheus",
   "victoriametrics",
@@ -65,7 +67,7 @@ export interface MetricsSourceStatus {
   // Null when no rules endpoint is configured: without one an investigation
   // cannot ask whether the rule that fired still holds.
   rules: MetricsEndpointStatus | null;
-  validatedAt: string | null;
+  rejection: CredentialRejection | null;
 }
 
 export type MetricsErrorCode =

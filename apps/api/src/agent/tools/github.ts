@@ -9,6 +9,7 @@ import {
   listPullRequestFiles,
   GitHubApiError,
 } from "../../integrations/github.js";
+import { withStoredCredential } from "../../integrations/credential-health.js";
 import { apiTool } from "./schema.js";
 import type { Tool, ToolExecuteResult } from "./types.js";
 
@@ -59,9 +60,12 @@ const RECENT_CHANGES_INPUT = z.object({
     }),
 });
 
+// A refused credential is not a missing permission, so SSO never degrades here.
 function isPermissionStatus(err: unknown): boolean {
   return (
-    err instanceof GitHubApiError && (err.status === 403 || err.status === 404)
+    err instanceof GitHubApiError &&
+    err.code === "network" &&
+    (err.status === 403 || err.status === 404)
   );
 }
 
@@ -187,72 +191,77 @@ export const GITHUB_TOOLS: Tool[] = [
       // Like the repo tools, this never throws into the loop: every failure
       // becomes a corrective result the agent can act on.
       try {
-        const token = integration.token;
-        const branch = await defaultBranch(
-          token,
-          ctx.signal,
-          repoOwner,
-          repoName,
+        return await withStoredCredential(
+          integration.id,
+          async (): Promise<ToolExecuteResult> => {
+            const token = integration.token;
+            const branch = await defaultBranch(
+              token,
+              ctx.signal,
+              repoOwner,
+              repoName,
+            );
+            const [{ pullRequests, mergeShas, note }, allCommits] =
+              await Promise.all([
+                pullRequestsWithFiles(
+                  token,
+                  ctx.signal,
+                  repoOwner,
+                  repoName,
+                  branch,
+                  since,
+                  until,
+                ),
+                listCommits(
+                  token,
+                  ctx.signal,
+                  repoOwner,
+                  repoName,
+                  branch,
+                  since,
+                  until,
+                ),
+              ]);
+
+            // Drop merge commits so the two lists do not double-report: multi-parent
+            // ones are merges, and a squash merge matches the PR's merge_commit_sha.
+            const commits: RecentCommit[] = allCommits
+              .filter((c) => c.parentCount <= 1 && !mergeShas.has(c.sha))
+              .map(({ sha, message, author, committedAt }) => ({
+                sha,
+                message,
+                author,
+                committedAt,
+              }));
+
+            // Pull requests first, since they carry the file lists a change search
+            // wants; loose commits spend what budget is left.
+            const prs = fitList(pullRequests, {
+              keep: "start",
+              kept: "newest",
+              noun: "pull requests merged in the window",
+              reach: "Shorten windowHours to read the older ones.",
+            });
+            const loose = fitList(commits, {
+              keep: "start",
+              kept: "newest",
+              noun: "commits in the window",
+              reach: "Shorten windowHours to read the older ones.",
+              budget: ITEM_BUDGET_CHARS - prs.spent,
+            });
+            const result: ListRecentGitChangesResult = {
+              branch,
+              windowStart: since,
+              windowEnd: until,
+              pullRequests: prs.items,
+              commits: loose.items,
+              ...(prs.coverage && { pullRequestsCoverage: prs.coverage }),
+              ...(loose.coverage && { commitsCoverage: loose.coverage }),
+              ...(note !== undefined && { note }),
+            };
+            return { content: result };
+          },
         );
-        const [{ pullRequests, mergeShas, note }, allCommits] =
-          await Promise.all([
-            pullRequestsWithFiles(
-              token,
-              ctx.signal,
-              repoOwner,
-              repoName,
-              branch,
-              since,
-              until,
-            ),
-            listCommits(
-              token,
-              ctx.signal,
-              repoOwner,
-              repoName,
-              branch,
-              since,
-              until,
-            ),
-          ]);
-
-        // Drop merge commits so the two lists do not double-report: multi-parent
-        // ones are merges, and a squash merge matches the PR's merge_commit_sha.
-        const commits: RecentCommit[] = allCommits
-          .filter((c) => c.parentCount <= 1 && !mergeShas.has(c.sha))
-          .map(({ sha, message, author, committedAt }) => ({
-            sha,
-            message,
-            author,
-            committedAt,
-          }));
-
-        // Pull requests first, since they carry the file lists a change search
-        // wants; loose commits spend what budget is left.
-        const prs = fitList(pullRequests, {
-          keep: "start",
-          kept: "newest",
-          noun: "pull requests merged in the window",
-          reach: "Shorten windowHours to read the older ones.",
-        });
-        const loose = fitList(commits, {
-          keep: "start",
-          kept: "newest",
-          noun: "commits in the window",
-          reach: "Shorten windowHours to read the older ones.",
-          budget: ITEM_BUDGET_CHARS - prs.spent,
-        });
-        const result: ListRecentGitChangesResult = {
-          branch,
-          windowStart: since,
-          windowEnd: until,
-          pullRequests: prs.items,
-          commits: loose.items,
-          ...(prs.coverage && { pullRequestsCoverage: prs.coverage }),
-          ...(loose.coverage && { commitsCoverage: loose.coverage }),
-          ...(note !== undefined && { note }),
-        };
-        return { content: result };
       } catch (err) {
         const detail =
           err instanceof GitHubApiError

@@ -10,6 +10,7 @@ import {
   searchIssues,
   type SentryConnection,
 } from "../../integrations/sentry.js";
+import { withStoredCredential } from "../../integrations/credential-health.js";
 import { alertAnchorFor } from "./alert-anchor.js";
 import { apiTool, optionalText } from "./schema.js";
 import type { Tool, ToolExecuteResult } from "./types.js";
@@ -115,11 +116,18 @@ function corrective(err: unknown): ToolExecuteResult {
   };
 }
 
-async function connection(): Promise<SentryConnection | null> {
+async function connection(): Promise<
+  (SentryConnection & { id: string }) | null
+> {
   const row = await getSentryIntegration();
   return row === null
     ? null
-    : { baseUrl: row.baseUrl, orgSlug: row.orgSlug, token: row.token };
+    : {
+        id: row.id,
+        baseUrl: row.baseUrl,
+        orgSlug: row.orgSlug,
+        token: row.token,
+      };
 }
 
 interface WindowedCounts {
@@ -437,56 +445,64 @@ export const SENTRY_TOOLS: Tool[] = [
       );
 
       try {
-        const page = await searchIssues(conn, ctx.signal, {
-          projects,
-          environments,
-          query,
-          sort,
-          limit,
-          start,
-          end,
-          cursor: cursor ?? null,
-        });
-        const { items: issues, coverage } = fitList(page.rows.map(toIssue), {
-          keep: "start",
-          kept: "first",
-          noun: "issues",
-          reach: "Narrow the query or lower limit.",
-        });
-        const notes: string[] = [
-          "count and userCount are Sentry's totals for the issue; inWindow holds the counts restricted to the window searched, and is null when Sentry did not narrow them.",
-        ];
-        if (issues.length === 0) {
-          notes.push(
-            "No issues matched. That means none matched this query in this window and these projects, not that the service threw nothing - widen lookbackMinutes, clear the query, or check the project slugs.",
-          );
-        }
-        if (page.nextCursor !== null) {
-          notes.push(
-            "More issues exist beyond this page; call again with the cursor argument set to nextCursor to read them.",
-          );
-        }
-        const result: SentryIssuesResult = {
-          issues,
-          returned: issues.length,
-          limit,
-          windowStart: start.toISOString(),
-          windowEnd: end.toISOString(),
-          projectsSearched: describeScope(
-            projects,
-            "every project the token can reach",
-          ),
-          environmentsSearched: describeScope(
-            environments,
-            "every environment",
-          ),
-          query,
-          sort,
-          nextCursor: page.nextCursor,
-          ...(coverage && { coverage }),
-          note: notes.join(" "),
-        };
-        return { content: result };
+        return await withStoredCredential(
+          conn.id,
+          async (): Promise<ToolExecuteResult> => {
+            const page = await searchIssues(conn, ctx.signal, {
+              projects,
+              environments,
+              query,
+              sort,
+              limit,
+              start,
+              end,
+              cursor: cursor ?? null,
+            });
+            const { items: issues, coverage } = fitList(
+              page.rows.map(toIssue),
+              {
+                keep: "start",
+                kept: "first",
+                noun: "issues",
+                reach: "Narrow the query or lower limit.",
+              },
+            );
+            const notes: string[] = [
+              "count and userCount are Sentry's totals for the issue; inWindow holds the counts restricted to the window searched, and is null when Sentry did not narrow them.",
+            ];
+            if (issues.length === 0) {
+              notes.push(
+                "No issues matched. That means none matched this query in this window and these projects, not that the service threw nothing - widen lookbackMinutes, clear the query, or check the project slugs.",
+              );
+            }
+            if (page.nextCursor !== null) {
+              notes.push(
+                "More issues exist beyond this page; call again with the cursor argument set to nextCursor to read them.",
+              );
+            }
+            const result: SentryIssuesResult = {
+              issues,
+              returned: issues.length,
+              limit,
+              windowStart: start.toISOString(),
+              windowEnd: end.toISOString(),
+              projectsSearched: describeScope(
+                projects,
+                "every project the token can reach",
+              ),
+              environmentsSearched: describeScope(
+                environments,
+                "every environment",
+              ),
+              query,
+              sort,
+              nextCursor: page.nextCursor,
+              ...(coverage && { coverage }),
+              note: notes.join(" "),
+            };
+            return { content: result };
+          },
+        );
       } catch (err) {
         return corrective(err);
       }
@@ -509,67 +525,72 @@ export const SENTRY_TOOLS: Tool[] = [
       const environments = input.environments ?? [];
 
       try {
-        const event = await latestEvent(
-          conn,
-          ctx.signal,
-          issueId,
-          environments,
+        return await withStoredCredential(
+          conn.id,
+          async (): Promise<ToolExecuteResult> => {
+            const event = await latestEvent(
+              conn,
+              ctx.signal,
+              issueId,
+              environments,
+            );
+            const release = obj(event, "release");
+            const formatted = str(event, "formatted");
+            const notes: string[] = [];
+            let entries: unknown[] | undefined;
+            let entriesCoverage: Coverage | undefined;
+            let vendorFramesDropped: number | undefined;
+
+            if (formatted === null) {
+              const trimmed = trimFrames(list(event, "entries"));
+              const fitted = fitList(trimmed.entries, {
+                keep: "start",
+                kept: "first",
+                noun: "sections of this event",
+                reach:
+                  "Read the rest in Sentry itself; no argument narrows one event.",
+              });
+              entries = fitted.items;
+              entriesCoverage = fitted.coverage;
+              vendorFramesDropped = trimmed.dropped;
+            }
+            if (release === null) {
+              notes.push(
+                "This event carries no release, so which build was running cannot be read from it.",
+              );
+            }
+
+            const result: SentryEventResult = {
+              issueId,
+              eventId: str(event, "eventID"),
+              dateCreated: str(event, "dateCreated"),
+              title: str(event, "title"),
+              culprit: str(event, "culprit"),
+              platform: str(event, "platform"),
+              message: str(event, "message"),
+              release:
+                release === null
+                  ? null
+                  : {
+                      version: str(release, "version"),
+                      dateCreated: str(release, "dateCreated"),
+                      dateReleased: str(release, "dateReleased"),
+                      lastCommit: obj(release, "lastCommit"),
+                      lastDeploy: obj(release, "lastDeploy"),
+                    },
+              tags: list(event, "tags").map((tag) => ({
+                key: str(tag, "key"),
+                value: str(tag, "value"),
+              })),
+              ...(formatted !== null && { formatted }),
+              ...(entries !== undefined && { entries }),
+              ...(entriesCoverage && { coverage: entriesCoverage }),
+              ...(vendorFramesDropped !== undefined && { vendorFramesDropped }),
+              note: notes.join(" "),
+            };
+            return { content: result };
+          },
         );
-        const release = obj(event, "release");
-        const formatted = str(event, "formatted");
-        const notes: string[] = [];
-        let entries: unknown[] | undefined;
-        let entriesCoverage: Coverage | undefined;
-        let vendorFramesDropped: number | undefined;
-
-        if (formatted === null) {
-          const trimmed = trimFrames(list(event, "entries"));
-          const fitted = fitList(trimmed.entries, {
-            keep: "start",
-            kept: "first",
-            noun: "sections of this event",
-            reach:
-              "Read the rest in Sentry itself; no argument narrows one event.",
-          });
-          entries = fitted.items;
-          entriesCoverage = fitted.coverage;
-          vendorFramesDropped = trimmed.dropped;
-        }
-        if (release === null) {
-          notes.push(
-            "This event carries no release, so which build was running cannot be read from it.",
-          );
-        }
-
-        const result: SentryEventResult = {
-          issueId,
-          eventId: str(event, "eventID"),
-          dateCreated: str(event, "dateCreated"),
-          title: str(event, "title"),
-          culprit: str(event, "culprit"),
-          platform: str(event, "platform"),
-          message: str(event, "message"),
-          release:
-            release === null
-              ? null
-              : {
-                  version: str(release, "version"),
-                  dateCreated: str(release, "dateCreated"),
-                  dateReleased: str(release, "dateReleased"),
-                  lastCommit: obj(release, "lastCommit"),
-                  lastDeploy: obj(release, "lastDeploy"),
-                },
-          tags: list(event, "tags").map((tag) => ({
-            key: str(tag, "key"),
-            value: str(tag, "value"),
-          })),
-          ...(formatted !== null && { formatted }),
-          ...(entries !== undefined && { entries }),
-          ...(entriesCoverage && { coverage: entriesCoverage }),
-          ...(vendorFramesDropped !== undefined && { vendorFramesDropped }),
-          note: notes.join(" "),
-        };
-        return { content: result };
       } catch (err) {
         return corrective(err);
       }
@@ -592,50 +613,55 @@ export const SENTRY_TOOLS: Tool[] = [
       const environments = input.environments ?? [];
 
       try {
-        const raw = await issueTagValues(
-          conn,
-          ctx.signal,
-          issueId,
-          key,
-          environments,
-        );
-        const { items: values, coverage } = fitList(
-          raw.map((row) => ({
-            value: str(row, "value"),
-            count: num(row, "count"),
-            firstSeen: str(row, "firstSeen"),
-            lastSeen: str(row, "lastSeen"),
-          })),
-          {
-            keep: "start",
-            max: MAX_TAG_VALUES,
-            kept: "first",
-            noun: "values, ranked by Sentry",
-            reach:
-              "The ones left out are the rarest; filter by environment to see others.",
+        return await withStoredCredential(
+          conn.id,
+          async (): Promise<ToolExecuteResult> => {
+            const raw = await issueTagValues(
+              conn,
+              ctx.signal,
+              issueId,
+              key,
+              environments,
+            );
+            const { items: values, coverage } = fitList(
+              raw.map((row) => ({
+                value: str(row, "value"),
+                count: num(row, "count"),
+                firstSeen: str(row, "firstSeen"),
+                lastSeen: str(row, "lastSeen"),
+              })),
+              {
+                keep: "start",
+                max: MAX_TAG_VALUES,
+                kept: "first",
+                noun: "values, ranked by Sentry",
+                reach:
+                  "The ones left out are the rarest; filter by environment to see others.",
+              },
+            );
+            const notes = [
+              `These counts cover the whole life of the issue, not the window around the alert: Sentry accepts no time range on this call. Read firstSeen and lastSeen on each value before treating any of it as concurrent with the alert.`,
+            ];
+            if (values.length === 0) {
+              notes.push(
+                `No values recorded for the tag "${key}" on this issue, which means the tag was never set on its events rather than that the issue is narrow.`,
+              );
+            }
+            const result = {
+              issueId,
+              key,
+              values,
+              returned: values.length,
+              environmentsSearched: describeScope(
+                environments,
+                "every environment",
+              ),
+              ...(coverage && { coverage }),
+              note: notes.join(" "),
+            };
+            return { content: result };
           },
         );
-        const notes = [
-          `These counts cover the whole life of the issue, not the window around the alert: Sentry accepts no time range on this call. Read firstSeen and lastSeen on each value before treating any of it as concurrent with the alert.`,
-        ];
-        if (values.length === 0) {
-          notes.push(
-            `No values recorded for the tag "${key}" on this issue, which means the tag was never set on its events rather than that the issue is narrow.`,
-          );
-        }
-        const result = {
-          issueId,
-          key,
-          values,
-          returned: values.length,
-          environmentsSearched: describeScope(
-            environments,
-            "every environment",
-          ),
-          ...(coverage && { coverage }),
-          note: notes.join(" "),
-        };
-        return { content: result };
       } catch (err) {
         return corrective(err);
       }
@@ -659,52 +685,57 @@ export const SENTRY_TOOLS: Tool[] = [
       const anchor = await alertAnchorFor(ctx.sessionId);
 
       try {
-        const page = await listReleases(
-          conn,
-          ctx.signal,
-          projects,
-          input.query ?? null,
-          limit,
-          cursor ?? null,
-        );
-        const { items: releases, coverage } = fitList(
-          page.rows.map((row) => toRelease(row, anchor)),
-          {
-            keep: "start",
-            kept: "newest",
-            noun: "releases on this page",
-            reach: "Lower count to read fewer at a time.",
+        return await withStoredCredential(
+          conn.id,
+          async (): Promise<ToolExecuteResult> => {
+            const page = await listReleases(
+              conn,
+              ctx.signal,
+              projects,
+              input.query ?? null,
+              limit,
+              cursor ?? null,
+            );
+            const { items: releases, coverage } = fitList(
+              page.rows.map((row) => toRelease(row, anchor)),
+              {
+                keep: "start",
+                kept: "newest",
+                noun: "releases on this page",
+                reach: "Lower count to read fewer at a time.",
+              },
+            );
+            const notes: string[] = [];
+            if (releases.length === 0) {
+              notes.push(
+                "Sentry lists no releases for these projects. That means no release has ever been registered with Sentry, not that nothing was deployed.",
+              );
+            }
+            if (releases.some((r) => r.relativeToAlert === null)) {
+              notes.push(
+                "A release with a null relativeToAlert carries no deploy or release date in Sentry, so when its code started running is unknown.",
+              );
+            }
+            if (page.nextCursor !== null) {
+              notes.push(
+                "Older releases exist beyond this page; call again with the cursor argument set to nextCursor to reach them.",
+              );
+            }
+            const result: SentryReleasesResult = {
+              releases,
+              returned: releases.length,
+              alertFiredAt: anchor.toISOString(),
+              projectsSearched: describeScope(
+                projects,
+                "every project the token can reach",
+              ),
+              nextCursor: page.nextCursor,
+              ...(coverage && { coverage }),
+              note: notes.join(" "),
+            };
+            return { content: result };
           },
         );
-        const notes: string[] = [];
-        if (releases.length === 0) {
-          notes.push(
-            "Sentry lists no releases for these projects. That means no release has ever been registered with Sentry, not that nothing was deployed.",
-          );
-        }
-        if (releases.some((r) => r.relativeToAlert === null)) {
-          notes.push(
-            "A release with a null relativeToAlert carries no deploy or release date in Sentry, so when its code started running is unknown.",
-          );
-        }
-        if (page.nextCursor !== null) {
-          notes.push(
-            "Older releases exist beyond this page; call again with the cursor argument set to nextCursor to reach them.",
-          );
-        }
-        const result: SentryReleasesResult = {
-          releases,
-          returned: releases.length,
-          alertFiredAt: anchor.toISOString(),
-          projectsSearched: describeScope(
-            projects,
-            "every project the token can reach",
-          ),
-          nextCursor: page.nextCursor,
-          ...(coverage && { coverage }),
-          note: notes.join(" "),
-        };
-        return { content: result };
       } catch (err) {
         return corrective(err);
       }
@@ -726,49 +757,54 @@ export const SENTRY_TOOLS: Tool[] = [
       const { version, cursor } = input;
 
       try {
-        const page = await releaseCommits(
-          conn,
-          ctx.signal,
-          version,
-          cursor ?? null,
-        );
-        const { items: commits, coverage } = fitList(
-          page.rows.map((row) => ({
-            id: str(row, "id"),
-            message: str(row, "message"),
-            dateCreated: str(row, "dateCreated"),
-            author: obj(row, "author"),
-            repository: str(obj(row, "repository") ?? {}, "name"),
-            pullRequest: obj(row, "pullRequest"),
-            suspectCommitType: str(row, "suspectCommitType"),
-          })),
-          {
-            keep: "start",
-            kept: "first",
-            noun: "commits on this page",
-            reach: "Follow nextCursor for the rest of the release.",
+        return await withStoredCredential(
+          conn.id,
+          async (): Promise<ToolExecuteResult> => {
+            const page = await releaseCommits(
+              conn,
+              ctx.signal,
+              version,
+              cursor ?? null,
+            );
+            const { items: commits, coverage } = fitList(
+              page.rows.map((row) => ({
+                id: str(row, "id"),
+                message: str(row, "message"),
+                dateCreated: str(row, "dateCreated"),
+                author: obj(row, "author"),
+                repository: str(obj(row, "repository") ?? {}, "name"),
+                pullRequest: obj(row, "pullRequest"),
+                suspectCommitType: str(row, "suspectCommitType"),
+              })),
+              {
+                keep: "start",
+                kept: "first",
+                noun: "commits on this page",
+                reach: "Follow nextCursor for the rest of the release.",
+              },
+            );
+            const notes: string[] = [];
+            if (commits.length === 0) {
+              notes.push(
+                "Sentry associates no commits with this release. That is what you see both when the release genuinely shipped no commits and when the Sentry project has no repository integration set up, and this call cannot tell those apart - check the integration before reading it as no code change.",
+              );
+            }
+            if (page.nextCursor !== null) {
+              notes.push(
+                "More commits exist beyond this page; call again with the cursor argument set to nextCursor.",
+              );
+            }
+            const result = {
+              version,
+              commits,
+              returned: commits.length,
+              nextCursor: page.nextCursor,
+              ...(coverage && { coverage }),
+              note: notes.join(" "),
+            };
+            return { content: result };
           },
         );
-        const notes: string[] = [];
-        if (commits.length === 0) {
-          notes.push(
-            "Sentry associates no commits with this release. That is what you see both when the release genuinely shipped no commits and when the Sentry project has no repository integration set up, and this call cannot tell those apart - check the integration before reading it as no code change.",
-          );
-        }
-        if (page.nextCursor !== null) {
-          notes.push(
-            "More commits exist beyond this page; call again with the cursor argument set to nextCursor.",
-          );
-        }
-        const result = {
-          version,
-          commits,
-          returned: commits.length,
-          nextCursor: page.nextCursor,
-          ...(coverage && { coverage }),
-          note: notes.join(" "),
-        };
-        return { content: result };
       } catch (err) {
         return corrective(err);
       }

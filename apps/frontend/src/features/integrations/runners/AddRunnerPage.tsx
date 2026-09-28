@@ -4,7 +4,6 @@ import { useBlocker, useNavigate } from "@tanstack/react-router";
 import type { Platform } from "@nightwarden/shared";
 import { serverNameError } from "@nightwarden/shared";
 import { ServerCard } from "@/features/integrations/runners/ServerCard";
-import { AlertCircle } from "lucide-react";
 
 import { Alert, AlertTitle, AlertDescription } from "@/shared/ui/alert";
 import { StatusText } from "@/shared/ui/status";
@@ -24,7 +23,6 @@ import {
 } from "@/features/integrations/runners/WizardStepper";
 import { ConfirmDialog } from "@/shared/ui/ConfirmDialog";
 import { CopyableSnippet } from "@/shared/ui/CopyableSnippet";
-import { ICON_UI } from "@/shared/lib/iconProps";
 import { ApiError, apiFetch, apiText } from "@/shared/api/client";
 import { runnersQuery } from "../queries";
 import { connectedOn } from "./connectedOn";
@@ -141,7 +139,7 @@ export function AddRunnerPage({
   }
 
   return (
-    <Page measure="wide" back={back}>
+    <Page back={back}>
       <WizardStepper step={step} total={3} title={STEP_TITLES[step]} />
 
       {step === 0 && (
@@ -167,21 +165,11 @@ export function AddRunnerPage({
             />
             {/* Always present: a row that appears on error shifts the form. */}
             <div className="min-h-5">
-              {shownError && (
-                <FieldError>
-                  <AlertCircle {...ICON_UI} />
-                  {shownError}
-                </FieldError>
-              )}
+              {shownError && <FieldError>{shownError}</FieldError>}
             </div>
           </Field>
 
-          {installError !== null && (
-            <FieldError>
-              <AlertCircle {...ICON_UI} />
-              {installError}
-            </FieldError>
-          )}
+          {installError !== null && <FieldError>{installError}</FieldError>}
 
           <WizardActions>
             <Button
@@ -199,12 +187,7 @@ export function AddRunnerPage({
         <div className="flex flex-col gap-4">
           {prepare.isPending && <Waiting>Generating a runner token…</Waiting>}
 
-          {installError !== null && (
-            <FieldError>
-              <AlertCircle {...ICON_UI} />
-              {installError}
-            </FieldError>
-          )}
+          {installError !== null && <FieldError>{installError}</FieldError>}
 
           {installText !== null && (
             <div className="flex flex-col gap-4">

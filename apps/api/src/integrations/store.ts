@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { Selectable } from "kysely";
+import type { CredentialRejection } from "@nightwarden/shared";
 import { getDb } from "../db.js";
 import type { Database } from "../schema.js";
 import { decrypt, encrypt } from "../secrets.js";
@@ -15,8 +16,8 @@ export interface IntegrationRow {
   // Plaintext, decrypted here so no caller has to.
   secrets: Record<string, string>;
   tokenHash: string | null;
-  validatedAt: string | null;
   lastUsedAt: string | null;
+  rejection: CredentialRejection | null;
   createdAt: string;
 }
 
@@ -29,8 +30,9 @@ const COLUMNS = [
   "config",
   "secrets",
   "token_hash",
-  "validated_at",
   "last_used_at",
+  "rejected_at",
+  "rejection",
   "created_at",
 ] as const;
 
@@ -65,8 +67,11 @@ function toRow(raw: RawRow): IntegrationRow {
     config: parseJson(raw.config),
     secrets: decryptSecrets(raw.secrets),
     tokenHash: raw.token_hash,
-    validatedAt: raw.validated_at,
     lastUsedAt: raw.last_used_at,
+    rejection:
+      raw.rejected_at === null
+        ? null
+        : { reason: raw.rejection ?? "", at: raw.rejected_at },
     createdAt: raw.created_at,
   };
 }
@@ -122,8 +127,8 @@ export interface IntegrationInput {
   lastUsedAt?: string | null;
 }
 
-/* Saving means this configuration just proved itself, so validated_at bumps on
-   every write; created_at survives a reconfiguration. */
+/* Saving means this configuration just proved itself, so a recorded refusal
+   clears; created_at survives a reconfiguration. */
 export async function putIntegration(
   input: IntegrationInput,
   id: string = randomUUID(),
@@ -139,8 +144,9 @@ export async function putIntegration(
         ? null
         : encrypt(JSON.stringify(secrets)),
     token_hash: input.tokenHash ?? null,
-    validated_at: now,
     last_used_at: input.lastUsedAt ?? null,
+    rejected_at: null,
+    rejection: null,
   };
   await getDb()
     .insertInto("integrations")
@@ -162,6 +168,28 @@ export async function deleteIntegrationsOfKind(kind: string): Promise<void> {
   await getDb().deleteFrom("integrations").where("kind", "=", kind).execute();
 }
 
+export async function markRejected(
+  id: string,
+  reason: string,
+  at: string,
+): Promise<void> {
+  await getDb()
+    .updateTable("integrations")
+    .set({ rejected_at: at, rejection: reason })
+    .where("id", "=", id)
+    .execute();
+}
+
+// Conditional, so a healthy call, which is nearly every call, writes nothing.
+export async function clearRejected(id: string): Promise<void> {
+  await getDb()
+    .updateTable("integrations")
+    .set({ rejected_at: null, rejection: null })
+    .where("id", "=", id)
+    .where("rejected_at", "is not", null)
+    .execute();
+}
+
 export async function touchIntegration(id: string, at: string): Promise<void> {
   await getDb()
     .updateTable("integrations")
@@ -179,11 +207,12 @@ interface GitHubConfig {
 }
 
 export interface GitHubIntegration {
+  id: string;
   token: string;
   repoOwner: string;
   repoName: string;
   tokenExpiresAt: string | null;
-  validatedAt: string;
+  rejection: CredentialRejection | null;
   createdAt: string;
 }
 
@@ -194,11 +223,12 @@ export async function getGitHubIntegration(): Promise<GitHubIntegration | null> 
   if (!row || token === undefined) return null;
   const config = row.config as unknown as GitHubConfig;
   return {
+    id: row.id,
     token,
     repoOwner: config.repoOwner,
     repoName: config.repoName,
     tokenExpiresAt: config.tokenExpiresAt,
-    validatedAt: row.validatedAt ?? row.createdAt,
+    rejection: row.rejection,
     createdAt: row.createdAt,
   };
 }
@@ -225,8 +255,7 @@ export async function saveGitHubIntegration(input: {
   );
 }
 
-/* Credential is untouched, only the binding moves; validatedAt still bumps
-   because reaching here means the stored token just proved itself live. */
+// Credential is untouched, only the binding moves; the caller has proved the token live.
 export async function updateGitHubIntegrationRepo(
   repoOwner: string,
   repoName: string,
@@ -254,10 +283,11 @@ interface LokiConfig {
 }
 
 export interface LokiIntegration {
+  id: string;
   baseUrl: string;
   orgId: string | null;
   authorization: string | null;
-  validatedAt: string;
+  rejection: CredentialRejection | null;
   createdAt: string;
 }
 
@@ -266,10 +296,11 @@ export async function getLokiIntegration(): Promise<LokiIntegration | null> {
   if (!row) return null;
   const config = row.config as unknown as LokiConfig;
   return {
+    id: row.id,
     baseUrl: config.baseUrl,
     orgId: config.orgId,
     authorization: row.secrets["authorization"] ?? null,
-    validatedAt: row.validatedAt ?? row.createdAt,
+    rejection: row.rejection,
     createdAt: row.createdAt,
   };
 }
@@ -310,10 +341,11 @@ interface SentryConfig {
 }
 
 export interface SentryIntegration {
+  id: string;
   baseUrl: string;
   orgSlug: string;
   token: string;
-  validatedAt: string;
+  rejection: CredentialRejection | null;
   createdAt: string;
 }
 
@@ -324,10 +356,11 @@ export async function getSentryIntegration(): Promise<SentryIntegration | null> 
   if (!row || token === undefined) return null;
   const config = row.config as unknown as SentryConfig;
   return {
+    id: row.id,
     baseUrl: config.baseUrl,
     orgSlug: config.orgSlug,
     token,
-    validatedAt: row.validatedAt ?? row.createdAt,
+    rejection: row.rejection,
     createdAt: row.createdAt,
   };
 }

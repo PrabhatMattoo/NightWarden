@@ -5,7 +5,7 @@ import {
   useQueryClient,
   useSuspenseQuery,
 } from "@tanstack/react-query";
-import { CircleCheckIcon, ExternalLink, RefreshCw } from "lucide-react";
+import { ExternalLink, RefreshCw } from "lucide-react";
 import type {
   GitHubErrorBody,
   GitHubIntegrationStatus,
@@ -13,7 +13,7 @@ import type {
 } from "@nightwarden/shared";
 
 import { Alert, AlertDescription, AlertTitle } from "@/shared/ui/alert";
-import { MetaText } from "@/shared/ui/status";
+import { MetaText, StatusText } from "@/shared/ui/status";
 import { Button, buttonVariants } from "@/shared/ui/button";
 import {
   Combobox,
@@ -23,18 +23,27 @@ import {
   ComboboxItem,
   ComboboxList,
 } from "@/shared/ui/combobox";
-import { Field, FieldDescription, FieldLabel } from "@/shared/ui/field";
 import { Input } from "@/shared/ui/input";
 import { Waiting } from "@/shared/ui/Rounds";
 import { ConfirmDialog } from "@/shared/ui/ConfirmDialog";
-import { Page } from "@/shared/ui/Page";
 import { expiryDaysFrom } from "@/features/integrations/github/useGitHubExpiryDays";
 import { ICON_UI } from "@/shared/lib/iconProps";
 import { toast } from "@/shared/lib/toast";
 import { ApiError, apiFetch } from "@/shared/api/client";
 import { INTEGRATION_CATALOG } from "../catalog";
-import { IntegrationHeader } from "@/features/integrations/IntegrationHeader";
-import { useDisconnect } from "../useIntegration";
+import {
+  rowLabel,
+  SettingsGroup,
+  SettingsRow,
+} from "@/features/settings/SettingsRow";
+import {
+  ConnectionActions,
+  CredentialActions,
+  credentialState,
+  IntegrationPage,
+  metaFacts,
+} from "../IntegrationPage";
+import { useDisconnect, useTestConnection } from "../useIntegration";
 import {
   fetchGitHubRepos,
   githubPreflightQuery,
@@ -195,8 +204,8 @@ function PreflightWarning({ issue }: { issue: string }): React.JSX.Element {
   );
 }
 
-// Refresh sits beside the label rather than under the list, because the reason
-// to press it is the reason the list is wrong.
+// Refresh sits beside the list rather than under it, because the reason to
+// press it is the reason the list is wrong.
 function RepoCombobox({
   repos,
   selected,
@@ -211,26 +220,14 @@ function RepoCombobox({
   onRefresh: () => void;
 }): React.JSX.Element {
   return (
-    <Field>
-      <div className="flex items-center gap-2">
-        <FieldLabel htmlFor="github-repo">Choose the repository</FieldLabel>
-        <Button
-          size="icon-sm"
-          variant="ghost"
-          aria-label="Refresh repositories"
-          disabled={refreshing}
-          onClick={onRefresh}
-        >
-          <RefreshCw {...ICON_UI} />
-        </Button>
-      </div>
+    <div className="flex w-full items-center gap-2">
       <Combobox
         items={repos.map((r) => r.fullName)}
         value={selected}
         onValueChange={onSelect}
       >
         <ComboboxInput
-          id="github-repo"
+          aria-labelledby={rowLabel("github-repo")}
           placeholder="Search repositories"
           className="w-full"
         />
@@ -246,11 +243,16 @@ function RepoCombobox({
           </ComboboxList>
         </ComboboxContent>
       </Combobox>
-      <FieldDescription>
-        A repository owned by an organization appears only once an admin has
-        approved the token. Refresh once that is done.
-      </FieldDescription>
-    </Field>
+      <Button
+        size="icon"
+        variant="ghost"
+        aria-label="Refresh repositories"
+        disabled={refreshing}
+        onClick={onRefresh}
+      >
+        <RefreshCw {...ICON_UI} />
+      </Button>
+    </div>
   );
 }
 
@@ -306,7 +308,7 @@ export function GitHubConnectPage(): React.JSX.Element {
       queryClient.removeQueries({ queryKey: storedKey });
       setPicked(null);
       setChangingToken(false);
-      toast.success("Token validated");
+      toast.success("GitHub accepted the token");
     },
     onError: () =>
       queryClient.removeQueries({ queryKey: typedOptions.queryKey }),
@@ -358,6 +360,11 @@ export function GitHubConnectPage(): React.JSX.Element {
     queryKey: githubStatusQuery().queryKey,
     endpoint: () => "/api/integrations/github",
   });
+  const test = useTestConnection({
+    label: "GitHub",
+    queryKey: githubStatusQuery().queryKey,
+    endpoint: "/api/integrations/github/test",
+  });
 
   // The latest action's failure first, then whatever GitHub last said of the list.
   const error: Error | null =
@@ -393,123 +400,161 @@ export function GitHubConnectPage(): React.JSX.Element {
           : null;
   const selected = picked ?? fallback;
 
-  function tokenSummaryText(): string {
-    if (!usingFreshToken && configured) {
-      const days = expiryDaysFrom(status);
-      if (days !== null) {
-        if (days <= 0) return "Validated - token expired";
-        return `Validated - expires in ${String(days)} day${days === 1 ? "" : "s"}`;
-      }
-    }
-    return "Validated";
-  }
-
   const connecting = connectWithToken.isPending || updateRepoOnly.isPending;
+  const days = configured && !usingFreshToken ? expiryDaysFrom(status) : null;
+  const expired = days !== null && days <= 0;
+  // A token that only passed its check has no connection yet, so its row asks for the repository.
+  const saved = configured && !usingFreshToken;
+  const tokenText = !saved
+    ? "Choose the repository below"
+    : days === null
+      ? "No expiry date"
+      : expired
+        ? "Expired"
+        : `Expires in ${String(days)} day${days === 1 ? "" : "s"}`;
 
   return (
-    <Page measure="wide" back={{ to: "/integrations", label: "Integrations" }}>
-      <div className="flex flex-col gap-8">
-        <IntegrationHeader identity={INTEGRATION_CATALOG.github} />
-        {preflightIssue !== null && <PreflightWarning issue={preflightIssue} />}
+    <IntegrationPage
+      identity={INTEGRATION_CATALOG.github}
+      facts={metaFacts(INTEGRATION_CATALOG.github)}
+      state={credentialState(configured, status.rejection)}
+      rejection={status.rejection}
+    >
+      {preflightIssue !== null && <PreflightWarning issue={preflightIssue} />}
 
-        <Field>
-          <FieldLabel htmlFor="github-token">Personal access token</FieldLabel>
-          <FieldDescription>
-            Create a fine-grained token, grant it the one repository, and paste
-            it here.
-            <br />
-            If your organization blocks fine-grained tokens, create a{" "}
-            <a
-              href={CLASSIC_TOKEN_URL}
-              target="_blank"
-              rel="noreferrer"
-              className="link external"
-            >
-              classic token
-            </a>{" "}
-            with repo scope instead.
-          </FieldDescription>
-          {checking ? (
-            <Waiting className="mt-2">Checking the token with GitHub…</Waiting>
-          ) : showTokenInput ? (
-            <div className="mt-2 flex flex-col gap-3">
-              <div className="flex flex-wrap items-center gap-2">
-                {/* A link drawn as a button: it opens GitHub, so it keeps a link's semantics. */}
-                <a
-                  href={FINE_GRAINED_TOKEN_URL}
-                  target="_blank"
-                  rel="noreferrer"
-                  className={buttonVariants({
-                    size: "sm",
-                    variant: "secondary",
-                  })}
-                >
-                  <ExternalLink {...ICON_UI} />
-                  Create token on GitHub
-                </a>
+      <div className="flex flex-col gap-3">
+        <SettingsGroup
+          title="Token"
+          lead="Investigations read the repository, and open draft pull requests, with a personal access token you create."
+        >
+          <SettingsRow
+            id="github-token"
+            title="Personal access token"
+            description="A fine-grained token granted the one repository."
+            stacked={showTokenInput}
+          >
+            {checking ? (
+              <Waiting>Checking the token with GitHub…</Waiting>
+            ) : showTokenInput ? (
+              <div className="flex flex-col gap-3">
+                <p className="type-small">
+                  If your organization blocks fine-grained tokens, create a{" "}
+                  <a
+                    href={CLASSIC_TOKEN_URL}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="link external"
+                  >
+                    classic token
+                  </a>{" "}
+                  with repo scope instead.
+                </p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Input
+                    aria-labelledby={rowLabel("github-token")}
+                    type="password"
+                    measure="field"
+                    placeholder="Paste token"
+                    autoComplete="off"
+                    value={token}
+                    onChange={(e) => setToken(e.target.value)}
+                  />
+                  <Button
+                    disabled={token.trim() === "" || validate.isPending}
+                    onClick={() => validate.mutate()}
+                  >
+                    Validate
+                  </Button>
+                  {/* A link drawn as a button: it opens GitHub, so it keeps a link's semantics. */}
+                  <a
+                    href={FINE_GRAINED_TOKEN_URL}
+                    target="_blank"
+                    rel="noreferrer"
+                    className={buttonVariants({ variant: "ghost" })}
+                  >
+                    <ExternalLink {...ICON_UI} />
+                    Create token on GitHub
+                  </a>
+                </div>
               </div>
-              <div className="flex gap-2">
-                <Input
-                  id="github-token"
-                  type="password"
-                  measure="field"
-                  placeholder="Paste token"
-                  autoComplete="off"
-                  value={token}
-                  onChange={(e) => setToken(e.target.value)}
-                />
-                <Button
-                  disabled={token.trim() === "" || validate.isPending}
-                  onClick={() => validate.mutate()}
-                >
-                  Validate
-                </Button>
-              </div>
-            </div>
-          ) : (
-            <div className="flex items-center gap-2 type-body">
-              <CircleCheckIcon {...ICON_UI} className="text-ok" />
-              <span>{tokenSummaryText()}</span>
+            ) : (
+              <StatusText tone={expired ? "warn" : "muted"}>
+                {tokenText}
+              </StatusText>
+            )}
+          </SettingsRow>
+        </SettingsGroup>
+
+        {/* Under the card in every state, so connecting swaps the buttons in place. */}
+        {checking ? null : showTokenInput ? (
+          configured && (
+            <ConnectionActions>
               <Button
-                size="sm"
                 variant="secondary"
-                onClick={() => setChangingToken(true)}
+                onClick={() => {
+                  setToken("");
+                  setChangingToken(false);
+                }}
               >
-                Change
+                Cancel
               </Button>
-            </div>
-          )}
-        </Field>
+            </ConnectionActions>
+          )
+        ) : saved ? (
+          <CredentialActions
+            testing={test.isPending}
+            onTest={() => test.mutate()}
+            updateLabel="Change token"
+            onUpdate={() => setChangingToken(true)}
+            onDisconnect={() => setConfirmOpen(true)}
+          />
+        ) : (
+          <ConnectionActions>
+            <Button variant="secondary" onClick={() => setChangingToken(true)}>
+              Change token
+            </Button>
+          </ConnectionActions>
+        )}
 
         {error !== null && <LadderAlert error={error} />}
+      </div>
 
-        {!showTokenInput &&
-          repos !== null &&
-          (repos.length === 0 ? (
-            <FieldDescription>
-              The token can reach no repositories. If you granted one owned by
-              an organization, an admin has to approve the token first.
-            </FieldDescription>
-          ) : (
-            /* The two buttons sit outside the Field: it is for a control and its
-               words, and it stretches whatever it holds to the column width. */
-            <div className="flex flex-col gap-4">
-              <RepoCombobox
-                repos={repos}
-                selected={selected}
-                onSelect={setPicked}
-                refreshing={validate.isPending || list.isFetching}
-                onRefresh={() => {
-                  setPicked(null);
-                  if (usingFreshToken) validate.mutate();
-                  else void stored.refetch();
-                }}
-              />
+      {!showTokenInput && repos !== null && (
+        <div className="flex flex-col gap-3">
+          <SettingsGroup
+            title="Repository"
+            lead="The one repository investigations read, and open pull requests against."
+          >
+            <SettingsRow
+              id="github-repo"
+              title="Repository"
+              description={
+                repos.length === 0
+                  ? "The token can reach no repositories. If you granted one owned by an organization, an admin has to approve the token first."
+                  : "One owned by an organization appears only once an admin has approved the token. Refresh once that is done."
+              }
+              stacked
+            >
+              {repos.length > 0 && (
+                <RepoCombobox
+                  repos={repos}
+                  selected={selected}
+                  onSelect={setPicked}
+                  refreshing={validate.isPending || list.isFetching}
+                  onRefresh={() => {
+                    setPicked(null);
+                    if (usingFreshToken) validate.mutate();
+                    else void stored.refetch();
+                  }}
+                />
+              )}
+            </SettingsRow>
+          </SettingsGroup>
+          {repos.length > 0 && (
+            <div className="flex justify-end gap-2">
               {list.hasNextPage && (
                 <Button
-                  size="sm"
                   variant="secondary"
-                  className="self-start"
                   disabled={list.isFetchingNextPage}
                   onClick={() => void list.fetchNextPage()}
                 >
@@ -517,7 +562,6 @@ export function GitHubConnectPage(): React.JSX.Element {
                 </Button>
               )}
               <Button
-                className="self-start"
                 disabled={
                   selected === null ||
                   connecting ||
@@ -532,24 +576,9 @@ export function GitHubConnectPage(): React.JSX.Element {
                 {configured ? "Update repository" : "Connect repository"}
               </Button>
             </div>
-          ))}
-
-        {/* A destructive escape, not the task: it recedes below a divider so it
-            never competes with reconnecting. */}
-        {configured && (
-          <div className="border-t-hairline border-edge pt-4">
-            <Button
-              size="sm"
-              variant="destructive-ghost"
-              className="self-start"
-              disabled={disconnect.isPending}
-              onClick={() => setConfirmOpen(true)}
-            >
-              Disconnect GitHub
-            </Button>
-          </div>
-        )}
-      </div>
+          )}
+        </div>
+      )}
 
       <ConfirmDialog
         open={confirmOpen}
@@ -568,6 +597,6 @@ export function GitHubConnectPage(): React.JSX.Element {
           })
         }
       />
-    </Page>
+    </IntegrationPage>
   );
 }

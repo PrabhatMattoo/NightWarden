@@ -136,7 +136,7 @@ describe("GitHub integration routes", () => {
         configured: false,
         repo: null,
         expiresAt: null,
-        validatedAt: null,
+        rejection: null,
       });
     });
   });
@@ -202,7 +202,8 @@ describe("GitHub integration routes", () => {
         url: "/api/integrations/github/repos",
         payload: { token: TOKEN },
       });
-      expect(res.statusCode).toBe(401);
+      // Never the upstream 401, which the browser would read as its own session ending.
+      expect(res.statusCode).toBe(422);
       expect(JSON.parse(res.body)).toMatchObject({ code: "invalid_token" });
     });
 
@@ -221,7 +222,7 @@ describe("GitHub integration routes", () => {
         url: "/api/integrations/github/repos",
         payload: { token: TOKEN },
       });
-      expect(res.statusCode).toBe(403);
+      expect(res.statusCode).toBe(422);
       expect(JSON.parse(res.body)).toMatchObject({ code: "sso_required" });
     });
 
@@ -577,9 +578,9 @@ describe("metrics source routes", () => {
     expect(JSON.parse(res.body).rules).toBeNull();
   });
 
-  /* One connection per product: what you point at is already an aggregate, so
-     a second Prometheus is a mistake to refuse rather than a name to invent. */
-  it("refuses a second metrics source, of its own kind or any other", async () => {
+  /* One source: what you point at is already an aggregate, so another product is
+     refused, while the same product reconnects in place with a new credential. */
+  it("reconnects the same kind in place and refuses another kind", async () => {
     stubFetch(() => jsonResponse(PROM_OK));
     const first = await authed({
       method: "POST",
@@ -598,7 +599,8 @@ describe("metrics source routes", () => {
     });
 
     expect(first.statusCode).toBe(201);
-    expect(sameKind.statusCode).toBe(409);
+    expect(sameKind.statusCode).toBe(201);
+    expect(JSON.parse(sameKind.body).query.url).toBe("http://prom-b:9090");
     expect(otherKind.statusCode).toBe(409);
     expect(JSON.parse(otherKind.body).error).toMatch(/already connected/);
   });
@@ -864,7 +866,7 @@ describe("Loki integration routes", () => {
       url: null,
       hasAuth: false,
       hasOrgId: false,
-      validatedAt: null,
+      rejection: null,
     });
   });
 
@@ -892,7 +894,7 @@ describe("Loki integration routes", () => {
       url: "http://loki.internal:3100/",
       hasAuth: true,
       hasOrgId: true,
-      validatedAt: expect.any(String),
+      rejection: null,
     });
     // The probe URL must not carry the credential.
     expect(urlsCalled(mock)[0]).not.toContain("secret-123");
@@ -933,7 +935,7 @@ describe("Loki integration routes", () => {
     });
   });
 
-  it("refuses to save when the probe fails - unreachable to 502, rejected credential to 401", async () => {
+  it("refuses to save when the probe fails - unreachable to 502, rejected credential to 422", async () => {
     stubFetch(() => {
       throw new Error("ECONNREFUSED");
     });
@@ -951,7 +953,7 @@ describe("Loki integration routes", () => {
       url: "/api/integrations/loki",
       payload: { url: "http://loki.internal:3100" },
     });
-    expect(unauthorized.statusCode).toBe(401);
+    expect(unauthorized.statusCode).toBe(422);
     expect(JSON.parse(unauthorized.body).code).toBe("unauthorized");
 
     const status = await authed({
@@ -959,6 +961,73 @@ describe("Loki integration routes", () => {
       url: "/api/integrations/loki",
     });
     expect(JSON.parse(status.body).configured).toBe(false);
+  });
+
+  /* Test connection re-probes what is stored: a refusal marks the row without
+     unsaving it, and the next accepted answer or a fresh save clears it. */
+  it("tests the stored credential, records a refusal and clears it on the next success", async () => {
+    stubFetch(() => jsonResponse(LOKI_LABELS));
+    const connect = () =>
+      authed({
+        method: "POST",
+        url: "/api/integrations/loki",
+        payload: { url: "http://loki.internal:3100", authHeader: "Bearer a" },
+      });
+    await connect();
+    const test = () =>
+      authed({ method: "POST", url: "/api/integrations/loki/test" });
+    const status = async () =>
+      JSON.parse(
+        (await authed({ method: "GET", url: "/api/integrations/loki" })).body,
+      );
+
+    stubFetch(() => jsonResponse({ message: "revoked" }, { status: 401 }));
+    const refused = await test();
+    expect(refused.statusCode).toBe(422);
+    const marked = await status();
+    expect(marked.configured).toBe(true);
+    expect(marked.rejection).toEqual({
+      reason: expect.stringContaining("Loki rejected the credential"),
+      at: expect.any(String),
+    });
+
+    stubFetch(() => jsonResponse(LOKI_LABELS));
+    const passed = await test();
+    expect(passed.statusCode).toBe(200);
+    expect(JSON.parse(passed.body).rejection).toBeNull();
+
+    stubFetch(() => jsonResponse({ message: "revoked" }, { status: 401 }));
+    await test();
+    stubFetch(() => jsonResponse(LOKI_LABELS));
+    await connect();
+    expect((await status()).rejection).toBeNull();
+  });
+
+  it("refuses a test with nothing connected, and never marks an unreachable host", async () => {
+    const none = await authed({
+      method: "POST",
+      url: "/api/integrations/loki/test",
+    });
+    expect(none.statusCode).toBe(400);
+
+    stubFetch(() => jsonResponse(LOKI_LABELS));
+    await authed({
+      method: "POST",
+      url: "/api/integrations/loki",
+      payload: { url: "http://loki.internal:3100" },
+    });
+    stubFetch(() => {
+      throw new Error("ECONNREFUSED");
+    });
+    const unreachable = await authed({
+      method: "POST",
+      url: "/api/integrations/loki/test",
+    });
+    expect(unreachable.statusCode).toBe(502);
+    const status = JSON.parse(
+      (await authed({ method: "GET", url: "/api/integrations/loki" })).body,
+    );
+    expect(status.rejection).toBeNull();
   });
 });
 
@@ -1022,7 +1091,7 @@ describe("Sentry integration routes", () => {
       configured: false,
       url: null,
       orgSlug: null,
-      validatedAt: null,
+      rejection: null,
     });
   });
 
@@ -1041,7 +1110,7 @@ describe("Sentry integration routes", () => {
       configured: true,
       url: "https://sentry.internal/",
       orgSlug: "acme",
-      validatedAt: expect.any(String),
+      rejection: null,
     });
     // Issues answer to event:read and releases to project:read, so a token
     // holding one and not the other has to fail here rather than at 3am.
@@ -1072,7 +1141,7 @@ describe("Sentry integration routes", () => {
     );
 
     const res = await connect();
-    expect(res.statusCode).toBe(403);
+    expect(res.statusCode).toBe(422);
     expect(JSON.parse(res.body).code).toBe("forbidden");
     expect(JSON.parse(res.body).error).toContain("project:read");
     expect(JSON.parse((await status()).body).configured).toBe(false);
@@ -1081,7 +1150,7 @@ describe("Sentry integration routes", () => {
   it("separates a rejected token, a wrong org slug and an unreachable host", async () => {
     stubFetch(() => new Response("no", { status: 401 }));
     const rejected = await connect();
-    expect(rejected.statusCode).toBe(401);
+    expect(rejected.statusCode).toBe(422);
     expect(JSON.parse(rejected.body).code).toBe("unauthorized");
 
     stubFetch(() => new Response("no", { status: 404 }));

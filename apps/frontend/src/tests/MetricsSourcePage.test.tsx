@@ -55,7 +55,7 @@ const NOT_CONNECTED = {
   label: null,
   query: null,
   rules: null,
-  validatedAt: null,
+  rejection: null,
 };
 
 function connected(over: Partial<MetricsSourceStatus> = {}) {
@@ -65,18 +65,19 @@ function connected(over: Partial<MetricsSourceStatus> = {}) {
     label: "VictoriaMetrics",
     query: { url: "http://vmselect:8481", hasAuth: false, hasOrgId: false },
     rules: { url: "http://vmalert:8880", hasAuth: false, hasOrgId: false },
-    validatedAt: "2026-08-01T00:00:00.000Z",
+    rejection: null,
     ...over,
   };
 }
 
 // Captures what the page posts, and answers the status from what a case sets.
-function stubApi(status: unknown) {
+function stubApi(status: unknown, calls: string[] = []) {
   const posted: unknown[] = [];
   const fetchMock = vi
     .fn<(url: string, init?: RequestInit) => Promise<unknown>>()
-    .mockImplementation((_url: string, init?: RequestInit) => {
-      if (init?.method === "POST") {
+    .mockImplementation((url: string, init?: RequestInit) => {
+      calls.push(`${init?.method ?? "GET"} ${url}`);
+      if (init?.method === "POST" && init.body !== undefined) {
         posted.push(sentBody(init));
       }
       return Promise.resolve({
@@ -124,10 +125,72 @@ describe("MetricsSourcePage", () => {
     stubApi(connected({ rules: null }));
     renderPage("victoriametrics");
 
-    const warning = await screen.findByText(/No rules endpoint/);
-    expect(warning.textContent).toMatch(/resolved notification/);
+    const rules = await screen.findByLabelText("Rules endpoint");
+    expect(rules.textContent).toMatch(
+      /reaches Resolved only when your alert source sends a resolved notification/,
+    );
     // The header names the product, so the address is what identifies the row.
     expect(screen.getByText("http://vmselect:8481")).toBeInTheDocument();
+    // The facts read the same whether connected or not, and the docs name the brand.
+    expect(
+      screen.getByText("Reads metrics and alert rules"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: /VictoriaMetrics docs/ }),
+    ).toHaveAttribute("href", "https://docs.victoriametrics.com/");
+  });
+
+  /* The state is said once, in the facts card; the actions are buttons under the
+     card, with Disconnect apart from the ones that are safe to press. */
+  it("says Connected in the facts card and acts through the buttons under the card", async () => {
+    const user = userEvent.setup();
+    const calls: string[] = [];
+    const posted = stubApi(connected(), calls);
+    renderPage("victoriametrics");
+
+    expect(await screen.findByText("Connected")).toHaveClass("text-ok");
+    await user.click(screen.getByRole("button", { name: "Test connection" }));
+    await waitFor(() =>
+      expect(calls).toContain("POST /api/integrations/metrics/test"),
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: "Update credentials" }),
+    );
+    // The addresses come back; the credential is typed again.
+    expect(await screen.findByLabelText("Query URL")).toHaveValue(
+      "http://vmselect:8481",
+    );
+    await user.click(screen.getByRole("button", { name: "Update" }));
+    await waitFor(() => expect(posted).toHaveLength(1));
+    expect(posted[0]).toMatchObject({
+      kind: "victoriametrics",
+      query: { url: "http://vmselect:8481" },
+    });
+
+    await user.click(await screen.findByRole("button", { name: "Disconnect" }));
+    expect(await screen.findByRole("alertdialog")).toHaveTextContent(
+      /Disconnect VictoriaMetrics\?/,
+    );
+  });
+
+  it("says Needs attention when the stored credential was refused", async () => {
+    stubApi(
+      connected({
+        rejection: {
+          reason: "VictoriaMetrics rejected the credential",
+          at: "2026-08-02T10:00:00.000Z",
+        },
+      }),
+    );
+    renderPage("victoriametrics");
+
+    // Once as the facts card's state, once as the warning that says why.
+    const said = await screen.findAllByText("Needs attention");
+    expect(said.some((el) => el.classList.contains("text-warn"))).toBe(true);
+    expect(
+      screen.getByText(/VictoriaMetrics rejected the credential/),
+    ).toBeInTheDocument();
   });
 
   it("names what VictoriaMetrics needs before it serves metric metadata", async () => {

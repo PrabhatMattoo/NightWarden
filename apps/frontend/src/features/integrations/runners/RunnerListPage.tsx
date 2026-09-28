@@ -8,7 +8,6 @@ import { Navigate, useNavigate } from "@tanstack/react-router";
 import type { Platform, RunnerRecord } from "@nightwarden/shared";
 import { Plus } from "lucide-react";
 import { Alert, AlertTitle, AlertDescription } from "@/shared/ui/alert";
-import { Field, FieldLabel } from "@/shared/ui/field";
 import {
   Select,
   SelectContent,
@@ -18,13 +17,14 @@ import {
 } from "@/shared/ui/select";
 import { ServerCard } from "@/features/integrations/runners/ServerCard";
 import { Button } from "@/shared/ui/button";
-import { Page } from "@/shared/ui/Page";
+import { Section } from "@/shared/ui/Page";
+import { ConfirmDialog } from "@/shared/ui/ConfirmDialog";
 import { ICON_UI } from "@/shared/lib/iconProps";
 import { apiFetch } from "@/shared/api/client";
 import { INTEGRATION_CATALOG } from "../catalog";
 import { runnersQuery } from "../queries";
 import { connectedOn } from "./connectedOn";
-import { IntegrationHeader } from "@/features/integrations/IntegrationHeader";
+import { IntegrationPage, metaFacts } from "../IntegrationPage";
 
 // The two platforms are genuinely different things - a machine running
 // containers, and a cluster - so each gets its own noun, page and install path.
@@ -47,7 +47,8 @@ export const PLATFORM_COPY: Record<
   },
 };
 
-type SortField = "name" | "status" | "lastSeen" | "services";
+const SORT_FIELDS = ["name", "status", "lastSeen", "services"] as const;
+type SortField = (typeof SORT_FIELDS)[number];
 
 const SORT_LABEL: Record<SortField, string> = {
   name: "Name",
@@ -106,9 +107,10 @@ export function RunnerListPage({
     refetchInterval: 30_000,
   });
 
+  const [removing, setRemoving] = useState<RunnerRecord | null>(null);
   const remove = useMutation({
-    mutationFn: (token: string) =>
-      apiFetch<void>(`/api/tokens/${token}`, { method: "DELETE" }),
+    mutationFn: (id: string) =>
+      apiFetch<void>(`/api/tokens/${id}`, { method: "DELETE" }),
     onSuccess: () =>
       queryClient.invalidateQueries({ queryKey: runnersQuery().queryKey }),
   });
@@ -132,33 +134,27 @@ export function RunnerListPage({
     return <Navigate to={`/integrations/${platform}/add`} replace />;
   }
 
+  const identity = INTEGRATION_CATALOG[platform];
+  const offline = connected.filter((r) => !r.online).length;
   return (
-    <Page
-      measure="wide"
-      back={{ to: "/integrations", label: "Integrations" }}
-      controls={
-        <Button
-          size="sm"
-          onClick={() => void navigate({ to: `/integrations/${platform}/add` })}
-        >
-          <Plus {...ICON_UI} />
-          Add a {copy.singular.toLowerCase()}
-        </Button>
+    <IntegrationPage
+      identity={identity}
+      facts={metaFacts(identity)}
+      state={
+        offline > 0
+          ? { tone: "warn", label: `${offline} of ${connected.length} offline` }
+          : { tone: "ok", label: `${connected.length} connected` }
       }
     >
-      <div className="-mt-2 mb-4">
-        <IntegrationHeader identity={INTEGRATION_CATALOG[platform]} />
-      </div>
-
       {remove.error !== null && (
-        <Alert variant="destructive" className="mb-4">
+        <Alert variant="destructive">
           <AlertTitle>Remove failed</AlertTitle>
           <AlertDescription>{remove.error.message}</AlertDescription>
         </Alert>
       )}
 
       {isError && (
-        <Alert variant="destructive" className="mb-4">
+        <Alert variant="destructive">
           <AlertTitle>Failed to load {copy.plural.toLowerCase()}</AlertTitle>
           <AlertDescription>
             Something went wrong loading them. It will retry automatically.
@@ -166,47 +162,77 @@ export function RunnerListPage({
         </Alert>
       )}
 
-      {connected.length > 1 && (
-        <Field className="mb-3">
-          <FieldLabel htmlFor="runner-sort">Sort by</FieldLabel>
-          <Select
-            items={SORT_LABEL}
-            value={sortField}
-            onValueChange={(value) => handleSort(value as SortField)}
-          >
-            <SelectTrigger id="runner-sort">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {Object.entries(SORT_LABEL).map(([value, label]) => (
-                <SelectItem key={value} value={value}>
-                  {label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </Field>
-      )}
-
-      <div className="flex flex-col gap-3">
-        {sorted.map((runner) => (
-          <ServerCard
-            key={runner.id}
-            runner={runner}
-            actions={
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={remove.isPending && remove.variables === runner.id}
-                aria-label={`Remove ${runner.serverName}`}
-                onClick={() => remove.mutate(runner.id)}
+      <Section
+        title={copy.plural}
+        action={
+          <div className="flex items-center gap-2">
+            {connected.length > 1 && (
+              <Select
+                items={SORT_LABEL}
+                value={sortField}
+                onValueChange={(value) => {
+                  const field = SORT_FIELDS.find((f) => f === value);
+                  if (field !== undefined) handleSort(field);
+                }}
               >
-                Remove
-              </Button>
-            }
-          />
-        ))}
-      </div>
-    </Page>
+                <SelectTrigger aria-label="Sort by">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {Object.entries(SORT_LABEL).map(([value, label]) => (
+                    <SelectItem key={value} value={value}>
+                      {label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+            <Button
+              variant="secondary"
+              onClick={() =>
+                void navigate({ to: `/integrations/${platform}/add` })
+              }
+            >
+              <Plus {...ICON_UI} />
+              Add a {copy.singular.toLowerCase()}
+            </Button>
+          </div>
+        }
+      >
+        <div className="flex flex-col gap-3">
+          {sorted.map((runner) => (
+            <ServerCard
+              key={runner.id}
+              runner={runner}
+              actions={
+                <Button
+                  variant="destructive-ghost"
+                  size="sm"
+                  disabled={remove.isPending && remove.variables === runner.id}
+                  aria-label={`Remove ${runner.serverName}`}
+                  onClick={() => setRemoving(runner)}
+                >
+                  Remove
+                </Button>
+              }
+            />
+          ))}
+        </div>
+      </Section>
+
+      <ConfirmDialog
+        open={removing !== null}
+        onOpenChange={(open) => {
+          if (!open) setRemoving(null);
+        }}
+        title={`Remove ${removing?.serverName ?? ""}?`}
+        description="Its runner token is revoked, so the runner disconnects and cannot come back without a new install."
+        confirmLabel="Remove"
+        destructive
+        onConfirm={() => {
+          if (removing !== null) remove.mutate(removing.id);
+        }}
+      />
+    </IntegrationPage>
   );
 }

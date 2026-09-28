@@ -2,7 +2,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { seedAlertSession } from "./session-helper.js";
 import type { NormalizedAlert } from "@nightwarden/shared";
 import { useTempDb } from "./temp-db.js";
-import { saveLokiIntegration } from "../integrations/store.js";
+import {
+  getLokiIntegration,
+  saveLokiIntegration,
+} from "../integrations/store.js";
 import { executeTool, findTool } from "../agent/tools/toolset.js";
 import { parsedContent } from "./tool-result.js";
 import type {
@@ -41,6 +44,8 @@ interface LokiMock {
   series: unknown[];
   status: "success" | "error";
   errorText?: string;
+  // Loki refusing the credential on every request, as after a revoked token.
+  refuse?: boolean;
 }
 
 function makeMock(): LokiMock {
@@ -82,6 +87,8 @@ function installLokiMock(mock: LokiMock): void {
           authorization: headers.get("Authorization") ?? undefined,
           orgId: headers.get("X-Scope-OrgID") ?? undefined,
         });
+        if (mock.refuse === true)
+          return new Response("denied", { status: 401 });
 
         if (url.includes("/loki/api/v1/query_range")) {
           if (mock.status === "error") {
@@ -383,6 +390,26 @@ describe("Loki tools through the tool dispatch", () => {
     );
     expect(result.isError).toBe(true);
     expect(result.content).toContain("parse error");
+    // The query was wrong, not the credential.
+    expect((await getLokiIntegration())?.rejection).toBeNull();
+  });
+
+  it("a refused credential marks the integration until the next accepted call", async () => {
+    await connect();
+    mock.refuse = true;
+    const refused = await executeTool(
+      logs,
+      { query: '{app="api"}' },
+      await toolContext(ALERT),
+    );
+    expect(refused.isError).toBe(true);
+    expect((await getLokiIntegration())?.rejection?.reason).toContain(
+      "Loki rejected the credential",
+    );
+
+    mock.refuse = false;
+    await executeTool(logs, { query: '{app="api"}' }, await toolContext(ALERT));
+    expect((await getLokiIntegration())?.rejection).toBeNull();
   });
 
   it("chat sessions anchor on now, and the window never extends into the future", async () => {

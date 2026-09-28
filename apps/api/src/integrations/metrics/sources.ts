@@ -12,6 +12,8 @@ import type { MetricsEndpoint } from "./client.js";
 /* One stored row resolved into the addresses the API dials. Every caller asks
    here, so nowhere else decrypts a credential or looks for a rules API. */
 export interface MetricsSource {
+  // The integration row, which a refused credential is recorded against.
+  id: string;
   kind: MetricsSourceKind;
   label: string;
   query: MetricsEndpoint;
@@ -85,6 +87,7 @@ function resolve(row: MetricsSourceRow): MetricsSource {
             name: `${name} rules`,
           };
   return {
+    id: row.id,
     kind: row.kind,
     label: name,
     query,
@@ -178,26 +181,24 @@ function endpointStatus(endpoint: MetricsEndpoint): MetricsEndpointStatus {
 
 // Loki's shape: an unconfigured answer is a filled-in "no" rather than a null
 // the caller has to guard.
-export function statusOf(
-  source: MetricsSource | null,
-  validatedAt: string | null,
-): MetricsSourceStatus {
-  if (source === null) {
+export function statusOf(row: MetricsSourceRow | null): MetricsSourceStatus {
+  if (row === null) {
     return {
       configured: false,
       kind: null,
       label: null,
       query: null,
       rules: null,
-      validatedAt: null,
+      rejection: null,
     };
   }
+  const source = resolve(row);
   return {
     configured: true,
     kind: source.kind,
     label: source.label,
     query: endpointStatus(source.query),
     rules: source.rules === null ? null : endpointStatus(source.rules),
-    validatedAt,
+    rejection: row.rejection,
   };
 }

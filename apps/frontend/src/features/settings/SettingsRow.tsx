@@ -62,9 +62,13 @@ export function SettingsRow({
 // A rule between rows, except after one that is joined to the row it introduces.
 export function SettingsGroup({
   title,
+  lead,
+  action,
   children,
 }: {
   title?: string;
+  lead?: string;
+  action?: React.ReactNode;
   children: React.ReactNode;
 }): React.JSX.Element {
   const rows = Children.toArray(children).filter(
@@ -72,7 +76,11 @@ export function SettingsGroup({
       isValidElement(child),
   );
   return (
-    <Section {...(title !== undefined && { title })}>
+    <Section
+      {...(title !== undefined && { title })}
+      {...(lead !== undefined && { lead })}
+      {...(action !== undefined && { action })}
+    >
       <Card>
         <ItemGroup>
           {rows.map((row, i) => {

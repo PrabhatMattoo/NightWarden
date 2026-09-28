@@ -21,14 +21,14 @@ const NOT_CONFIGURED: GitHubIntegrationStatus = {
   configured: false,
   repo: null,
   expiresAt: null,
-  validatedAt: null,
+  rejection: null,
 };
 
 const CONFIGURED: GitHubIntegrationStatus = {
   configured: true,
   repo: "acme/api",
   expiresAt: new Date(Date.now() + 90 * 86_400_000).toISOString(),
-  validatedAt: new Date().toISOString(),
+  rejection: null,
 };
 
 const CONNECTED_RUNNER: RunnerRecord = {
@@ -136,6 +136,7 @@ function setup(
     lastReceivedAt?: string | null;
     metrics?: unknown;
     lokiConfigured?: boolean;
+    lokiRejected?: boolean;
     sentryConfigured?: boolean;
   } = {},
 ) {
@@ -151,9 +152,10 @@ function setup(
       label: null,
       query: null,
       rules: null,
-      validatedAt: null,
+      rejection: null,
     },
     lokiConfigured = false,
+    lokiRejected = false,
     sentryConfigured = false,
   } = opts;
 
@@ -175,7 +177,12 @@ function setup(
                       url: lokiConfigured ? "http://loki:3100" : null,
                       hasAuth: false,
                       hasOrgId: false,
-                      validatedAt: null,
+                      rejection: lokiRejected
+                        ? {
+                            reason: "Loki rejected the credential",
+                            at: new Date().toISOString(),
+                          }
+                        : null,
                     }
                   : url === "/api/integrations/sentry"
                     ? {
@@ -184,7 +191,7 @@ function setup(
                           ? "https://sentry.example.com"
                           : null,
                         orgSlug: sentryConfigured ? "acme" : null,
-                        validatedAt: null,
+                        rejection: null,
                       }
                     : github;
       return Promise.resolve({
@@ -219,28 +226,44 @@ describe("IntegrationsPage", () => {
 
       await screen.findByText("GitHub");
       for (const title of [
-        "Prometheus Alertmanager",
+        "Alertmanager",
         "Prometheus",
         "Grafana Loki",
         "Sentry",
-        "Docker hosts",
+        "Docker",
         "GitHub",
       ]) {
         expect(rowFor(title)).toBeInTheDocument();
       }
     });
 
-    it("keeps a connected integration in the flat list rather than moving it", async () => {
+    /* Connecting never moves a card: it stays in its own section and gains a
+       status line, so the grid a person learned stays where they left it. */
+    it("keeps a connected integration in its own section with its status", async () => {
       setup({ github: CONFIGURED });
 
-      await screen.findByText("GitHub");
+      const code = await screen.findByRole("heading", { name: "Code" });
+      const section = within(code.closest("section")!);
       await waitFor(() => {
         expect(
-          within(rowFor("GitHub")).getByText("Connected"),
+          within(section.getByRole("link", { name: "GitHub" })).getByText(
+            "Connected",
+          ),
         ).toBeInTheDocument();
       });
-      expect(rowFor("Prometheus Alertmanager")).toBeInTheDocument();
-      expect(rowFor("Docker hosts")).toBeInTheDocument();
+      expect(screen.getAllByRole("link", { name: "GitHub" })).toHaveLength(1);
+      expect(
+        screen.queryByRole("heading", { name: "Connected" }),
+      ).not.toBeInTheDocument();
+    });
+
+    it("says Needs attention when a stored credential was refused", async () => {
+      setup({ lokiConfigured: true, lokiRejected: true });
+      const status = await screen.findByText("Needs attention");
+      expect(status).toHaveClass("text-warn");
+      expect(within(rowFor("Grafana Loki")).getByText("Needs attention")).toBe(
+        status,
+      );
     });
   });
 
@@ -283,20 +306,31 @@ describe("IntegrationsPage", () => {
     it("offers both, since they install and are addressed differently", async () => {
       setup({ runners: [] });
 
-      expect(await screen.findByText("Docker hosts")).toBeInTheDocument();
-      expect(screen.getByText("Kubernetes clusters")).toBeInTheDocument();
+      expect(await screen.findByText("Docker")).toBeInTheDocument();
+      expect(screen.getByText("Kubernetes")).toBeInTheDocument();
     });
 
     it("routes an empty platform straight into its setup wizard", async () => {
       const user = userEvent.setup();
       setup({ runners: [] });
 
-      await screen.findByText("Kubernetes clusters");
-      await user.click(rowFor("Kubernetes clusters"));
+      await screen.findByText("Kubernetes");
+      await user.click(rowFor("Kubernetes"));
 
       expect(
         await screen.findByText(/add kubernetes cluster destination/i),
       ).toBeInTheDocument();
+    });
+
+    it("counts offline hosts in the warning tone", async () => {
+      setup({
+        runners: [
+          CONNECTED_RUNNER,
+          { ...CONNECTED_RUNNER, id: "runner-2", online: false },
+        ],
+      });
+      const status = await screen.findByText("2 hosts · 1 offline");
+      expect(status).toHaveClass("text-warn");
     });
 
     it("counts a runner under the platform it advertises, and opens that list", async () => {
@@ -305,10 +339,10 @@ describe("IntegrationsPage", () => {
 
       expect(await screen.findByText("1 host")).toBeInTheDocument();
       expect(
-        within(rowFor("Kubernetes clusters")).queryByText(/^\d+ cluster/),
+        within(rowFor("Kubernetes")).queryByText(/^\d+ cluster/),
       ).not.toBeInTheDocument();
 
-      await user.click(rowFor("Docker hosts"));
+      await user.click(rowFor("Docker"));
       expect(
         await screen.findByText(/docker hosts destination/i),
       ).toBeInTheDocument();
@@ -320,14 +354,12 @@ describe("IntegrationsPage", () => {
       const user = userEvent.setup();
       setup({ ingestConfigured: false });
 
-      await screen.findByText("Prometheus Alertmanager");
+      await screen.findByText("Alertmanager");
       expect(
-        within(rowFor("Prometheus Alertmanager")).queryByText(
-          /receiving|waiting/i,
-        ),
+        within(rowFor("Alertmanager")).queryByText(/receiving|waiting/i),
       ).not.toBeInTheDocument();
 
-      await user.click(rowFor("Prometheus Alertmanager"));
+      await user.click(rowFor("Alertmanager"));
       expect(
         await screen.findByText(/alertmanager destination/i),
       ).toBeInTheDocument();
@@ -360,7 +392,7 @@ describe("IntegrationsPage", () => {
       await screen.findByText("Grafana Alerting");
       await waitFor(() => {
         expect(
-          within(rowFor("Prometheus Alertmanager")).getByText("Receiving"),
+          within(rowFor("Alertmanager")).getByText("Receiving"),
         ).toBeInTheDocument();
       });
       expect(
@@ -379,7 +411,7 @@ describe("IntegrationsPage", () => {
           label: "Prometheus",
           query: { url: "http://prom:9090", hasAuth: false, hasOrgId: false },
           rules: { url: "http://prom:9090", hasAuth: false, hasOrgId: false },
-          validatedAt: "2026-08-01T00:00:00.000Z",
+          rejection: null,
         },
       });
 

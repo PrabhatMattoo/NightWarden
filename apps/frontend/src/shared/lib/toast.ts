@@ -19,12 +19,13 @@ export const toast = {
     emit(title ?? message, title ? { description: message } : undefined);
   },
 
+  // The message is the title: the icon already says which kind of toast it is.
   success(message: string): void {
-    sonnerToast.success("Success", { description: message });
+    sonnerToast.success(message);
   },
 
   error(message: string): void {
-    sonnerToast.error("Error", { description: message });
+    sonnerToast.error(message);
   },
 
   clean(): void {

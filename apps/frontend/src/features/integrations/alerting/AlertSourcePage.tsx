@@ -8,37 +8,24 @@ import { useBlocker } from "@tanstack/react-router";
 import type { AlertSourceKind } from "@nightwarden/shared";
 
 import { Button } from "@/shared/ui/button";
-import { FieldDescription, FieldTitle } from "@/shared/ui/field";
-import { StatusText } from "@/shared/ui/status";
-import { Page } from "@/shared/ui/Page";
+import { FieldDescription } from "@/shared/ui/field";
 import { ConfirmDialog } from "@/shared/ui/ConfirmDialog";
-import { CopyableSnippet } from "@/shared/ui/CopyableSnippet";
-import { IntegrationHeader } from "@/features/integrations/IntegrationHeader";
-import { IntegrationWarnings } from "@/features/integrations/IntegrationWarnings";
+import { InlineCopy } from "@/shared/ui/copy";
+import { SettingsGroup, SettingsRow } from "@/features/settings/SettingsRow";
+import { IntegrationWarnings } from "../IntegrationWarnings";
+import {
+  ConnectionActions,
+  IntegrationPage,
+  metaFacts,
+  NOT_CONNECTED,
+} from "../IntegrationPage";
 import { timeAgo } from "@/shared/lib/time";
 import { toast } from "@/shared/lib/toast";
 import { apiFetch } from "@/shared/api/client";
 import { useDisconnect } from "../useIntegration";
-import { ALERT_SOURCE_CONTENT, SECRET_MASK } from "./content";
+import { ALERT_SOURCE_CONTENT } from "./content";
 import { INTEGRATION_CATALOG } from "../catalog";
 import { alertSourceQuery } from "../queries";
-
-function Row({
-  label,
-  children,
-}: {
-  label: string;
-  children: React.ReactNode;
-}): React.JSX.Element {
-  // Not a Field: a Field stretches what it holds to the column, which is right
-  // for an input and wrong for the button standing where the secret will be.
-  return (
-    <div className="flex flex-col gap-2">
-      <FieldTitle>{label}</FieldTitle>
-      {children}
-    </div>
-  );
-}
 
 export function AlertSourcePage({
   kind,
@@ -88,86 +75,91 @@ export function AlertSourcePage({
   });
 
   const configured = status.configured;
+  const receiving = status.lastReceivedAt !== null;
 
   return (
-    <Page
-      measure="wide"
-      back={{ to: "/integrations", label: "Integrations" }}
-      /* Withheld while a freshly minted secret is on screen: that moment is a
-         step to finish, not a delivery report to read. */
-      controls={
-        configured && !unsaved ? (
-          <StatusText tone={status.lastReceivedAt !== null ? "ok" : "muted"}>
-            {status.lastReceivedAt !== null
-              ? `Receiving - last alert ${timeAgo(status.lastReceivedAt)} ago`
-              : "Waiting for first alert"}
-          </StatusText>
-        ) : undefined
+    <IntegrationPage
+      identity={identity}
+      facts={metaFacts(
+        identity,
+        configured
+          ? [
+              {
+                key: "last-alert",
+                content: receiving
+                  ? `Last alert ${timeAgo(status.lastReceivedAt)} ago`
+                  : "No alert yet",
+              },
+            ]
+          : [],
+      )}
+      state={
+        !configured
+          ? NOT_CONNECTED
+          : receiving
+            ? { tone: "ok", label: "Receiving" }
+            : { tone: "muted", label: "Waiting for first alert" }
       }
     >
-      <div className="flex flex-col gap-8">
-        <IntegrationHeader identity={identity} />
-
-        <p className="type-body text-ink-muted">{content.where}</p>
-
-        {/* Three rows in a fixed order that never reflows. Only the secret
-                row changes state, so nothing moves under whoever is copying. */}
-        <section className="flex flex-col gap-4">
-          <Row label="Webhook URL">
-            <CopyableSnippet
-              label="Copy the webhook URL"
-              text={status.ingestUrl}
-            />
-          </Row>
-
-          <Row label="Secret">
+      <div className="flex flex-col gap-3">
+        <SettingsGroup title="Webhook" lead={content.where}>
+          <SettingsRow
+            id="alert-webhook-url"
+            title="Webhook URL"
+            description="Where the sender delivers."
+          >
+            <InlineCopy label="Copy the webhook URL" text={status.ingestUrl} />
+          </SettingsRow>
+          <SettingsRow
+            id="alert-secret"
+            title="Secret"
+            description="What proves a delivery came from your sender."
+            stacked={secret !== null}
+          >
             {secret !== null ? (
               <div className="flex flex-col gap-3">
-                <CopyableSnippet label="Copy the secret" text={secret} />
+                <InlineCopy label="Copy the secret" text={secret} />
                 <FieldDescription>
                   Copy it now. It is not shown again and cannot be recovered; if
                   you lose it, rotate for a new one.
                 </FieldDescription>
-                <Button className="self-start" onClick={() => setSecret(null)}>
-                  I&apos;ve saved it
-                </Button>
-              </div>
-            ) : configured ? (
-              <div className="flex flex-col gap-3">
-                <CopyableSnippet
-                  label="The secret is not shown again"
-                  text={SECRET_MASK}
-                  copyable={false}
-                />
-                <div className="flex items-center gap-2">
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    disabled={generate.isPending}
-                    onClick={() => setConfirmRotate(true)}
-                  >
-                    Rotate
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    onClick={() => setConfirmDisconnect(true)}
-                  >
-                    Disconnect
+                <div className="flex justify-end">
+                  <Button onClick={() => setSecret(null)}>
+                    I&apos;ve saved it
                   </Button>
                 </div>
               </div>
             ) : (
+              // Stored hashed, so once saved there is nothing here to show or copy.
+              <span className="type-body text-ink-muted">
+                {configured ? "Not shown again" : "Not generated yet"}
+              </span>
+            )}
+          </SettingsRow>
+        </SettingsGroup>
+
+        {/* A freshly minted secret is a step to finish, so it holds the actions back. */}
+        {secret === null &&
+          (configured ? (
+            <ConnectionActions onDisconnect={() => setConfirmDisconnect(true)}>
               <Button
-                className="self-start"
+                variant="secondary"
+                disabled={generate.isPending}
+                onClick={() => setConfirmRotate(true)}
+              >
+                Rotate secret
+              </Button>
+            </ConnectionActions>
+          ) : (
+            <ConnectionActions>
+              <Button
                 disabled={generate.isPending}
                 onClick={() => generate.mutate()}
               >
                 Generate secret
               </Button>
-            )}
-          </Row>
-        </section>
+            </ConnectionActions>
+          ))}
 
         {/* Stated where they are set: these fail without reporting. */}
         <IntegrationWarnings warnings={content.warnings} />
@@ -206,6 +198,6 @@ export function AlertSourcePage({
           if (blocker.status === "blocked") blocker.proceed();
         }}
       />
-    </Page>
+    </IntegrationPage>
   );
 }

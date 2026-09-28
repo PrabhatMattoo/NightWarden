@@ -20,7 +20,7 @@ const NOT_CONFIGURED: GitHubIntegrationStatus = {
   configured: false,
   repo: null,
   expiresAt: null,
-  validatedAt: null,
+  rejection: null,
 };
 
 function configuredStatus(
@@ -31,7 +31,7 @@ function configuredStatus(
     configured: true,
     repo,
     expiresAt: new Date(Date.now() + expiresInDays * 86_400_000).toISOString(),
-    validatedAt: new Date().toISOString(),
+    rejection: null,
   };
 }
 
@@ -207,22 +207,22 @@ describe("GitHubConnectPage - onboarding (not yet connected)", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("validates the token, collapses to a plain 'Validated' line, and Change re-opens it", async () => {
+  it("validates the token, collapses to a line asking for the repository, and Change token re-opens it", async () => {
     const user = userEvent.setup();
     setup();
 
     await validate(user);
 
-    expect(await screen.findByText("Validated")).toBeInTheDocument();
+    expect(
+      await screen.findByText("Choose the repository below"),
+    ).toBeInTheDocument();
     expect(
       screen.queryByLabelText(/personal access token/i),
     ).not.toBeInTheDocument();
-    // The description above the field stays, per the field's own label.
-    expect(
-      screen.getByText(/grant it the one repository/i),
-    ).toBeInTheDocument();
+    // The row's own description stays once the field collapses.
+    expect(screen.getByText(/granted the one repository/i)).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Change" }));
+    await user.click(screen.getByRole("button", { name: "Change token" }));
 
     expect(screen.getByLabelText(/personal access token/i)).toBeInTheDocument();
   });
@@ -239,7 +239,7 @@ describe("GitHubConnectPage - onboarding (not yet connected)", () => {
 
     await waitFor(() => {
       expect(
-        screen.getByRole("button", { name: "Disconnect GitHub" }),
+        screen.getByRole("button", { name: "Test connection" }),
       ).toBeInTheDocument();
     });
 
@@ -332,12 +332,10 @@ describe("GitHubConnectPage - onboarding (not yet connected)", () => {
 });
 
 describe("GitHubConnectPage - management (already connected)", () => {
-  it("shows the validated summary with expiry and the combobox pre-selected to the bound repo, without re-validating", async () => {
+  it("shows the token expiry and the combobox pre-selected to the bound repo, without re-validating", async () => {
     const { fetchMock } = setup({ status: configuredStatus("acme/api", 5) });
 
-    expect(
-      await screen.findByText(/validated - expires in 5 days/i),
-    ).toBeInTheDocument();
+    expect(await screen.findByText("Expires in 5 days")).toBeInTheDocument();
     expect(
       screen.queryByLabelText(/personal access token/i),
     ).not.toBeInTheDocument();
@@ -372,7 +370,7 @@ describe("GitHubConnectPage - management (already connected)", () => {
     expect(
       await screen.findByText(/checking the token with github/i),
     ).toBeInTheDocument();
-    expect(screen.queryByText(/^validated/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/^expires in/i)).not.toBeInTheDocument();
     answer();
 
     // The live repos load rejects the stored token, so the page asks for a
@@ -381,7 +379,7 @@ describe("GitHubConnectPage - management (already connected)", () => {
       await screen.findByText(/token invalid or expired/i),
     ).toBeInTheDocument();
     expect(screen.getByLabelText(/personal access token/i)).toBeInTheDocument();
-    expect(screen.queryByText(/^validated/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/^expires in/i)).not.toBeInTheDocument();
   });
 
   it("changes the repository via the stored token, with no token in the request", async () => {
@@ -425,8 +423,8 @@ describe("GitHubConnectPage - management (already connected)", () => {
     const user = userEvent.setup();
     const { fetchMock } = setup({ status: configuredStatus("acme/api") });
 
-    await screen.findByText(/validated/i);
-    await user.click(screen.getByRole("button", { name: "Change" }));
+    await screen.findByText(/expires in/i);
+    await user.click(screen.getByRole("button", { name: "Change token" }));
 
     const input = screen.getByLabelText(/personal access token/i);
     expect(input).toHaveValue("");
@@ -453,8 +451,8 @@ describe("GitHubConnectPage - management (already connected)", () => {
     const user = userEvent.setup();
     const { fetchMock } = setup({ status: configuredStatus("acme/api") });
 
-    await screen.findByText(/validated/i);
-    await user.click(screen.getByRole("button", { name: "Disconnect GitHub" }));
+    await screen.findByText(/expires in/i);
+    await user.click(screen.getByRole("button", { name: "Disconnect" }));
     const dialog = await screen.findByRole("alertdialog");
     await user.click(
       within(dialog).getByRole("button", { name: "Disconnect" }),

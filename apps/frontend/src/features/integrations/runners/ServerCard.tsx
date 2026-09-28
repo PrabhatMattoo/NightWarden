@@ -41,14 +41,14 @@ export function ServerCard({
             {runner.platform}
           </p>
         </div>
-        <div className="flex shrink-0 items-center gap-2">
-          <StatusText tone={online ? "ok" : "muted"}>
-            {online ? "Online" : "Offline"}
+        {/* Offline is something to act on, so it says how long it has been. */}
+        {online ? (
+          <StatusText tone="ok">Online</StatusText>
+        ) : (
+          <StatusText tone="warn">
+            Offline · last seen {timeAgo(runner.lastSeen)} ago
           </StatusText>
-          <span className="type-body tabular-nums text-ink-muted">
-            {timeAgo(runner.lastSeen)}
-          </span>
-        </div>
+        )}
       </div>
 
       {keys.length === 0 ? (

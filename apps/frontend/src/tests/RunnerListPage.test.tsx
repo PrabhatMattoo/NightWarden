@@ -1,4 +1,4 @@
-import { render, screen, waitFor, act } from "@testing-library/react";
+import { render, screen, waitFor, act, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -132,7 +132,7 @@ describe("RunnerListPage", () => {
   });
 
   describe("Remove", () => {
-    it("calls DELETE /api/tokens/:id when Remove is clicked", async () => {
+    it("revokes the runner's token only once the dialog confirms it", async () => {
       const user = userEvent.setup();
       const { fetchMock } = setup([WEB_RUNNER]);
 
@@ -141,6 +141,12 @@ describe("RunnerListPage", () => {
       });
 
       await user.click(screen.getByRole("button", { name: /remove/i }));
+      const dialog = await screen.findByRole("alertdialog");
+      expect(fetchMock).not.toHaveBeenCalledWith(
+        `/api/tokens/${WEB_RUNNER.id}`,
+        expect.objectContaining({ method: "DELETE" }),
+      );
+      await user.click(within(dialog).getByRole("button", { name: "Remove" }));
 
       await waitFor(() => {
         expect(fetchMock).toHaveBeenCalledWith(
@@ -182,6 +188,13 @@ describe("RunnerListPage", () => {
       expect(fetchMock).toHaveBeenCalledTimes(2);
       const polled = qc.getQueryData<RunnerRecord[]>(["runners"]);
       expect(polled?.[0].online).toBe(false);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(100);
+      });
+      // Offline is something to act on, so it says how long it has been.
+      expect(screen.getByText(/^offline · last seen/i)).toHaveClass(
+        "text-warn",
+      );
     });
   });
 });

@@ -31,7 +31,3 @@ export const ALERT_SOURCE_CONTENT: Record<AlertSourceKind, AlertSourceContent> =
         "The current secret stops working immediately, and Grafana stops delivering until you paste the new one into the contact point.",
     },
   };
-
-/* A secret is 4 characters of prefix and 43 of base64url. The masked form runs
-   the same length so nothing on the page moves when it is saved. */
-export const SECRET_MASK = "•".repeat(47);

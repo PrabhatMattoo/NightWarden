@@ -40,3 +40,30 @@ export function useDisconnect<TVars = void>({
       }),
   });
 }
+
+/* A refusal is recorded by the API before it answers, so both outcomes refetch:
+   the page then shows the state the server just wrote. */
+export function useTestConnection({
+  label,
+  queryKey,
+  endpoint,
+}: {
+  label: string;
+  queryKey: readonly unknown[];
+  endpoint: string;
+}) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => apiFetch<unknown>(endpoint, { method: "POST" }),
+    onSuccess: () => toast.success(`${label} connection works`),
+    onError: (err) =>
+      toast.show({
+        title: `${label} did not answer`,
+        message: connectMessage(err),
+        variant: "error",
+      }),
+    onSettled: async () => {
+      await queryClient.invalidateQueries({ queryKey });
+    },
+  });
+}
