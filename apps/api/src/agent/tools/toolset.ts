@@ -89,6 +89,7 @@ export async function executeTool(
     return {
       content,
       ...(result.isError === true && { isError: true as const }),
+      ...(result.refusal !== undefined && { refusal: result.refusal }),
     };
   }
   // Only evidence is worth paging: anything else past the ceiling is refused.

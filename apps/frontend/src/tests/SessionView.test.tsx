@@ -191,8 +191,11 @@ function setupPage({
     if (url.includes("/sessions")) {
       // Answering only what was asked for is the point: a page that requested
       // every session would be handed the investigation below.
+      const q = new URL(url, "http://test").searchParams.get("q") ?? "";
       const rows = url.includes("kind=chat")
-        ? CHAT_ROWS.map((row) => ({
+        ? CHAT_ROWS.filter((row) =>
+            row.title.toLowerCase().includes(q.toLowerCase()),
+          ).map((row) => ({
             sessionId: row.sessionId,
             title: row.title,
             createdAt: AGO_MINUTES(row.minutes),
@@ -207,7 +210,11 @@ function setupPage({
       return Promise.resolve({
         ok: true,
         json: () =>
-          Promise.resolve({ rows, nextOffset: null, investigationTotal: 0 }),
+          Promise.resolve({
+            rows,
+            nextOffset: null,
+            investigationTotal: 0,
+          }),
       });
     }
     return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
@@ -1737,6 +1744,35 @@ describe("the Agent page", () => {
         Node.DOCUMENT_POSITION_FOLLOWING) !==
         0,
     ).toBe(true);
+  });
+
+  // The search is the server's, so the request carries it and the list is its answer.
+  it("searches the history as the person types, and opens what they pick", async () => {
+    const user = userEvent.setup();
+    const { fetchMock, router } = setupPage();
+    await openHistory("New chat");
+    const panel = await screen.findByRole("dialog");
+
+    await user.type(
+      within(panel).getByRole("searchbox", { name: "Search conversations" }),
+      "redis",
+    );
+
+    await waitFor(() => {
+      expect(
+        within(panel).queryAllByRole("link", { name: /Explain|What does/ }),
+      ).toHaveLength(0);
+    });
+    expect(
+      fetchMock.mock.calls.some(([url]) => String(url).includes("q=redis")),
+    ).toBe(true);
+
+    await user.click(
+      within(panel).getByRole("link", { name: /Why is redis restarting\?/ }),
+    );
+    await waitFor(() =>
+      expect(router.state.location.pathname).toBe("/agent/c1"),
+    );
   });
 
   it("copies the conversation as a title and alternating role headings", async () => {

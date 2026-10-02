@@ -54,6 +54,7 @@ export type {
 export {
   chatRequestSchema,
   sessionMessageRequestSchema,
+  reopenRequestSchema,
   respondRequestSchema,
   mintTokenRequestSchema,
   sessionPageQuerySchema,
@@ -61,6 +62,7 @@ export {
 export type {
   ChatRequest,
   SessionMessageRequest,
+  ReopenRequest,
   RespondRequest,
   MintTokenRequest,
   SessionPageQuery,

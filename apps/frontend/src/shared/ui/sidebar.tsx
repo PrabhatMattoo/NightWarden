@@ -150,7 +150,7 @@ function Sidebar({
         data-slot="sidebar-container"
         data-ground="sidebar"
         className={cn(
-          "fixed inset-y-0 left-0 z-(--z-rail) hidden h-svh w-sidebar border-r-hairline border-edge bg-ground transition-layout duration-(--duration-panel) ease-panel group-data-[collapsible=icon]:w-sidebar-icon lg:flex",
+          "fixed inset-y-0 left-0 z-(--z-rail) hidden h-svh w-sidebar border-r-hairline border-edge-faint bg-ground transition-layout duration-(--duration-panel) ease-panel group-data-[collapsible=icon]:w-sidebar-icon lg:flex",
           className,
         )}
         {...props}
@@ -365,7 +365,7 @@ function SidebarMenuAction({
       type="button"
       data-slot="sidebar-menu-action"
       className={cn(
-        "absolute inset-y-0 end-1 my-auto flex size-6 items-center justify-center rounded-control text-ink-muted highlight-motion hover:bg-highlight hover:text-ink-title group-data-[collapsible=icon]:hidden [&>svg]:size-4 [&>svg]:shrink-0",
+        "absolute inset-y-0 end-1 my-auto flex size-6 items-center justify-center rounded-control text-ink-muted highlight-motion hover:bg-ghost-hover hover:text-ink-title group-data-[collapsible=icon]:hidden [&>svg]:size-4 [&>svg]:shrink-0",
         className,
       )}
       {...props}

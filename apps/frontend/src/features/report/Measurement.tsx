@@ -4,6 +4,8 @@ import { scaleLinear, scaleTime } from "d3-scale";
 import { line as d3Line } from "d3-shape";
 import { formatBytes } from "@/shared/lib/format";
 import { cn } from "@/shared/lib/utils";
+import { useOverlayGround } from "@/shared/ui/ground";
+import { TOOLTIP_SURFACE } from "@/shared/ui/overlay";
 import type { Line, Point, Plot, PlotUnit } from "./plot.js";
 import { clock } from "@/shared/lib/time";
 import { compact } from "./format.js";
@@ -58,6 +60,8 @@ function LineChart({
 }): React.JSX.Element {
   const [containerRef, width] = useContainerWidth();
   const [hover, setHover] = useState<number | null>(null);
+  // The readout floats like a tooltip, so it takes the tooltip's ground and surface.
+  const readoutGround = useOverlayGround();
   const read = readingIn(unit);
 
   const allValues = lines.flatMap((line) => line.points.map((p) => p.value));
@@ -231,11 +235,12 @@ function LineChart({
           )}
         </svg>
 
-        {/* Hover Tooltip */}
         {hover !== null && atHover[0] != null && (
           <div
+            data-ground={readoutGround}
             className={cn(
-              "pointer-events-none absolute top-2 left-(--at) rounded-control border-hairline border-edge-strong bg-ground px-2 py-1 font-mono type-body whitespace-nowrap shadow-card",
+              TOOLTIP_SURFACE,
+              "pointer-events-none absolute top-2 left-(--at) font-mono whitespace-nowrap",
               // Flipped past the middle, so it never runs off the chart's far edge.
               xScale(new Date(atHover[0].at)) > width / 2
                 ? "-ml-2 -translate-x-full"

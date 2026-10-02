@@ -1,12 +1,16 @@
 import { z } from "zod";
 import { PLATFORMS } from "../runner.js";
+import { STATUS_FILTERS } from "../sessions.js";
 
-// A message the agent will read, so an all-whitespace one is empty rather than
-// short. Trimmed here, which keeps every route from repeating the check.
-const message = z
-  .string({ error: "message is required" })
-  .trim()
-  .min(1, "message is required");
+// Text the agent will read, so an all-whitespace one is empty rather than short.
+// Trimmed here, which keeps every route from repeating the check.
+const said = (name: string) =>
+  z
+    .string({ error: `${name} is required` })
+    .trim()
+    .min(1, `${name} is required`);
+
+const message = said("message");
 
 // Minted by the sender before the request leaves, so the bubble it draws at once
 // and the row saved later share one id.
@@ -31,6 +35,13 @@ export const sessionMessageRequestSchema = z.object({
 });
 export type SessionMessageRequest = z.infer<typeof sessionMessageRequestSchema>;
 
+// The reason is the person's message into the reopened run, so it follows the same rules.
+export const reopenRequestSchema = z.object({
+  reason: said("reason"),
+  clientMessageId,
+});
+export type ReopenRequest = z.infer<typeof reopenRequestSchema>;
+
 /* Either half may stand alone: a decision with no comment settles a gate, and a
    comment with no decision answers a question. */
 export const respondRequestSchema = z.object({
@@ -51,6 +62,7 @@ export type MintTokenRequest = z.infer<typeof mintTokenRequestSchema>;
    needs to know what a limit is, not that coercing it produced NaN. */
 const LIMIT = "limit must be a whole number from 1 to 200";
 const OFFSET = "offset must be a whole number of 0 or more";
+const QUERY = "q must be at most 200 characters";
 
 export const sessionPageQuerySchema = z.object({
   kind: z.enum(["investigation", "chat"]),
@@ -65,5 +77,8 @@ export const sessionPageQuerySchema = z.object({
     .int(OFFSET)
     .min(0, OFFSET)
     .default(0),
+  status: z.enum(STATUS_FILTERS).optional(),
+  // A title search. Blank is no search, so an emptied box lists everything again.
+  q: z.string().trim().max(200, QUERY).optional(),
 });
 export type SessionPageQuery = z.infer<typeof sessionPageQuerySchema>;

@@ -78,7 +78,6 @@ CREATE TABLE IF NOT EXISTS sessions (
   attempt_started_at   TEXT,
   candidates           TEXT     NOT NULL DEFAULT '[]',
   findings             TEXT     NOT NULL DEFAULT '[]',
-  last_stated_candidates TEXT   NOT NULL DEFAULT '[]',
   report               TEXT,
   record_updated_at    TEXT,
   created_at           TEXT     NOT NULL,
@@ -125,6 +124,11 @@ CREATE TABLE IF NOT EXISTS session_transcript (
   canonical      TEXT,
   timestamp      TEXT     NOT NULL,
   client_id      TEXT,
+  reminder       TEXT     CHECK (reminder IN ('alert_opening',
+                            'candidates_opening', 'frontier', 'falsification',
+                            'report_request', 'report_retry', 'closing',
+                            'text_only', 'reopen', 'record_check',
+                            'toolset_change', 'injected_alerts')),
   PRIMARY KEY (session_id, seq)
 );
 

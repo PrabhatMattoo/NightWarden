@@ -84,7 +84,7 @@ function AlertBand({
 }): React.JSX.Element | null {
   if (alerts.length === 0) return null;
   return (
-    <section className="border-b-hairline border-edge pb-4">
+    <section className="border-b-hairline border-edge-faint pb-4">
       <ul className="m-0 flex list-none flex-col gap-2 p-0">
         {alerts.map(({ alert, clearedAt }) => (
           <li key={`${alert.sourceAlertId}-${alert.firedAt}`}>
@@ -189,7 +189,7 @@ function TimelineRow({ row }: { row: Row }): React.JSX.Element {
             isAlert
               ? "h-2.5 w-2.5 bg-accent-ink"
               : row.kind === "action"
-                ? "h-2 w-2 border-hairline border-ground bg-accent-ink/70"
+                ? "h-2 w-2 border-hairline border-ground bg-accent-ink"
                 : "h-2 w-2 border-hairline border-ground bg-edge-strong",
           )}
         />
@@ -420,7 +420,7 @@ export function ReportPanel({
       <div className="mt-4 flex flex-wrap items-baseline gap-x-4 gap-y-2">
         <span className="type-small">Sources</span>
         {cited.map((entry) => (
-          <CitationChip key={entry.toolCallId} evidence={entry} alert={alert} />
+          <CitationChip key={entry.toolCallId} evidence={entry} />
         ))}
       </div>
     );

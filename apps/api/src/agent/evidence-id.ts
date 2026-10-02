@@ -39,6 +39,7 @@ export function resultParts(
       output: result.content,
       ...(cited && { evidenceId: `${PREFIX}${next++}` }),
       ...(result.isError === true && { isError: true }),
+      ...(result.refusal !== undefined && { refusal: result.refusal }),
     };
   });
   return { parts, next };

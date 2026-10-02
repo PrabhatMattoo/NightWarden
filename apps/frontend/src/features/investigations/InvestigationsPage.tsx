@@ -1,35 +1,44 @@
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { ListFilter, Telescope } from "lucide-react";
 import type {
-  InvestigationStatus,
   QueueState,
   SessionListRow,
+  StatusFilter,
 } from "@nightwarden/shared";
+import { STATUS_FILTERS } from "@nightwarden/shared";
 
 import { Page } from "@/shared/ui/Page";
-import { Button } from "@/shared/ui/button";
+import { Button, buttonVariants } from "@/shared/ui/button";
 import { Card } from "@/shared/ui/card";
 import { Rounds } from "@/shared/ui/Rounds";
 import {
   Empty,
+  EmptyContent,
   EmptyDescription,
   EmptyHeader,
   EmptyMedia,
   EmptyTitle,
 } from "@/shared/ui/empty";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/shared/ui/select";
+  Item,
+  ItemActions,
+  ItemContent,
+  ItemDescription,
+  ItemGroup,
+  ItemSeparator,
+  ItemTitle,
+} from "@/shared/ui/item";
+import { ToggleGroup, ToggleGroupItem } from "@/shared/ui/toggle-group";
 import { useFrontendEvents } from "@/shared/events/FrontendEventsProvider";
 import { useSessions } from "@/features/session/useSessions";
 import { sessionsQueryKey } from "@/features/session/queries";
-import { groupByStatus, STATUS_LABEL } from "@/features/investigations/queue";
+import {
+  FILTER_LABEL,
+  groupByStatus,
+  STATUS_LABEL,
+} from "@/features/investigations/queue";
 import { timeAgo } from "@/shared/lib/time";
 import { cn } from "@/shared/lib/utils";
 
@@ -44,49 +53,59 @@ function statusLineTone(row: SessionListRow): string {
 
 // The severity word is the user's own and never matched against a list, so a
 // fleet labelling alerts P1 reads as one labelling them critical.
-function InvestigationRow({
-  row,
-  running,
-}: {
-  row: SessionListRow;
-  running: boolean;
-}): React.JSX.Element {
+function InvestigationRow({ row }: { row: SessionListRow }): React.JSX.Element {
+  // Read from the row's own status, so it says a run is moving at this moment.
+  const running = row.status === "running";
   return (
-    <li className="not-last:border-b-hairline not-last:border-edge">
-      <Link
-        to="/investigations/$id"
-        params={{ id: row.sessionId }}
-        // Stitched into the group card, so hover moves the fill and nothing else.
-        className="flex flex-col gap-1 px-4 py-3 no-underline transition-colors hover:bg-hover"
-      >
-        <span className="flex items-baseline gap-3">
-          <span className="min-w-0 flex-1 truncate emphasis">{row.title}</span>
-          {row.severityLabel !== null && (
-            <span className="min-w-0 shrink truncate type-body text-ink-muted">
-              {row.severityLabel}
-            </span>
-          )}
-          {/* When it last moved, not when it opened: on a run parked for your
-              answer, that is how long it has been waiting. */}
-          <span className="w-9 shrink-0 text-right type-body tabular-nums text-ink-muted">
-            {timeAgo(row.lastActivityAt)}
-          </span>
-        </span>
-
+    <Item
+      render={<Link to="/investigations/$id" params={{ id: row.sessionId }} />}
+      className="no-underline"
+    >
+      <ItemContent>
+        <ItemTitle>
+          <span className="min-w-0 truncate">{row.title}</span>
+        </ItemTitle>
         {(row.statusLine !== null || running) && (
-          <span className="flex items-baseline gap-3">
+          <ItemDescription>
             <span
-              className={cn("min-w-0 flex-1 truncate", statusLineTone(row))}
+              className={cn(
+                "flex min-w-0 items-center gap-2",
+                statusLineTone(row),
+              )}
             >
-              {row.statusLine}
+              <span className="min-w-0 truncate">{row.statusLine}</span>
+              {running && <Rounds size="inline" />}
             </span>
-            {/* Read from the live dispatcher, so it is not decoration: it says
-                a run is moving at this moment. */}
-            {running && <Rounds size="inline" />}
-          </span>
+          </ItemDescription>
         )}
-      </Link>
-    </li>
+      </ItemContent>
+      <ItemActions>
+        {row.severityLabel !== null && (
+          <span className="type-body text-ink-muted">{row.severityLabel}</span>
+        )}
+        {/* When it last moved, not when it opened: on a run parked for your
+            answer, that is how long it has been waiting. */}
+        <span className="w-9 text-right type-body tabular-nums text-ink-muted">
+          {timeAgo(row.lastActivityAt)}
+        </span>
+      </ItemActions>
+    </Item>
+  );
+}
+
+// Rows share one card, each ruled from the next edge to edge.
+function RowCard({ rows }: { rows: SessionListRow[] }): React.JSX.Element {
+  return (
+    <Card>
+      <ItemGroup>
+        {rows.map((row, i) => (
+          <Fragment key={row.sessionId}>
+            {i > 0 && <ItemSeparator />}
+            <InvestigationRow row={row} />
+          </Fragment>
+        ))}
+      </ItemGroup>
+    </Card>
   );
 }
 
@@ -112,39 +131,70 @@ function QueueBand({
   );
 }
 
-// The first state of every fresh install: no alert has arrived, so the panel
-// points at the one thing that changes that.
-function NothingYet(): React.JSX.Element {
+type Shown = StatusFilter | "all";
+
+// Why the view is empty, said plainly; the filters each name what they would hold.
+const NOTHING: Record<Shown, { title: string; description: string }> = {
+  all: {
+    title: "No investigations yet",
+    description:
+      "NightWarden opens one on its own the moment a connected alert source sends an alert.",
+  },
+  active: {
+    title: "Nothing is active",
+    description:
+      "No investigation is running or waiting on an approval or an answer.",
+  },
+  resolved: {
+    title: "No resolved investigations",
+    description: "No alert behind an investigation has cleared yet.",
+  },
+  closed: {
+    title: "No closed investigations",
+    description: "No investigation has finished, been stopped or failed yet.",
+  },
+};
+
+/* A first visit is pointed at what starts an investigation; an empty filter is
+   handed back the whole list, so it is never a dead end. */
+function Nothing({
+  shown,
+  onShowAll,
+}: {
+  shown: Shown;
+  onShowAll: () => void;
+}): React.JSX.Element {
+  const first = shown === "all";
   return (
     <Empty>
       <EmptyHeader>
-        <EmptyMedia>
-          <Telescope aria-hidden strokeWidth={1.5} />
-        </EmptyMedia>
-        <EmptyTitle>No investigations yet</EmptyTitle>
-        <EmptyDescription>
-          One opens when an alert arrives from a connected source. Connect your
-          alerting to start.
-        </EmptyDescription>
+        <EmptyMedia>{first ? <Telescope /> : <ListFilter />}</EmptyMedia>
+        <EmptyTitle>{NOTHING[shown].title}</EmptyTitle>
+        <EmptyDescription>{NOTHING[shown].description}</EmptyDescription>
       </EmptyHeader>
+      <EmptyContent>
+        {first ? (
+          <Link
+            to="/integrations"
+            className={buttonVariants({ variant: "secondary", size: "sm" })}
+          >
+            Connect alerting
+          </Link>
+        ) : (
+          <Button variant="secondary" size="sm" onClick={onShowAll}>
+            Show all investigations
+          </Button>
+        )}
+      </EmptyContent>
     </Empty>
   );
 }
 
-type StatusFilter = InvestigationStatus | "all";
-
-const FILTER_LABEL: Record<StatusFilter, string> = {
-  all: "All",
-  action_required: STATUS_LABEL.action_required,
-  running: STATUS_LABEL.running,
-  resolved: STATUS_LABEL.resolved,
-  completed: STATUS_LABEL.completed,
-  stopped: STATUS_LABEL.stopped,
-  failed: STATUS_LABEL.failed,
-};
+const SHOWN: readonly Shown[] = ["all", ...STATUS_FILTERS];
 
 export function InvestigationsPage(): React.JSX.Element {
   const queryClient = useQueryClient();
+  const [shown, setShown] = useState<Shown>("all");
   const {
     sessions,
     isLoading,
@@ -152,11 +202,10 @@ export function InvestigationsPage(): React.JSX.Element {
     isLoadingMore,
     loadMore,
     queue: fetched,
-  } = useSessions("investigation");
+  } = useSessions("investigation", shown === "all" ? {} : { status: shown });
   // Null until an event lands, and the fetch stands in: a reload receives no
   // event, so without it the band is blank while alerts wait.
   const [pushed, setPushed] = useState<QueueState | null>(null);
-  const [status, setStatus] = useState<StatusFilter>("all");
   const queue = pushed ?? fetched;
 
   useFrontendEvents((env) => {
@@ -165,7 +214,7 @@ export function InvestigationsPage(): React.JSX.Element {
       return;
     }
     // Status is server-derived, so anything that can change it refetches the
-    // authoritative list rather than being patched into the cache here.
+    // authoritative lists rather than being patched into the cache here.
     if (
       env.type === "REPORT_UPDATED" ||
       env.type === "RUN_FINISHED" ||
@@ -180,73 +229,53 @@ export function InvestigationsPage(): React.JSX.Element {
     }
   });
 
-  const groups = groupByStatus(sessions).filter(
-    (group) => status === "all" || group.status === status,
-  );
-
   return (
     <Page
       measure="wide"
       title="Investigations"
       subtitle="Every investigation NightWarden has opened, grouped by what each one needs."
       toolbar={
-        <Select
-          items={FILTER_LABEL}
-          value={status}
-          onValueChange={(value) => setStatus(value as StatusFilter)}
+        <ToggleGroup
+          variant="pills"
+          aria-label="Show investigations"
+          value={[shown]}
+          onValueChange={(next) => {
+            const picked = SHOWN.find((filter) => filter === next[0]);
+            // Pressing the chosen one again empties the group; the choice stays.
+            if (picked !== undefined) setShown(picked);
+          }}
         >
-          <SelectTrigger aria-label="Filter by status" className="w-44">
-            <ListFilter
-              className="size-4 shrink-0 text-ink-muted"
-              aria-hidden
-            />
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {Object.entries(FILTER_LABEL).map(([value, label]) => (
-              <SelectItem key={value} value={value}>
-                {label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+          {SHOWN.map((filter) => (
+            <ToggleGroupItem key={filter} value={filter}>
+              {filter === "all" ? "All" : FILTER_LABEL[filter]}
+            </ToggleGroupItem>
+          ))}
+        </ToggleGroup>
       }
     >
-      {!isLoading && groups.length === 0 ? (
-        status !== "all" ? (
-          <p className="py-8 type-body text-ink-muted">
-            No investigations match.
-          </p>
-        ) : (
-          <NothingYet />
-        )
+      {!isLoading && sessions.length === 0 ? (
+        <Nothing shown={shown} onShowAll={() => setShown("all")} />
       ) : (
         <>
           <QueueBand queue={queue} />
-          {/* Space separates the groups; there is no rule and no column header. */}
-          <div className="flex flex-col gap-6">
-            {groups.map((group) => (
-              <section
-                key={group.status}
-                aria-label={STATUS_LABEL[group.status]}
-              >
-                <h2 className="mb-3 type-heading">
-                  {STATUS_LABEL[group.status]}
-                </h2>
-                <Card className="gap-0 py-0">
-                  <ul className="m-0 flex list-none flex-col p-0">
-                    {group.rows.map((row) => (
-                      <InvestigationRow
-                        key={row.sessionId}
-                        row={row}
-                        running={group.status === "running"}
-                      />
-                    ))}
-                  </ul>
-                </Card>
-              </section>
-            ))}
-          </div>
+          {shown === "all" ? (
+            // Space separates the groups; there is no rule and no column header.
+            <div className="flex flex-col gap-6">
+              {groupByStatus(sessions).map((group) => (
+                <section
+                  key={group.status}
+                  aria-label={STATUS_LABEL[group.status]}
+                >
+                  <h2 className="mb-3 type-heading">
+                    {STATUS_LABEL[group.status]}
+                  </h2>
+                  <RowCard rows={group.rows} />
+                </section>
+              ))}
+            </div>
+          ) : (
+            <RowCard rows={sessions} />
+          )}
           {hasMore && (
             <Button
               variant="quiet"

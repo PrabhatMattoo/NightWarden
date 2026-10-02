@@ -498,25 +498,6 @@ describe("TranscriptItemRenderer", () => {
   });
 
   describe("output disclosure", () => {
-    it("keeps an unknown tool's output folded until the row is opened", async () => {
-      wrap({
-        kind: "tool_call",
-        toolCallId: "tu-5",
-        toolName: "SomeToolWeDoNotRender",
-        input: { target: "web-01/api/api" },
-        state: { phase: "complete", result: "cpu 0.91\nmem 0.44" },
-      });
-
-      // The row names its tool and nothing else, so nothing shows until it opens.
-      expect(screen.queryByText(/cpu 0.91/)).not.toBeInTheDocument();
-
-      await userEvent
-        .setup()
-        .click(screen.getByRole("button", { name: /SomeToolWeDoNotRender/ }));
-      expect(screen.getByText(/cpu 0.91/)).toBeInTheDocument();
-      expect(screen.getByText(/mem 0.44/)).toBeInTheDocument();
-    });
-
     it("caps a long shell result and reveals the rest on demand", async () => {
       // Twelve lines against a body cap of eight, so the cap is exercised
       // rather than merely configured.

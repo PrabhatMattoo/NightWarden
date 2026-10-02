@@ -23,6 +23,7 @@ function setup(
   props: {
     sessionId: string | null;
     isRunning: boolean;
+    reopenable?: boolean;
   },
   routePath = "/agent",
 ) {
@@ -43,7 +44,11 @@ function setup(
     getParentRoute: () => root,
     path: "/agent",
     component: () => (
-      <ChatInput sessionId={props.sessionId} isRunning={props.isRunning} />
+      <ChatInput
+        sessionId={props.sessionId}
+        isRunning={props.isRunning}
+        reopenable={props.reopenable ?? false}
+      />
     ),
   });
   const sessionRoute = createRoute({
@@ -156,6 +161,53 @@ describe("ChatInput", () => {
         message: "Why did that tool call fail?",
         clientMessageId: expect.stringMatching(UUID_V4),
       });
+    });
+  });
+
+  // Reopening is the person's call, and the message they send is its reason.
+  describe("reopening a closed investigation", () => {
+    it("offers the toggle only while the session can be reopened", async () => {
+      setup({ sessionId: "s1", isRunning: false });
+      await screen.findByRole("textbox");
+      expect(
+        screen.queryByRole("button", { name: "Reopen investigation" }),
+      ).not.toBeInTheDocument();
+    });
+
+    it("sends the message as the reason, and asks for one before it sends", async () => {
+      const user = userEvent.setup();
+      const { fetchMock } = setup({
+        sessionId: "s1",
+        isRunning: false,
+        reopenable: true,
+      });
+
+      const toggle = await screen.findByRole("button", {
+        name: "Reopen investigation",
+      });
+      await user.click(toggle);
+      expect(toggle).toHaveAttribute("aria-pressed", "true");
+
+      const textarea = screen.getByRole("textbox");
+      // No reason, no reopen.
+      expect(screen.getByRole("button", { name: /send/i })).toBeDisabled();
+
+      await user.type(textarea, "The disk filled again after the fix");
+      await user.click(screen.getByRole("button", { name: /send/i }));
+
+      const [, init] = fetchMock.mock.calls.find(
+        ([called]) => called === "/api/sessions/s1/reopen",
+      ) as [string, RequestInit];
+      expect(init.method).toBe("POST");
+      expect(sentBody(init)).toEqual({
+        reason: "The disk filled again after the fix",
+        clientMessageId: expect.stringMatching(UUID_V4),
+      });
+      expect(
+        fetchMock.mock.calls.some(
+          ([called]) => called === "/api/sessions/s1/messages",
+        ),
+      ).toBe(false);
     });
   });
 });

@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from "react";
-import { useMutation } from "@tanstack/react-query";
 import { useNavigate, useParams } from "@tanstack/react-router";
 import {
   ChevronLeft,
@@ -9,7 +8,6 @@ import {
   Minimize2,
   MoreHorizontal,
   PanelRight,
-  RotateCcw,
   Trash2,
 } from "lucide-react";
 
@@ -35,7 +33,6 @@ import { toast } from "@/shared/lib/toast";
 import { readStoredNumber, writeStoredNumber } from "@/shared/lib/persisted";
 import { cssNumber } from "@/shared/lib/cssNumber";
 import { cn } from "@/shared/lib/utils";
-import { apiFetch } from "@/shared/api/client";
 import { onReveal } from "@/features/session/transcript/revealToolCall";
 
 // A question about the reader's screen, not this layout, so the width they set
@@ -128,21 +125,11 @@ export function InvestigationWorkspace(): React.JSX.Element {
 
   // A settled investigation opens beside the chat, and a run that finishes opens
   // the report it just filled. A person can still close it and it stays closed.
-  const prevRunning = useRef<boolean | null>(null);
-  const initialized = useRef(false);
-  useEffect(() => {
-    if (session === null) return;
-    if (!initialized.current) {
-      initialized.current = true;
-      prevRunning.current = running;
-      if (!running && reportReady) setReportOpen(true);
-      return;
-    }
-    if (prevRunning.current === true && !running && reportReady) {
-      setReportOpen(true);
-    }
-    prevRunning.current = running;
-  }, [session, running, reportReady]);
+  const [prevRunning, setPrevRunning] = useState<boolean | null>(null);
+  if (session !== null && prevRunning !== running) {
+    if (prevRunning !== false && !running && reportReady) setReportOpen(true);
+    setPrevRunning(running);
+  }
 
   const asideRef = useRef<HTMLElement>(null);
   const beginDrag = (event: React.PointerEvent): void => {
@@ -181,21 +168,6 @@ export function InvestigationWorkspace(): React.JSX.Element {
         toast.show({ message: "Could not copy the report", variant: "error" }),
       );
   };
-
-  // Reopening returns a closed investigation to testing with its record intact;
-  // the run itself revises the report from what it finds.
-  const reopen = useMutation({
-    mutationFn: () =>
-      apiFetch<void>(`/api/sessions/${sessionId}/reopen`, { method: "POST" }),
-    onError: (err) =>
-      toast.show({
-        title: "Could not reopen the investigation",
-        message: err instanceof Error ? err.message : "Try again.",
-        variant: "error",
-      }),
-  });
-
-  const canReopen = reportReady && !running;
 
   // Revealing a cited tool from the report turns off full screen so the
   // transcript is visible beside it.
@@ -246,17 +218,6 @@ export function InvestigationWorkspace(): React.JSX.Element {
           </DropdownMenu>
 
           <div className="ml-auto flex shrink-0 items-center gap-2">
-            {canReopen && (
-              <Button
-                variant="default"
-                size="sm"
-                disabled={reopen.isPending}
-                onClick={() => reopen.mutate()}
-              >
-                <RotateCcw {...ICON_UI} />
-                Reopen investigation
-              </Button>
-            )}
             <QueueStepper sessionId={sessionId} />
             {/* A gap separates this pair from the stepper, which moves between
                 records rather than reshaping the one on screen. */}
@@ -301,8 +262,8 @@ export function InvestigationWorkspace(): React.JSX.Element {
           )}
         >
           <SessionView
+            key={sessionId}
             sessionId={sessionId === "" ? null : sessionId}
-            reportOpen={reportOpen}
           />
         </div>
         <aside
@@ -318,8 +279,10 @@ export function InvestigationWorkspace(): React.JSX.Element {
               ? "transition-none"
               : "transition-layout duration-(--duration-panel) ease-panel",
             !reportOpen && "w-0 shrink-0 border-transparent",
-            reportOpen && !maximized && "w-(--rail-width) shrink-0 border-edge",
-            reportOpen && maximized && "flex-1 border-edge",
+            reportOpen &&
+              !maximized &&
+              "w-(--rail-width) shrink-0 border-edge-faint",
+            reportOpen && maximized && "flex-1 border-edge-faint",
           )}
         >
           {reportOpen && !maximized && (

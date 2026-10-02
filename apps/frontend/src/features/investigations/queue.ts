@@ -1,4 +1,8 @@
-import type { SessionListRow, InvestigationStatus } from "@nightwarden/shared";
+import type {
+  InvestigationStatus,
+  SessionListRow,
+  StatusFilter,
+} from "@nightwarden/shared";
 
 // The group headers and the record's stepper share this order, so stepping
 // through the queue walks the list exactly as it was read.
@@ -20,6 +24,13 @@ export const STATUS_LABEL: Record<InvestigationStatus, string> = {
   completed: "Completed",
   stopped: "Stopped",
   failed: "Failed",
+};
+
+// Active gathers what is still in play, and Closed the three ways a run ends.
+export const FILTER_LABEL: Record<StatusFilter, string> = {
+  active: "Active",
+  resolved: STATUS_LABEL.resolved,
+  closed: "Closed",
 };
 
 interface StatusGroup {

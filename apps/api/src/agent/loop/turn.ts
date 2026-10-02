@@ -19,9 +19,6 @@ interface TurnOutcome {
   // The single gated call to suspend on, or null if the turn had none. The turn
   // suspends there, so every call asked for after it is answered for reissue.
   gated: { tool: ToolUse; kind: GateKind } | null;
-  // Names this turn asked for and did not get. The loop counts them across
-  // turns, because one turn cannot see that it is the fourth to ask.
-  refused: string[];
 }
 
 // Edits between two names, for the did-you-mean below. Small and local: the
@@ -125,14 +122,13 @@ export async function processToolUses(params: {
   // each execution below completes it with its own.
   execCtx: Omit<ToolDispatchContext, "toolCallId">;
   log: typeof logger;
-  // How many times each name has already been refused in this run, so a repeat
-  // is answered as a repeat rather than as a fresh mistake.
+  // How many times each name has already been refused since a person spoke, so
+  // a repeat is answered as a repeat rather than as a fresh mistake.
   alreadyRefused: ReadonlyMap<string, number>;
 }): Promise<TurnOutcome> {
   const { toolUses, offered, sessionId, execCtx, log } = params;
 
   const steps: Step[] = [];
-  const refused: string[] = [];
   let gated: { tool: ToolUse; kind: GateKind } | null = null;
   const offeredNames = [
     ...offered.tools.map((t) => t.schema.name),
@@ -183,7 +179,6 @@ export async function processToolUses(params: {
         steps.push({ kind: "gate" });
         continue;
       }
-      refused.push(tool.name);
       const asked = params.alreadyRefused.get(tool.name) ?? 0;
       log.warn(
         { tool: tool.name, exists: isToolName(tool.name), asked: asked + 1 },
@@ -199,6 +194,7 @@ export async function processToolUses(params: {
           content:
             withheld ?? unavailableMessage(tool.name, offeredNames, asked + 1),
           isError: true,
+          refusal: { kind: "unavailable", tool: tool.name },
         },
       });
       continue;
@@ -223,7 +219,7 @@ export async function processToolUses(params: {
         state: { phase: "running" },
       }),
     });
-    const { content, isError } = await executeTool(tool, call.input, {
+    const { content, isError, refusal } = await executeTool(tool, call.input, {
       ...execCtx,
       toolCallId: call.toolCallId,
     });
@@ -246,6 +242,7 @@ export async function processToolUses(params: {
       toolCallId: call.toolCallId,
       content,
       ...(isError === true && { isError: true }),
+      ...(refusal !== undefined && { refusal }),
     };
   };
 
@@ -291,5 +288,5 @@ export async function processToolUses(params: {
 
   const toolResults = answers.flatMap((r) => (r === undefined ? [] : [r]));
 
-  return { toolResults, gated, refused };
+  return { toolResults, gated };
 }

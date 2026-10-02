@@ -85,17 +85,13 @@ function CatalogRow({ row }: { row: IntegrationRow }): React.JSX.Element {
       {body}
     </Item>
   ) : (
-    // The list item wraps the link, so the row keeps the link's own role.
-    <div role="listitem">
-      <Item
-        render={<Link to={row.to} />}
-        role={undefined}
-        aria-label={row.title}
-        className="no-underline"
-      >
-        {body}
-      </Item>
-    </div>
+    <Item
+      render={<Link to={row.to} />}
+      aria-label={row.title}
+      className="no-underline"
+    >
+      {body}
+    </Item>
   );
 }
 

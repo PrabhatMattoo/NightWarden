@@ -26,11 +26,15 @@ import {
   toolCallsIn,
 } from "../agent/report.js";
 import { REPORT_TOOLS, COMPOSE_REPORT_TOOL } from "../agent/tools/report.js";
-import { REOPEN_MESSAGE } from "../agent/prompts/report.js";
 import { buildSeed } from "../session/seed.js";
 import { executeTool } from "../agent/tools/toolset.js";
 import { getRecord } from "../session/record-store.js";
-import { principalFindings, supersededIds } from "@nightwarden/shared";
+import {
+  messagePartsToText,
+  principalFindings,
+  supersededIds,
+} from "@nightwarden/shared";
+import type { MessagePart, ReminderKind } from "@nightwarden/shared";
 import {
   appendTranscriptRows,
   getNextSeq,
@@ -39,7 +43,7 @@ import {
 import { highestEvidenceNumber, resultParts } from "../agent/evidence-id.js";
 import { buildSessionMeta } from "../agent/loop/run-session.js";
 import { seedAlertSession, seedChatSession } from "./session-helper.js";
-import { seedCandidates } from "./report-helper.js";
+import { seedCandidates, seedCompleteReport } from "./report-helper.js";
 import {
   registerRunner,
   setRunnerManifest,
@@ -1293,6 +1297,122 @@ describe("the investigation record", () => {
       expect(drawn).not.toContain("<alert>");
     });
 
+    /* A run already in falsification that has had three closes refused, then an
+       answered approval: the shape an approval resume picks up. */
+    async function refusedThriceThenApproved(): Promise<string> {
+      const sessionId = randomUUID();
+      await seedAlertSession(buildSessionMeta(sessionId, null, undefined), [
+        alert("spent"),
+      ]);
+      await seedCompleteReport(sessionId);
+      const at = new Date().toISOString();
+      const row = (
+        kind: TranscriptRow["kind"],
+        parts: MessagePart[],
+        reminder?: ReminderKind,
+      ) => ({
+        sessionId,
+        kind,
+        content: messagePartsToText(parts),
+        parts,
+        timestamp: at,
+        ...(reminder !== undefined && { reminder }),
+      });
+      const call = (toolCallId: string, name: string) =>
+        row("assistant", [{ type: "tool_call", toolCallId, name, input: {} }]);
+      const note = (kind: ReminderKind) =>
+        row("system_reminder", [{ type: "text", text: kind }], kind);
+      const rows = [
+        note("alert_opening"),
+        call("tu-read", "ListDockerServices"),
+        row("user", [
+          { type: "tool_result", toolCallId: "tu-read", output: "[]" },
+        ]),
+        note("falsification"),
+        ...[1, 2, 3].flatMap((n) => [
+          call(`tu-refused-${n}`, "CloseInvestigation"),
+          row("user", [
+            {
+              type: "tool_result",
+              toolCallId: `tu-refused-${n}`,
+              output: "You have candidates you have not settled.",
+              isError: true,
+              refusal: { kind: "record_gaps", gaps: ["untested_candidates"] },
+            },
+          ]),
+        ]),
+        call("tu-restart", "RestartDockerService"),
+        row("user", [
+          {
+            type: "tool_result",
+            toolCallId: "tu-restart",
+            output: "restarted",
+          },
+          { type: "tool_approval", toolCallId: "tu-restart", approved: true },
+        ]),
+      ];
+      const first = await getNextSeq(sessionId);
+      await appendTranscriptRows(
+        rows.map((r, i) => ({ ...r, seq: first + i })),
+      );
+      return sessionId;
+    }
+
+    // Opens a new candidate and closes in the same turn, so the close is refused.
+    function openAndClose() {
+      return {
+        toolUses: [...openTurn().toolUses, ...closeTurn().toolUses],
+        text: "",
+      };
+    }
+
+    /* The allowance counts from the last time a person spoke. An approval answer
+       is not a person speaking, so the resume inherits what the run spent. */
+    it("carries a spent allowance across an approval resume", async () => {
+      mockCreateProvider.mockImplementationOnce(() =>
+        createContractFakeProvider([
+          openAndClose(),
+          { toolUses: [], text: "Stopping here." },
+        ]),
+      );
+      const sessionId = await refusedThriceThenApproved();
+
+      const outcome = await runSession({
+        sessionId,
+        seed: await buildSeed(sessionId),
+      });
+
+      expect(outcome).toBe("completed");
+      // The refused close, then the stand-down's closing turn: nothing in between.
+      const provider = mockCreateProvider.mock.results[0]!.value as {
+        chat: ReturnType<typeof vi.fn>;
+      };
+      expect(provider.chat).toHaveBeenCalledTimes(2);
+      expect(closePrompts()).toHaveLength(0);
+      expect((await getRecord(sessionId))!.report).toBeNull();
+    });
+
+    it("resets the allowance once a person speaks", async () => {
+      mockCreateProvider.mockImplementationOnce(() =>
+        createContractFakeProvider([
+          openAndClose(),
+          { toolUses: [], text: "Still thinking." },
+        ]),
+      );
+      const sessionId = await refusedThriceThenApproved();
+
+      await runSession({
+        sessionId,
+        seed: await buildSeed(sessionId),
+        userMessage: "keep going, check the new candidate",
+        clientMessageId: randomUUID(),
+      });
+
+      // The refusal spent a fresh allowance and the run carried on, so its
+      // prose turns were nudged rather than stood down at once.
+      expect(closePrompts()).toHaveLength(3);
+    });
+
     /* Refused where the claim is made rather than at the finish line, because by
        the time the gate runs the turn that could fix it is over. */
     it("refuses a claim citing a call that has not answered", async () => {
@@ -1432,7 +1552,9 @@ describe("the investigation record", () => {
       await runSession({
         sessionId,
         seed: await buildSeed(sessionId),
-        systemReminder: REOPEN_MESSAGE,
+        userMessage: "the disk is filling again, check the volume",
+        clientMessageId: randomUUID(),
+        reopen: true,
       });
 
       const second = harnessMessages(1).find((m) =>

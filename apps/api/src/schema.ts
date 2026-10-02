@@ -1,5 +1,5 @@
 import type { Generated } from "kysely";
-import type { ThemePreference } from "@nightwarden/shared";
+import type { ReminderKind, ThemePreference } from "@nightwarden/shared";
 
 // The shape every query is typed against. `migrations.ts` is the frozen history
 // that produced it; `Generated<T>` marks a column an insert may omit.
@@ -162,7 +162,6 @@ interface SessionsTable {
   attempt_started_at: string | null;
   candidates: Generated<string>;
   findings: Generated<string>;
-  last_stated_candidates: Generated<string>;
   report: string | null;
   record_updated_at: string | null;
   created_at: string;
@@ -195,6 +194,8 @@ interface SessionTranscriptTable {
   timestamp: string;
   // The sender's id for a person's message; null on every row no person sent.
   client_id: string | null;
+  // Which note a system_reminder row is; null on every other kind.
+  reminder: ReminderKind | null;
 }
 
 interface ToolResultStoreTable {

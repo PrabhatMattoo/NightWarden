@@ -1,14 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { buildInitialContext, buildChatContext } from "../context.js";
 import type { PromptOptions } from "../prompts/system.js";
-import {
-  EMPTY_RECORD_MESSAGE,
-  RECORD_CHECK_MESSAGE,
-  UNTESTED_CANDIDATES_MESSAGE,
-} from "../prompts/report.js";
+import { REOPEN_MESSAGE } from "../prompts/report.js";
 import { approvedWriteCount, gatedCalls, toolCallsFrom } from "../report.js";
 import { highestEvidenceNumber } from "../evidence-id.js";
-import { asSystemReminder, stripSystemReminder } from "../system-reminder.js";
+import { stripSystemReminder } from "../system-reminder.js";
 import { connectedPlatforms } from "../policy.js";
 import { retrySummary, withLLMRetries } from "../../llm/failures.js";
 import { retryDelaysMs } from "../../llm/config.js";
@@ -47,15 +43,6 @@ import type {
   ToolSchema,
 } from "../../llm/types.js";
 import type { PendingHumanInput } from "../../session/gate-store.js";
-import {
-  barrenTurnPolicy,
-  closePromptPolicy,
-  deriveRunProgress,
-  reportAttemptPolicy,
-  finishGatePolicy,
-  recordDebtPolicy,
-  spentOn,
-} from "./guardrails.js";
 import { RunState } from "./run-state.js";
 import type { RunContext, RunOutcome } from "./run-state.js";
 import { currentToolset, runOneTurn } from "./run-turn.js";
@@ -91,9 +78,8 @@ export interface RunSessionInput {
   // The user picked Investigate before they typed. An alert says the same
   // thing by existing; absent on a resume, which reads the session's own row.
   investigation?: boolean;
-  // Stored as ours and never drawn: words the reader did not write must never
-  // appear in their own voice.
-  systemReminder?: string;
+  // The person reopened a closed investigation, and userMessage is their reason.
+  reopen?: boolean;
   // Aborts the LLM request in flight when the dispatcher stops this run.
   signal?: AbortSignal;
   // When true: seed prior transcript and run exactly one closing turn (no tools),
@@ -189,9 +175,6 @@ export async function runSession(input: RunSessionInput): Promise<RunOutcome> {
     seeded,
     priorRows,
   );
-  // The stage is derived from the transcript each turn, so a resume continues
-  // where it left off; only the text-only allowance is seeded here.
-  const { textOnlySpent } = deriveRunProgress(priorRows);
   // Constant for the run, so counted once here rather than re-scanned per turn.
   const approvedWrites = approvedWriteCount(
     gatedCalls(toolCallsFrom(priorRows)),
@@ -202,13 +185,8 @@ export async function runSession(input: RunSessionInput): Promise<RunOutcome> {
   const standDownTurn = async (
     closer: LLMProvider,
     ending: string,
-    reminder?: string,
   ): Promise<RunOutcome> => {
     try {
-      if (reminder !== undefined) {
-        state.sendSystemReminder(reminder);
-        await state.flush();
-      }
       const closing = await chatWithRetries(
         closer,
         state.conversation(),
@@ -288,23 +266,23 @@ export async function runSession(input: RunSessionInput): Promise<RunOutcome> {
         [{ type: "text", text: stripSystemReminder(input.userMessage) }],
         input.clientMessageId,
       );
-      await state.flush();
-    } else if (input.systemReminder) {
-      state.sendSystemReminder(input.systemReminder);
-      await state.flush();
     }
+    // After the reason, so the model reads why before it is told what reopening means.
+    if (input.reopen === true)
+      state.sendSystemReminder("reopen", REOPEN_MESSAGE);
+    await state.flush();
   } else {
     // An alert has no human to type the first turn, so NightWarden writes it and
     // marks it as its own. A person's own first message is theirs.
-    const own = input.userMessage === undefined && openingTurn !== null;
-    const first = own
-      ? asSystemReminder(openingTurn)
-      : stripSystemReminder(input.userMessage ?? "");
-    state.enqueue(
-      own ? "system_reminder" : "user",
-      [{ type: "text", text: first }],
-      own ? undefined : input.clientMessageId,
-    );
+    if (input.userMessage === undefined && openingTurn !== null) {
+      state.sendSystemReminder("alert_opening", openingTurn);
+    } else {
+      state.enqueue(
+        "user",
+        [{ type: "text", text: stripSystemReminder(input.userMessage ?? "") }],
+        input.clientMessageId,
+      );
+    }
     await state.flush();
     // Brand-new session only: refine the title in the background. Chat uses the
     // message; an alert, a compact summary.
@@ -312,21 +290,6 @@ export async function runSession(input: RunSessionInput): Promise<RunOutcome> {
     void generateSessionTitle(sessionId, titleSource, llm, apiKey);
   }
 
-  /* The record belongs to the session, so its two allowances carry across a
-     resume; a barren turn counts consecutive turns and starts afresh. */
-  const finishGate = finishGatePolicy({
-    empty_record: spentOn(priorRows, EMPTY_RECORD_MESSAGE),
-    untested_candidates: spentOn(priorRows, UNTESTED_CANDIDATES_MESSAGE),
-  });
-  const closePrompts = closePromptPolicy(textOnlySpent);
-  /* Per run, unlike the gate allowances: a later run revising an earlier report
-     is making its first attempt at a new write-up, not repeating a failed one. */
-  const reportAttempts = reportAttemptPolicy(0);
-  const barrenTurns = barrenTurnPolicy();
-  const recordDebt = recordDebtPolicy(
-    opensInvestigation,
-    spentOn(priorRows, RECORD_CHECK_MESSAGE),
-  );
   // Computed once and never moved, so a run cannot outrun its own clock: every
   // turn spends the same budget and the check-in below always arrives.
   const deadline = Date.now() + config.checkInAfterMs;
@@ -350,11 +313,6 @@ export async function runSession(input: RunSessionInput): Promise<RunOutcome> {
     // The provider is bound in here, so the turn cycle never sees it.
     chat: (messages, tools, turn, chatSignal) =>
       chatWithRetries(provider, messages, tools, turn, chatSignal),
-    finishGate,
-    closePrompts,
-    reportAttempts,
-    barrenTurns,
-    recordDebt,
     drainInbox: input.drainInbox,
   };
 

@@ -3,7 +3,11 @@
 import { Menu as MenuPrimitive } from "@base-ui/react/menu";
 import { cn } from "@/shared/lib/utils";
 import { unavailableProps } from "@/shared/ui/unavailable";
-import { OVERLAY_OPTION, OVERLAY_SURFACE } from "@/shared/ui/overlay";
+import {
+  OVERLAY_OPTION,
+  OVERLAY_SEPARATOR,
+  OVERLAY_SURFACE,
+} from "@/shared/ui/overlay";
 import { GroundProvider, useOverlayGround } from "@/shared/ui/ground";
 
 const DropdownMenu = MenuPrimitive.Root;
@@ -90,7 +94,7 @@ function DropdownMenuSeparator({
   return (
     <MenuPrimitive.Separator
       data-slot="dropdown-menu-separator"
-      className={cn("-mx-1 my-1 border-t-hairline border-edge", className)}
+      className={cn(OVERLAY_SEPARATOR, className)}
       {...props}
     />
   );

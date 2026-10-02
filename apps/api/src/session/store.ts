@@ -123,7 +123,6 @@ interface SessionListRawRow {
   status: string;
   candidates: string;
   findings: string;
-  lastStatedCandidates: string;
   report: string | null;
   recordUpdatedAt: string | null;
   lastContent: string | null;
@@ -148,7 +147,6 @@ function toFacts(
       assembleRecord({
         candidates: r.candidates,
         findings: r.findings,
-        lastStatedCandidates: r.lastStatedCandidates,
         report: r.report,
         updatedAt: r.recordUpdatedAt,
       }) ?? null,
@@ -161,13 +159,26 @@ function toFacts(
   };
 }
 
+// What a page is narrowed to; an absent field narrows nothing.
+export interface SessionListFilter {
+  statuses?: readonly InvestigationStatus[];
+  titleContains?: string;
+}
+
+// A person's search text matched literally, so a typed % or _ finds itself.
+function containsPattern(text: string): string {
+  return `%${text.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+}
+
 // Ordering is the store's, not the frontend's: a waiting session leads the whole
 // list, and the id tiebreak stops a row swapping pages between fetches.
 export async function listSessionFacts(
   limit: number,
   offset: number,
   kind: SessionKind,
+  filter: SessionListFilter = {},
 ): Promise<SessionListFactsPage> {
+  const { statuses, titleContains } = filter;
   const rows = await getDb()
     .selectFrom("sessions as s")
     .select((eb) => [
@@ -178,7 +189,6 @@ export async function listSessionFacts(
       "s.status",
       "s.candidates",
       "s.findings",
-      "s.last_stated_candidates as lastStatedCandidates",
       "s.report",
       "s.record_updated_at as recordUpdatedAt",
       eb
@@ -195,6 +205,16 @@ export async function listSessionFacts(
       "s.awaiting_kind as pendingKind",
     ])
     .where("s.investigation", "=", kind === "investigation" ? 1 : 0)
+    .$call((qb) =>
+      statuses === undefined ? qb : qb.where("s.status", "in", [...statuses]),
+    )
+    .$call((qb) =>
+      titleContains === undefined
+        ? qb
+        : qb.where(
+            sql<boolean>`s.title LIKE ${containsPattern(titleContains)} ESCAPE '\\'`,
+          ),
+    )
     .orderBy(sql`(s.awaiting_tool_use_id IS NOT NULL)`, "desc")
     .orderBy("s.last_activity_at", "desc")
     .orderBy("s.session_id", "asc")

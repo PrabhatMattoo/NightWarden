@@ -3,27 +3,31 @@ import { useMutation, useSuspenseQuery } from "@tanstack/react-query";
 import { useBlocker, useNavigate } from "@tanstack/react-router";
 import type { Platform } from "@nightwarden/shared";
 import { serverNameError } from "@nightwarden/shared";
-import { ServerCard } from "@/features/integrations/runners/ServerCard";
 
 import { Alert, AlertTitle, AlertDescription } from "@/shared/ui/alert";
-import { StatusText } from "@/shared/ui/status";
 import { Button } from "@/shared/ui/button";
-import {
-  Field,
-  FieldLabel,
-  FieldDescription,
-  FieldError,
-} from "@/shared/ui/field";
-import { Input } from "@/shared/ui/input";
-import { Waiting } from "@/shared/ui/Rounds";
-import { Page } from "@/shared/ui/Page";
-import {
-  WizardStepper,
-  WizardActions,
-} from "@/features/integrations/runners/WizardStepper";
 import { ConfirmDialog } from "@/shared/ui/ConfirmDialog";
 import { CopyableSnippet } from "@/shared/ui/CopyableSnippet";
+import { FieldError } from "@/shared/ui/field";
+import { Input } from "@/shared/ui/input";
+import { Waiting } from "@/shared/ui/Rounds";
+import { Section } from "@/shared/ui/Page";
 import { ApiError, apiFetch, apiText } from "@/shared/api/client";
+import {
+  rowLabel,
+  SettingsGroup,
+  SettingsRow,
+} from "@/features/settings/SettingsRow";
+import { ServerCard } from "@/features/integrations/runners/ServerCard";
+import {
+  ConnectionActions,
+  IntegrationPage,
+  metaFacts,
+  NOT_CONNECTED,
+  ValueRow,
+  type ConnectionState,
+} from "../IntegrationPage";
+import { INTEGRATION_CATALOG } from "../catalog";
 import { runnersQuery } from "../queries";
 import { connectedOn } from "./connectedOn";
 import { PLATFORM_COPY } from "./RunnerListPage.js";
@@ -39,6 +43,14 @@ const RUNNER_POLL_MS = 3000;
 // the artifact that comes back is the one this runner's row already names.
 const INSTALL_URL = "/api/runners/install";
 
+const WAITING: ConnectionState = {
+  tone: "run",
+  label: "Waiting for the runner",
+};
+const CONNECTED: ConnectionState = { tone: "ok", label: "Connected" };
+
+/* One page that grows as the server is set up: the name, then the install
+   command for that name, then what the runner sees once it dials in. */
 export function AddRunnerPage({
   platform,
 }: {
@@ -46,15 +58,13 @@ export function AddRunnerPage({
 }): React.JSX.Element {
   const navigate = useNavigate();
   const copy = PLATFORM_COPY[platform];
+  const identity = INTEGRATION_CATALOG[platform];
   const listPath = `/integrations/${platform}`;
 
-  const [step, setStep] = useState(0);
   const [serverName, setServerName] = useState("");
+  const [touched, setTouched] = useState(false);
   const [mintedToken, setMintedToken] = useState<MintedToken | null>(null);
   const [committed, setCommitted] = useState(false);
-  const [touched, setTouched] = useState(false);
-
-  const STEP_TITLES = ["Name it", "Install the runner", "Confirm what it sees"];
 
   // The same rule the mint route enforces, so a name passing here cannot come
   // back a 400. Shown once typing starts: an untouched field is not a mistake.
@@ -65,7 +75,7 @@ export function AddRunnerPage({
   const { data: runners } = useSuspenseQuery({
     ...runnersQuery(),
     refetchInterval:
-      step === 1 && mintedToken !== null ? RUNNER_POLL_MS : false,
+      mintedToken !== null && !committed ? RUNNER_POLL_MS : false,
   });
 
   const connectedRunner = runners.find(
@@ -74,13 +84,13 @@ export function AddRunnerPage({
 
   // With nothing to list, back skips the list page so a first install returns
   // to Integrations rather than an empty intermediary.
-  const hasConnected = connectedOn(runners, platform).length > 0;
-  const back = hasConnected
-    ? { to: listPath, label: copy.plural }
-    : { to: "/integrations", label: "Integrations" };
+  const back =
+    connectedOn(runners, platform).length > 0
+      ? { to: listPath, label: copy.plural }
+      : { to: "/integrations", label: "Integrations" };
 
   /* The token is kept as soon as it exists, so leaving before the script arrives
-     still revokes it. A taken name sends the person back to the name step. */
+     still revokes it. A taken name leaves the name open to change. */
   const prepare = useMutation({
     mutationFn: async () => {
       const minted = await apiFetch<MintedToken>("/api/tokens", {
@@ -94,7 +104,7 @@ export function AddRunnerPage({
       });
     },
     onError: (err) => {
-      if (err instanceof ApiError && err.status === 409) setStep(0);
+      if (err instanceof ApiError && err.status === 409) setMintedToken(null);
     },
   });
   const installText = prepare.data ?? null;
@@ -123,6 +133,13 @@ export function AddRunnerPage({
       apiFetch<void>(`/api/tokens/${id}`, { method: "DELETE" }),
   });
 
+  // A different name needs a different token, so the one already minted goes.
+  function startOver(): void {
+    if (mintedToken !== null) revoke.mutate(mintedToken.id);
+    setMintedToken(null);
+    prepare.reset();
+  }
+
   function confirmLeaveSetup(): void {
     if (mintedToken !== null) revoke.mutate(mintedToken.id);
     if (blocker.status === "blocked") blocker.proceed();
@@ -132,128 +149,116 @@ export function AddRunnerPage({
     if (blocker.status === "blocked") blocker.reset();
   }
 
-  function handleStartInstall(): void {
-    if (nameError !== null) return;
-    setStep(1);
-    prepare.mutate();
-  }
+  const named = mintedToken !== null || prepare.isPending;
+  const state = connectedRunner
+    ? CONNECTED
+    : mintedToken !== null
+      ? WAITING
+      : NOT_CONNECTED;
 
   return (
-    <Page back={back}>
-      <WizardStepper step={step} total={3} title={STEP_TITLES[step]} />
-
-      {step === 0 && (
-        <div className="flex flex-col gap-8">
-          <Field>
-            <FieldLabel htmlFor="server-name">Server name</FieldLabel>
-            <FieldDescription>
-              The name NightWarden addresses this {copy.singular.toLowerCase()}{" "}
-              by, and the first part of every service address. Must be unique.
-            </FieldDescription>
-            <Input
-              measure="short"
+    <IntegrationPage
+      identity={identity}
+      facts={metaFacts(identity)}
+      state={state}
+      back={back}
+    >
+      <div className="flex flex-col gap-3">
+        <SettingsGroup
+          title="Name"
+          lead={`What NightWarden calls this ${copy.singular}.`}
+        >
+          {named ? (
+            <ValueRow id="server-name" title="Server name">
+              {serverName.trim()}
+            </ValueRow>
+          ) : (
+            <SettingsRow
               id="server-name"
-              placeholder={
-                platform === "docker" ? "e.g. prod-web-01" : "e.g. prod-cluster"
-              }
-              value={serverName}
-              aria-invalid={shownError !== null}
-              onChange={(e) => {
-                setTouched(true);
-                setServerName(e.currentTarget.value);
-              }}
-            />
-            {/* Always present: a row that appears on error shifts the form. */}
-            <div className="min-h-5">
-              {shownError && <FieldError>{shownError}</FieldError>}
-            </div>
-          </Field>
-
-          {installError !== null && <FieldError>{installError}</FieldError>}
-
-          <WizardActions>
+              title="Server name"
+              description="The first part of every service address. Must be unique."
+            >
+              <Input
+                aria-labelledby={rowLabel("server-name")}
+                measure="beside"
+                placeholder={
+                  platform === "docker" ? "prod-web-01" : "prod-cluster"
+                }
+                value={serverName}
+                aria-invalid={shownError !== null}
+                onChange={(e) => {
+                  setTouched(true);
+                  setServerName(e.currentTarget.value);
+                }}
+              />
+            </SettingsRow>
+          )}
+        </SettingsGroup>
+        {!named && (
+          <div className="flex items-center gap-3">
+            <FieldError>{shownError ?? installError}</FieldError>
             <Button
               className="ml-auto"
               disabled={nameError !== null}
-              onClick={handleStartInstall}
+              onClick={() => prepare.mutate()}
             >
-              Continue
+              Generate install command
             </Button>
-          </WizardActions>
-        </div>
-      )}
+          </div>
+        )}
+      </div>
 
-      {step === 1 && (
-        <div className="flex flex-col gap-4">
-          {prepare.isPending && <Waiting>Generating a runner token…</Waiting>}
-
-          {installError !== null && <FieldError>{installError}</FieldError>}
-
-          {installText !== null && (
-            <div className="flex flex-col gap-4">
-              <div className="flex flex-col gap-2">
-                <p className="type-body">
-                  {platform === "docker"
-                    ? "Run this on the host to install the runner:"
-                    : "Apply this to the cluster to install the runner:"}
-                </p>
+      {named && (
+        <div className="flex flex-col gap-3">
+          <SettingsGroup
+            title="Install"
+            lead={
+              platform === "docker"
+                ? "Run this on the host. The runner dials out to NightWarden, so nothing needs to reach in."
+                : "Apply this to the cluster. The runner dials out to NightWarden, so nothing needs to reach in."
+            }
+          >
+            <SettingsRow id="install-command" title="Install command" stacked>
+              {installText !== null ? (
                 <CopyableSnippet
                   text={installText}
                   label="Copy install command"
                 />
-              </div>
-
-              <div className="flex items-center gap-2">
-                {connectedRunner ? (
-                  <StatusText tone="ok">Runner connected</StatusText>
-                ) : (
-                  <Waiting>Waiting for the runner to connect…</Waiting>
-                )}
-              </div>
-            </div>
+              ) : installError !== null ? (
+                <FieldError>{installError}</FieldError>
+              ) : (
+                <Waiting>Generating a runner token…</Waiting>
+              )}
+            </SettingsRow>
+          </SettingsGroup>
+          {!connectedRunner && (
+            <ConnectionActions>
+              <Button variant="secondary" onClick={startOver}>
+                Change the name
+              </Button>
+            </ConnectionActions>
           )}
-
-          <WizardActions>
-            <Button variant="outline" onClick={() => setStep(0)}>
-              Back
-            </Button>
-            <Button disabled={!connectedRunner} onClick={() => setStep(2)}>
-              Continue
-            </Button>
-          </WizardActions>
         </div>
       )}
 
-      {step === 2 && (
-        <div className="flex flex-col gap-4">
-          <p className="type-body">
-            What this runner advertises. An alert reaches a service by carrying
-            labels that match one of these keys.
-          </p>
-
+      {connectedRunner && (
+        <Section
+          title="What it sees"
+          lead="An alert reaches a service by carrying labels that match one of these keys."
+        >
           {advertised.length === 0 && (
             <Alert variant="warning">
               <AlertTitle>No services detected</AlertTitle>
               <AlertDescription>{copy.emptyHint}</AlertDescription>
             </Alert>
           )}
-
-          {connectedRunner && (
-            <ServerCard runner={connectedRunner} defaultServicesOpen />
-          )}
-
-          <WizardActions>
-            <Button variant="outline" onClick={() => setStep(1)}>
-              Back
-            </Button>
-            <Button
-              variant="secondary"
-              onClick={() => void navigate({ to: listPath })}
-            >
+          <ServerCard runner={connectedRunner} defaultServicesOpen />
+          <ConnectionActions>
+            <Button onClick={() => void navigate({ to: listPath })}>
               Done
             </Button>
-          </WizardActions>
-        </div>
+          </ConnectionActions>
+        </Section>
       )}
 
       <ConfirmDialog
@@ -267,6 +272,6 @@ export function AddRunnerPage({
         destructive
         onConfirm={confirmLeaveSetup}
       />
-    </Page>
+    </IntegrationPage>
   );
 }

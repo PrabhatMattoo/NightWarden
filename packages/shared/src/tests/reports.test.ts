@@ -111,7 +111,6 @@ describe("which candidates are still open", () => {
         },
       ],
       findings: [claim("f1", "root_cause", "c1")],
-      lastStatedCandidates: [],
       report: null,
       updatedAt: "2026-08-19T02:14:00.000Z",
     };

@@ -59,7 +59,7 @@ export function CandidateCard({
               return (
                 <li
                   key={row.id}
-                  className="grid grid-cols-key-end items-baseline gap-x-3 gap-y-1 border-t-hairline border-edge px-4 py-3"
+                  className="grid grid-cols-key-end items-baseline gap-x-3 gap-y-1 border-t-hairline border-edge-faint px-4 py-3"
                 >
                   <span className="font-mono type-body text-ink-muted">
                     {row.id}

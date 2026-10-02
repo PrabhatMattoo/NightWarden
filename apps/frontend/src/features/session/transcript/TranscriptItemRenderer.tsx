@@ -62,7 +62,7 @@ function AlertArrived({ item }: { item: AlertArrivedItem }): React.JSX.Element {
       role="status"
       className="animate-in fade-in flex items-center gap-3 py-1 type-body duration-(--duration-slow)"
     >
-      <span aria-hidden className="h-px w-6 shrink-0 bg-edge" />
+      <span aria-hidden className="h-px w-6 shrink-0 bg-edge-faint" />
       {/* A word, and an uncoloured one. Severity is whatever the sender called
           it, so a tone here would be our reading of their vocabulary. */}
       <span className="flex shrink-0 items-center gap-2 whitespace-nowrap text-ink-muted">
@@ -76,7 +76,7 @@ function AlertArrived({ item }: { item: AlertArrivedItem }): React.JSX.Element {
             : "fired during this run"}
         </span>
       </span>
-      <span aria-hidden className="h-px min-w-0 flex-1 bg-edge" />
+      <span aria-hidden className="h-px min-w-0 flex-1 bg-edge-faint" />
     </div>
   );
 }
@@ -89,12 +89,12 @@ function Compaction(): React.JSX.Element {
       role="status"
       className="animate-in fade-in flex items-center gap-3 py-1 type-body duration-(--duration-slow)"
     >
-      <span aria-hidden className="h-px w-6 shrink-0 bg-edge" />
+      <span aria-hidden className="h-px w-6 shrink-0 bg-edge-faint" />
       <span className="flex shrink-0 items-center gap-2 whitespace-nowrap text-ink-muted">
         <span className="emphasis text-ink-base">Context summarised</span>
         <span>to fit the model; everything above stays in the record</span>
       </span>
-      <span aria-hidden className="h-px min-w-0 flex-1 bg-edge" />
+      <span aria-hidden className="h-px min-w-0 flex-1 bg-edge-faint" />
     </div>
   );
 }

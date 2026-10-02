@@ -3,17 +3,16 @@ import type { FastifyInstance } from "fastify";
 import type { SessionDetail, SessionReportResponse } from "@nightwarden/shared";
 import {
   chatRequestSchema,
+  reopenRequestSchema,
   sessionMessageRequestSchema,
   sessionPageQuerySchema,
   respondRequestSchema,
 } from "@nightwarden/shared/schemas";
 import { parseRequest } from "../request-body.js";
 import { gatedCalls, resolveEvidence, toolCallsIn } from "../agent/report.js";
-import { REOPEN_MESSAGE } from "../agent/prompts/report.js";
-import { deriveRunProgress } from "../agent/loop/guardrails.js";
 import { hasPendingHumanInput } from "./gate-store.js";
 import { getRecord } from "./record-store.js";
-import { getTranscriptRows } from "./transcript-store.js";
+import { isReopenable } from "./reopen.js";
 import {
   createSession,
   deleteSession,
@@ -63,8 +62,11 @@ export async function registerSessionRoutes(
       // shape it cannot serve was reachable only by omitting this.
       const query = parseRequest(sessionPageQuerySchema, request.query);
       if (!query.ok) return reply.code(400).send({ error: query.error });
-      const { limit, offset, kind } = query.data;
-      return await listSessionPage(limit, offset, kind);
+      const { limit, offset, kind, status, q } = query.data;
+      return await listSessionPage(limit, offset, kind, {
+        ...(status !== undefined && { status }),
+        ...(q !== undefined && { q }),
+      });
     },
   );
 
@@ -85,6 +87,8 @@ export async function registerSessionRoutes(
         lastActivityAt: session.lastActivityAt,
         investigation: session.investigation,
         running: await dispatcher.isSessionRunning(request.params.id),
+        reopenable:
+          session.investigation && (await isReopenable(request.params.id)),
         alerts: session.alerts,
         transcript: await buildTranscript(request.params.id),
       };
@@ -256,6 +260,9 @@ export async function registerSessionRoutes(
     { preHandler: requireSession },
     async (request, reply) => {
       const sessionId = request.params.id;
+      const body = parseRequest(reopenRequestSchema, request.body ?? {});
+      if (!body.ok) return reply.code(400).send({ error: body.error });
+      const { reason, clientMessageId } = body.data;
       const session = await getSession(sessionId);
       if (session === undefined) {
         return reply.code(404).send({ error: "unknown session" });
@@ -265,32 +272,19 @@ export async function registerSessionRoutes(
           .code(400)
           .send({ error: "a chat has no investigation to reopen" });
       }
-      const record = await getRecord(sessionId);
-      const { reportWritten, closingTurnDone } = deriveRunProgress(
-        await getTranscriptRows(sessionId),
-      );
-      if (
-        record === undefined ||
-        record.report === null ||
-        !reportWritten ||
-        !closingTurnDone
-      ) {
+      if (!(await isReopenable(sessionId))) {
         return reply
           .code(409)
-          .send({ error: "the investigation is not closed" });
-      }
-      // Parked on a human rather than racing, on the same terms as a message.
-      if (await hasPendingHumanInput(sessionId)) {
-        return reply
-          .code(409)
-          .send({ error: "session is busy: awaiting approval" });
+          .send({ error: "the investigation is not closed, or is busy" });
       }
       const seed = await buildSeed(sessionId);
       if (
         !(await dispatcher.dispatch({
           sessionId,
           seed,
-          systemReminder: REOPEN_MESSAGE,
+          userMessage: reason,
+          clientMessageId,
+          reopen: true,
         }))
       ) {
         return reply

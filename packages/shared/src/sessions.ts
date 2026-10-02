@@ -9,6 +9,22 @@ import type { TranscriptItem } from "./transcript.js";
 // replayed, "system_reminder" replayed but never rendered. buildSeed maps them.
 export type TranscriptKind = "user" | "assistant" | "error" | "system_reminder";
 
+// Which note a system_reminder row is. The run's position is folded from these,
+// never from the prose the note carried.
+export type ReminderKind =
+  | "alert_opening"
+  | "candidates_opening"
+  | "frontier"
+  | "falsification"
+  | "report_request"
+  | "report_retry"
+  | "closing"
+  | "text_only"
+  | "reopen"
+  | "record_check"
+  | "toolset_change"
+  | "injected_alerts";
+
 // Derived server-side and never declared by the model. The frontend draws
 // `running` as "Investigating"; null on a chat, which has no status to show.
 export type InvestigationStatus =
@@ -18,6 +34,26 @@ export type InvestigationStatus =
   | "stopped"
   | "failed"
   | "completed";
+
+// The Investigations page's views beside All: what is still in play, what
+// recovered, and what ended without the alert clearing.
+export type StatusFilter = "active" | "resolved" | "closed";
+
+export const STATUS_FILTERS: readonly StatusFilter[] = [
+  "active",
+  "resolved",
+  "closed",
+];
+
+// The stored statuses each view gathers, read by the server's query and the page alike.
+export const FILTER_STATUSES: Record<
+  StatusFilter,
+  readonly InvestigationStatus[]
+> = {
+  active: ["action_required", "running"],
+  resolved: ["resolved"],
+  closed: ["completed", "stopped", "failed"],
+};
 
 // One row of the frontend's one session list. A session not under investigation
 // leaves the status fields null.
@@ -45,8 +81,8 @@ export interface QueueState {
   oldestArrivedAt: string | null;
 }
 
-// What GET /sessions answers. The rows are one page; the counts are claims
-// about every session, which a page cannot answer.
+// What GET /sessions answers. The rows are one page; the total is a claim about
+// every investigation, which a page cannot answer.
 export interface SessionListPage {
   rows: SessionListRow[];
   // The offset to request next, or null once the list is exhausted.
@@ -94,6 +130,8 @@ export interface SessionDetail extends SessionMeta {
   // The stream carries the deltas, so without this a session rejoined mid-run
   // reads as idle until the next event happens to land.
   running: boolean;
+  // Written up and closed, idle and waiting on nobody, which the reopen route also requires.
+  reopenable: boolean;
   // In arrival order: the batch that opened the session, then any that arrived
   // while the run was working.
   alerts: SessionAlert[];
@@ -115,4 +153,6 @@ export interface TranscriptRow {
   // The id the sender minted for a person's message; beside the parts, so it is
   // never replayed to the model.
   clientId?: string;
+  // Present on every system_reminder row and on no other kind.
+  reminder?: ReminderKind;
 }

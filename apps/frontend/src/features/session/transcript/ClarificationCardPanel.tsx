@@ -237,7 +237,7 @@ export function ClarificationCardPanel({
                 message box, and the answer stays where its number is. */}
             {otherOpen ? (
               <InputGroup variant="row" className="w-full">
-                <span className="w-3 shrink-0 pl-3 font-mono type-body text-ink-muted tabular-nums">
+                <span className="w-3 shrink-0 font-mono type-body text-ink-muted tabular-nums">
                   {otherIndex + 1}
                 </span>
                 <InputGroupInput

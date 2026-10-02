@@ -951,12 +951,84 @@ describe("API-local session store", () => {
 
   // Claims about every session, which a page of rows cannot answer: a count of
   // loaded pages climbs as the user scrolls and reads zero before they do.
-  describe("the page's counts and its kind filter", () => {
-    async function investigation(): Promise<string> {
-      const m = meta();
+  describe("the page's total and its filters", () => {
+    async function investigation(title?: string): Promise<string> {
+      const m = meta(title === undefined ? {} : { title });
       await seedAlertSession(m, [{ ...alert, sourceAlertId: randomUUID() }]);
       return m.sessionId;
     }
+
+    // One of each: parked on a person, recovered, and finished without recovery.
+    async function oneOfEach(): Promise<Record<string, string>> {
+      const waiting = await investigation();
+      await appendRowsAndPark([msg(waiting, 0)], {
+        sessionId: waiting,
+        toolCallId: `tu-${waiting}`,
+        kind: "approval",
+        completedResults: [],
+        claimedAt: null,
+      });
+      const sourceAlertId = randomUUID();
+      const resolved = meta();
+      await seedAlertSession(resolved, [{ ...alert, sourceAlertId }]);
+      await seedCompleteReport(resolved.sessionId);
+      await markAlertCleared(
+        sourceAlertId,
+        alert.firedAt,
+        new Date().toISOString(),
+      );
+      const completed = await investigation();
+      await seedCompleteReport(completed);
+      return { waiting, resolved: resolved.sessionId, completed };
+    }
+
+    it("lists only the rows a filter gathers", async () => {
+      const ids = await oneOfEach();
+      // Active is what is still in play: a run working, or one waiting on a person.
+      const active = await listSessionPage(500, 0, "investigation", {
+        status: "active",
+      });
+      expect(
+        active.rows.every((r) =>
+          ["action_required", "running"].includes(r.status ?? ""),
+        ),
+      ).toBe(true);
+      expect(active.rows.map((r) => r.sessionId)).toContain(ids.waiting);
+
+      const resolved = await listSessionPage(500, 0, "investigation", {
+        status: "resolved",
+      });
+      expect(resolved.rows.every((r) => r.status === "resolved")).toBe(true);
+      expect(resolved.rows.map((r) => r.sessionId)).toContain(ids.resolved);
+
+      const closed = await listSessionPage(500, 0, "investigation", {
+        status: "closed",
+      });
+      expect(
+        closed.rows.every((r) =>
+          ["completed", "stopped", "failed"].includes(r.status ?? ""),
+        ),
+      ).toBe(true);
+      expect(closed.rows.map((r) => r.sessionId)).toContain(ids.completed);
+      expect(closed.rows.map((r) => r.sessionId)).not.toContain(ids.waiting);
+    });
+
+    // A person types % or _ meaning the character, never a wildcard.
+    it("searches titles for the typed text, whatever its case", async () => {
+      const full = await investigation("Disk 100% on web_01");
+      const near = await investigation("Disk 1000 on webX01");
+      const found = async (q: string): Promise<string[]> =>
+        (await listSessionPage(500, 0, "investigation", { q })).rows.map(
+          (r) => r.sessionId,
+        );
+
+      expect(await found("100%")).toContain(full);
+      expect(await found("100%")).not.toContain(near);
+      expect(await found("web_01")).not.toContain(near);
+      expect(await found("disk 100% ON")).toContain(full);
+      // Blank is no search at all.
+      expect(await found("")).toEqual(expect.arrayContaining([full, near]));
+    });
 
     it("totals every investigation, so a record's place in the queue is true", async () => {
       const before = (await listSessionPage(1, 0, "investigation"))
@@ -968,7 +1040,7 @@ describe("API-local session store", () => {
       ).toBe(before + 1);
     });
 
-    it("filters the rows by kind, leaving the counts alone", async () => {
+    it("filters the rows by kind, leaving the total alone", async () => {
       const chat = meta();
       await createSession(chat);
       const only = await listSessionPage(500, 0, "investigation");

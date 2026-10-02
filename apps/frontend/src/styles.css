@@ -195,6 +195,12 @@
   font-weight: 450;
   color: var(--ink-muted);
 }
+/* A pill's own label: small, and set at the weight a control's name carries. */
+@utility type-chip {
+  font-size: 0.75rem;
+  line-height: 1rem;
+  font-weight: 500;
+}
 @utility type-label {
   font-size: 0.75rem;
   line-height: 1rem;
@@ -385,7 +391,7 @@
 }
 
 @utility conversation-column {
-  @apply mx-auto w-full max-w-page px-6;
+  @apply mx-auto w-full max-w-page px-6 max-md:px-4;
 }
 
 @utility report-column {

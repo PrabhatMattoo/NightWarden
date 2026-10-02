@@ -1,4 +1,4 @@
-import type { NormalizedAlert, ResolvedEvidence } from "@nightwarden/shared";
+import type { ResolvedEvidence } from "@nightwarden/shared";
 import { revealToolCall } from "@/features/session/transcript/revealToolCall";
 import { targetOf } from "@/features/session/transcript/toolPresentation";
 
@@ -8,7 +8,6 @@ export function CitationChip({
   evidence,
 }: {
   evidence: ResolvedEvidence;
-  alert?: NormalizedAlert | null;
 }): React.JSX.Element {
   const target = targetOf(evidence.input);
 

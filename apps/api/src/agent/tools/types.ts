@@ -1,5 +1,5 @@
 import type { z } from "zod";
-import type { EvidenceKind, Platform } from "@nightwarden/shared";
+import type { EvidenceKind, Platform, ToolRefusal } from "@nightwarden/shared";
 import type { ToolSchema } from "../../llm/types.js";
 
 export interface ToolExecuteResult {
@@ -7,6 +7,8 @@ export interface ToolExecuteResult {
   // found rather than reading it back out of prose.
   content: unknown;
   isError?: true;
+  // A refusal the harness counts, such as a close the record cannot support yet.
+  refusal?: ToolRefusal;
 }
 
 // What the dispatcher hands back: the result already rendered to the string the
@@ -14,6 +16,7 @@ export interface ToolExecuteResult {
 export interface DispatchedToolResult {
   content: string;
   isError?: true;
+  refusal?: ToolRefusal;
 }
 
 interface ToolCallIdentity {

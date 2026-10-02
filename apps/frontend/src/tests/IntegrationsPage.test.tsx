@@ -237,8 +237,8 @@ describe("IntegrationsPage", () => {
       }
     });
 
-    /* Connecting never moves a card: it stays in its own section and gains a
-       status line, so the grid a person learned stays where they left it. */
+    /* Connecting keeps a row in its own section and adds its status, so the
+       list a person learned stays where they left it. */
     it("keeps a connected integration in its own section with its status", async () => {
       setup({ github: CONFIGURED });
 

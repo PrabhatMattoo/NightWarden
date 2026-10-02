@@ -2,7 +2,7 @@
 // through these shapes, never to a vendor SDK directly.
 
 import type { JSONSchema7Definition } from "@ai-sdk/provider";
-import type { MessagePart, ToolName } from "@nightwarden/shared";
+import type { MessagePart, ToolName, ToolRefusal } from "@nightwarden/shared";
 
 export interface ToolSchema {
   // Checked against the shared list, so a tool the frontend draws by name cannot
@@ -27,6 +27,8 @@ export interface ToolResult {
   toolCallId: string;
   content: string;
   isError?: boolean;
+  // Kept beside the text for the loop alone; no adapter sends it.
+  refusal?: ToolRefusal;
 }
 
 /* One value per reason a provider can report, so nothing it says is folded into

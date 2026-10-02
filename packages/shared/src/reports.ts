@@ -13,6 +13,10 @@ export type Verdict =
   | "disproven"
   | "untestable";
 
+// What a refused close can name as missing: no finding at all, or a candidate
+// still carrying none.
+export type RecordGapKind = "empty_record" | "untested_candidates";
+
 // A hypothesis the agent commits to before testing it, carrying what it expects
 // to see if it holds and what would prove it wrong.
 export interface Candidate {
@@ -163,9 +167,6 @@ export interface SubmittedReport {
 export interface InvestigationRecord {
   candidates: Candidate[];
   findings: Finding[];
-  // The candidate ids named in the last frontier message, so a resumed run does
-  // not restate a frontier it already sent.
-  lastStatedCandidates: string[];
   // Null until the run reaches its composition turn, which several endings never
   // do: the findings render without it.
   report: SubmittedReport | null;

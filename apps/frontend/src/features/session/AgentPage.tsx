@@ -5,6 +5,7 @@ import {
   ClipboardCopy,
   MoreHorizontal,
   Plus,
+  Search,
   Trash2,
 } from "lucide-react";
 
@@ -12,14 +13,24 @@ import { Page } from "@/shared/ui/Page";
 import { SessionView } from "@/features/session/SessionView";
 import { Button } from "@/shared/ui/button";
 import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupInput,
+} from "@/shared/ui/input-group";
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/shared/ui/dropdown-menu";
-import { Separator } from "@/shared/ui/separator";
 import { Popover, PopoverContent, PopoverTrigger } from "@/shared/ui/popover";
+import {
+  OVERLAY_LABEL,
+  OVERLAY_OPTION,
+  OVERLAY_SEPARATOR,
+} from "@/shared/ui/overlay";
+import { cn } from "@/shared/lib/utils";
 import { useSession } from "@/features/session/useSession";
 import { useSessionDeletion } from "@/features/session/useSessionDeletion";
 import { useSessions } from "@/features/session/useSessions";
@@ -29,10 +40,14 @@ import { DAY_GROUPS, dayGroup, timeAgo } from "@/shared/lib/time";
 import { toast } from "@/shared/lib/toast";
 
 // A session is what it is from the moment it exists, so the kind filter is
-// the whole rule and no row ever leaves this list.
+// the whole rule and no row ever leaves this list. The search is the server's.
 function ChatHistory({ onLeave }: { onLeave: () => void }): React.JSX.Element {
-  const { sessions, isLoading, hasMore, isLoadingMore, loadMore } =
-    useSessions("chat");
+  const [search, setSearch] = useState("");
+  const q = search.trim();
+  const { sessions, isLoading, hasMore, isLoadingMore, loadMore } = useSessions(
+    "chat",
+    q === "" ? {} : { q },
+  );
 
   const groups = DAY_GROUPS.map((group) => ({
     group,
@@ -41,18 +56,31 @@ function ChatHistory({ onLeave }: { onLeave: () => void }): React.JSX.Element {
 
   return (
     <>
+      <InputGroup className="mb-1">
+        <InputGroupAddon>
+          <Search aria-hidden />
+        </InputGroupAddon>
+        <InputGroupInput
+          type="search"
+          aria-label="Search conversations"
+          placeholder="Search conversations"
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+        />
+      </InputGroup>
       {!isLoading && groups.length === 0 && (
-        <p className="m-0 px-2.5 py-1 type-body text-ink-muted">No history</p>
+        <p className={cn("m-0", OVERLAY_LABEL)}>
+          {q === "" ? "No history" : "No conversations match"}
+        </p>
       )}
       {groups.map(({ group, rows }, index) => (
         <section key={group} aria-label={group} className="flex flex-col">
-          {/* Every division in this panel is drawn the same way and spaced the
-              same, so the New chat entry and one day against the next read as
-              one rhythm rather than two. */}
-          {index > 0 && <Separator className="my-1" />}
+          {/* Drawn as every popup draws its divisions, so the New chat entry and
+              one day against the next read as one rhythm. */}
+          {index > 0 && <div role="separator" className={OVERLAY_SEPARATOR} />}
           {/* A day, written the way it is said. The uppercase mono label is for
               naming a system's own parts, which a Tuesday is not. */}
-          <h3 className="m-0 px-2.5 py-1 type-body text-ink-muted">{group}</h3>
+          <h3 className={cn("m-0", OVERLAY_LABEL)}>{group}</h3>
           <ul className="m-0 flex list-none flex-col p-0">
             {rows.map((row) => (
               <li key={row.sessionId}>
@@ -60,7 +88,7 @@ function ChatHistory({ onLeave }: { onLeave: () => void }): React.JSX.Element {
                   to="/agent/$id"
                   params={{ id: row.sessionId }}
                   onClick={onLeave}
-                  className="flex items-center justify-between gap-3 rounded-control px-2.5 py-1.5 type-body no-underline transition-colors hover:bg-hover"
+                  className={cn(OVERLAY_OPTION, "justify-between gap-3")}
                 >
                   <span className="min-w-0 truncate">{row.title}</span>
                   <span className="shrink-0 tabular-nums text-ink-muted">
@@ -94,6 +122,13 @@ export function AgentPage(): React.JSX.Element {
   const sessionId = id ?? null;
   const session = useSession(sessionId);
   const [historyOpen, setHistoryOpen] = useState(false);
+  /* The view starts afresh when the route names another chat. A chat being given
+     its id, or opened from this empty page, is the same view and keeps its key. */
+  const [view, setView] = useState({ route: sessionId, key: 0 });
+  if (view.route !== sessionId) {
+    const same = view.route === null && sessionId !== null;
+    setView({ route: sessionId, key: same ? view.key : view.key + 1 });
+  }
   const title = session?.title ?? "New chat";
   const deletion = useSessionDeletion({
     sessionId,
@@ -143,12 +178,12 @@ export function AgentPage(): React.JSX.Element {
                   <Link
                     to="/agent"
                     onClick={() => setHistoryOpen(false)}
-                    className="flex items-center gap-2 rounded-control px-2.5 py-1.5 type-body no-underline transition-colors hover:bg-hover"
+                    className={OVERLAY_OPTION}
                   >
                     <Plus {...ICON_UI} />
                     New chat
                   </Link>
-                  <Separator className="my-1" />
+                  <div role="separator" className={OVERLAY_SEPARATOR} />
                 </>
               )}
               <ChatHistory onLeave={() => setHistoryOpen(false)} />
@@ -192,7 +227,7 @@ export function AgentPage(): React.JSX.Element {
       {/* The fall belongs to this surface alone, where the conversation has the
           whole stage to fall through. */}
       <div className="stage-fall flex min-h-0 flex-1 flex-col overflow-hidden">
-        <SessionView sessionId={sessionId} />
+        <SessionView key={view.key} sessionId={sessionId} />
       </div>
       {deletion.dialog}
     </Page>

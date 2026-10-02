@@ -154,17 +154,17 @@ async function startInstall(
     await screen.findByRole("textbox", { name: /server name/i }),
     name,
   );
-  await user.click(screen.getByRole("button", { name: /continue/i }));
+  await user.click(
+    screen.getByRole("button", { name: /generate install command/i }),
+  );
 }
 
-async function advanceToVerify(
+// What the runner sees opens on its own once it has dialled in.
+async function startAndConnect(
   user: ReturnType<typeof userEvent.setup>,
 ): Promise<void> {
   await startInstall(user);
-  await waitFor(() => {
-    expect(screen.getByText(/runner connected/i)).toBeInTheDocument();
-  });
-  await user.click(screen.getByRole("button", { name: /continue/i }));
+  await screen.findByRole("heading", { name: "What it sees" });
 }
 
 afterEach(() => {
@@ -173,7 +173,7 @@ afterEach(() => {
 });
 
 describe("AddRunnerPage", () => {
-  describe("install step", () => {
+  describe("the install command", () => {
     it("mints a runner token and shows the docker run script", async () => {
       const user = userEvent.setup();
       const { fetchMock } = setup();
@@ -227,6 +227,28 @@ describe("AddRunnerPage", () => {
       });
     });
 
+    // A different name needs a different token, so the minted one is revoked.
+    it("revokes the minted token and reopens the name when it is changed", async () => {
+      const user = userEvent.setup();
+      const { fetchMock } = setup({ runners: [AWAITING_RUNNER] });
+
+      await startInstall(user, { name: "web-01" });
+      await screen.findByText(/install-docker/);
+      await user.click(
+        screen.getByRole("button", { name: /change the name/i }),
+      );
+
+      await waitFor(() => {
+        expect(fetchMock).toHaveBeenCalledWith(
+          `/api/tokens/${GENERATED_TOKEN.id}`,
+          expect.objectContaining({ method: "DELETE" }),
+        );
+      });
+      expect(screen.getByRole("textbox", { name: /server name/i })).toHaveValue(
+        "web-01",
+      );
+    });
+
     it("fetches the install artifact from the one platform-agnostic endpoint", async () => {
       const user = userEvent.setup();
       const { fetchMock } = setup();
@@ -244,7 +266,7 @@ describe("AddRunnerPage", () => {
     });
   });
 
-  describe("verify step", () => {
+  describe("once the runner connects", () => {
     it("lists the identity keys the runner advertises, dispatching nothing", async () => {
       const user = userEvent.setup();
       const { fetchMock } = setup({
@@ -266,7 +288,7 @@ describe("AddRunnerPage", () => {
           },
         ],
       });
-      await advanceToVerify(user);
+      await startAndConnect(user);
 
       expect(screen.getByText("prod-1/encodr/cache")).toBeInTheDocument();
 
@@ -280,7 +302,7 @@ describe("AddRunnerPage", () => {
     it("warns when the runner connected but sees nothing", async () => {
       const user = userEvent.setup();
       setup({ runners: [CONNECTED_RUNNER] });
-      await advanceToVerify(user);
+      await startAndConnect(user);
 
       expect(screen.getByText(/no services detected/i)).toBeInTheDocument();
     });
@@ -332,7 +354,7 @@ describe("AddRunnerPage", () => {
         within(dialog).getByRole("button", { name: /^cancel$/i }),
       );
 
-      // Declining keeps the wizard on screen rather than reaching a destination.
+      // Declining keeps the page on screen rather than reaching a destination.
       expect(
         screen.queryByText(/integrations destination/i),
       ).not.toBeInTheDocument();
@@ -348,9 +370,7 @@ describe("AddRunnerPage", () => {
       const { fetchMock } = setup({ runners: [CONNECTED_RUNNER] });
 
       await startInstall(user, { name: "web-01" });
-      await waitFor(() => {
-        expect(screen.getByText(/runner connected/i)).toBeInTheDocument();
-      });
+      await screen.findByRole("heading", { name: "What it sees" });
 
       await user.click(screen.getByRole("link", { name: /docker hosts/i }));
 

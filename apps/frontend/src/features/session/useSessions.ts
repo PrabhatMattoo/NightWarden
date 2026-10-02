@@ -1,10 +1,12 @@
 import { useCallback } from "react";
 import {
+  hashKey,
   useInfiniteQuery,
   useQueryClient,
   type InfiniteData,
   type QueryClient,
 } from "@tanstack/react-query";
+import { FILTER_STATUSES } from "@nightwarden/shared";
 import type {
   FrontendEvent,
   QueueState,
@@ -13,9 +15,40 @@ import type {
   SessionListRow,
 } from "@nightwarden/shared";
 import { useFrontendEvents } from "@/shared/events/FrontendEventsProvider.js";
-import { sessionsQuery, sessionsQueryKey } from "./queries";
+import {
+  sessionsQuery,
+  sessionsQueryKey,
+  type SessionsFilter,
+} from "./queries";
 
 type Pages = InfiniteData<SessionListPage, number>;
+
+/* The rows the whole list already holds that a narrower one would, shown while the
+   server answers, so switching never flashes a row the filter leaves out. */
+function narrowedFromWhole(
+  queryClient: QueryClient,
+  kind: SessionKind,
+  filter: SessionsFilter,
+): Pages | undefined {
+  const q = filter.q?.toLowerCase() ?? "";
+  if (filter.status === undefined && q === "") return undefined;
+  const whole = queryClient.getQueryData<Pages>(sessionsQuery(kind).queryKey);
+  if (whole === undefined) return undefined;
+  const statuses =
+    filter.status === undefined ? null : FILTER_STATUSES[filter.status];
+  const keeps = (row: SessionListRow): boolean =>
+    (statuses === null ||
+      (row.status !== null && statuses.includes(row.status))) &&
+    row.title.toLowerCase().includes(q);
+  return {
+    ...whole,
+    pages: whole.pages.map((page) => ({
+      ...page,
+      rows: page.rows.filter(keeps),
+      nextOffset: null,
+    })),
+  };
+}
 
 interface UseSessionsResult {
   sessions: SessionListRow[];
@@ -42,7 +75,10 @@ function dedupe(rows: SessionListRow[]): SessionListRow[] {
   });
 }
 
-export function useSessions(kind: SessionKind): UseSessionsResult {
+export function useSessions(
+  kind: SessionKind,
+  filter: SessionsFilter = {},
+): UseSessionsResult {
   const queryClient = useQueryClient();
   /* A title is refined in the background moments after a session opens, so the
      list it belongs to takes the new one as it lands. */
@@ -60,7 +96,10 @@ export function useSessions(kind: SessionKind): UseSessionsResult {
   );
   useFrontendEvents(onEvent);
 
-  const query = useInfiniteQuery(sessionsQuery(kind));
+  const query = useInfiniteQuery({
+    ...sessionsQuery(kind, filter),
+    placeholderData: () => narrowedFromWhole(queryClient, kind, filter),
+  });
 
   const first = query.data?.pages[0];
   return {
@@ -76,30 +115,42 @@ export function useSessions(kind: SessionKind): UseSessionsResult {
   };
 }
 
+// Every cached list of the kind, filtered or not, since a row can sit in several.
 function updatePages(
   queryClient: QueryClient,
   kind: SessionKind,
   update: (pages: SessionListPage[]) => SessionListPage[],
 ): void {
-  queryClient.setQueryData<Pages>(sessionsQueryKey(kind), (prev) =>
-    prev === undefined ? prev : { ...prev, pages: update(prev.pages) },
+  queryClient.setQueriesData<Pages>(
+    { queryKey: sessionsQueryKey(kind) },
+    (prev) =>
+      prev === undefined ? prev : { ...prev, pages: update(prev.pages) },
   );
 }
 
-// A session just started belongs at the top of the first page, where the API
-// would put it. Before that page loads there is nothing to prepend to.
+/* A session just started belongs at the top of the whole list, where the API
+   would put it. A filtered list may not hold it, so it is asked again instead. */
 export function prependSession(
   queryClient: QueryClient,
   row: SessionListRow,
 ): void {
-  updatePages(
-    queryClient,
-    row.investigation ? "investigation" : "chat",
-    (pages) =>
-      pages.map((page, index) =>
-        index === 0 ? { ...page, rows: [row, ...page.rows] } : page,
-      ),
+  const kind = row.investigation ? "investigation" : "chat";
+  const whole = sessionsQuery(kind).queryKey;
+  queryClient.setQueryData<Pages>(whole, (prev) =>
+    prev === undefined
+      ? prev
+      : {
+          ...prev,
+          pages: prev.pages.map((page, index) =>
+            index === 0 ? { ...page, rows: [row, ...page.rows] } : page,
+          ),
+        },
   );
+  void queryClient.invalidateQueries({
+    queryKey: sessionsQueryKey(kind),
+    predicate: (query) => query.queryHash !== hashKey(whole),
+    refetchType: "none",
+  });
 }
 
 export function removeSession(

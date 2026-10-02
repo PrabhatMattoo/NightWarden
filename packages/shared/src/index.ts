@@ -134,6 +134,7 @@ export type {
 export { PLATFORMS, isPlatform, serverNameError } from "./runner.js";
 export type {
   TranscriptKind,
+  ReminderKind,
   SessionMeta,
   TranscriptRow,
   SessionAlert,
@@ -143,12 +144,15 @@ export type {
   SessionListPage,
   QueueState,
   SessionKind,
+  StatusFilter,
 } from "./sessions.js";
+export { FILTER_STATUSES, STATUS_FILTERS } from "./sessions.js";
 export type {
   TextPart,
   ReasoningPart,
   ToolCallPart,
   ToolResultPart,
+  ToolRefusal,
   ToolApprovalPart,
   ElicitationAnswerPart,
   CompactionPart,
@@ -175,6 +179,7 @@ export type {
 export { transcriptItemKey } from "./transcript.js";
 export type {
   Verdict,
+  RecordGapKind,
   Candidate,
   Finding,
   GatedCall,

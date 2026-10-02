@@ -18,8 +18,6 @@ import {
   approvedWriteCount,
   gatedCalls,
   openCandidateRows,
-  recordGaps,
-  setLastStatedCandidates,
   toolCallsIn,
 } from "../report.js";
 import {
@@ -42,8 +40,14 @@ import type { ChatResponse, ToolResult, ToolUse } from "../../llm/types.js";
 import { COMPOSE_REPORT_TOOL } from "../tools/report.js";
 import { processToolUses } from "./turn.js";
 import { REPORT_GIVEN_UP, reportEnding, turnEnding } from "./endings.js";
-import { citableAnswers, deriveRunProgress } from "./guardrails.js";
-import type { RunProgress } from "./guardrails.js";
+import {
+  barrenEnding,
+  nudgeLeft,
+  recordCheckDue,
+  refusalsSpent,
+  reportAsk,
+  type RunPosition,
+} from "./guardrails.js";
 import { formatInjectedAlerts } from "./injection.js";
 import type { RunContext, TurnResult } from "./run-state.js";
 
@@ -146,21 +150,20 @@ async function suspendOnGate(
   );
 }
 
-// Keeps the open candidates in view whenever the set changes, so the ones still
-// to test are not lost behind a long chain of reads. The set is read live.
-async function emitFrontierIfChanged(
+/* Keeps the open candidates in view whenever a turn changes the set, so the ones
+   still to test are not lost behind a long chain of reads. */
+function emitFrontierIfChanged(
   ctx: RunContext,
-  record: InvestigationRecord | undefined,
-): Promise<void> {
-  if (record === undefined) return;
-  const open = openCandidateIds(record);
-  const last = record.lastStatedCandidates;
+  before: InvestigationRecord | undefined,
+  after: InvestigationRecord | undefined,
+): void {
+  if (after === undefined) return;
+  const was = before === undefined ? [] : openCandidateIds(before);
+  const open = openCandidateIds(after);
   const same =
-    open.length === last.length &&
-    [...open].sort().join("\n") === [...last].sort().join("\n");
-  if (same) return;
-  await setLastStatedCandidates(ctx.sessionId, open);
-  if (open.length > 0) ctx.state.sendSystemReminder(frontierMessage(record));
+    open.length === was.length && open.every((id) => was.includes(id));
+  if (!same && open.length > 0)
+    ctx.state.sendSystemReminder("frontier", frontierMessage(after));
 }
 
 /* The record's own tools, withheld until the phase that needs each. A chat is
@@ -181,11 +184,11 @@ type Stage =
   | "closingTurn"
   | "closed";
 
-/* Read off the record and the stage facts derived from the transcript, so a
-   resumed or reopened run lands where the investigation stands. */
+/* Read off the record and the run's position, so a resumed or reopened run lands
+   where the investigation stands. */
 function stageOf(
   ctx: RunContext,
-  progress: RunProgress,
+  progress: RunPosition,
   record: InvestigationRecord | undefined,
 ): Stage {
   if (!ctx.opensInvestigation) return "conversation";
@@ -234,39 +237,17 @@ function toolsForStage(stage: Stage, offered: OfferedToolset): OfferedToolset {
 }
 
 /* The challenge goes out when every candidate is settled and this epoch has
-   work behind it, so a close never carries it. True when it fired. */
+   work behind it, so a close never carries it. */
 function emitChallengeIfDue(
   ctx: RunContext,
-  progress: RunProgress,
+  progress: RunPosition,
   record: InvestigationRecord | undefined,
-): boolean {
-  if (progress.challengeIssued) return false;
-  if (record === undefined || record.candidates.length === 0) return false;
-  if (openCandidateIds(record).length > 0) return false;
-  if (!progress.recordChanged) return false;
-  ctx.state.sendSystemReminder(falsificationMessage(record));
-  return true;
-}
-
-/* The tool already named what is missing, so this only spends the allowance.
-   Null lets the run carry on and settle what it owes. */
-async function spendCloseRefusal(
-  ctx: RunContext,
-  turn: number,
-): Promise<TurnResult | null> {
-  const pushback = ctx.finishGate(await recordGaps(ctx.sessionId));
-  if (pushback !== null) {
-    ctx.log.info(
-      { turn, gap: pushback.kind, count: pushback.count },
-      "close refused: the record is still short",
-    );
-    return null;
-  }
-  ctx.log.warn(
-    { turn },
-    "close refused past its allowance; standing down without a report",
-  );
-  return { kind: "stand_down" };
+): void {
+  if (progress.challengeIssued) return;
+  if (record === undefined || record.candidates.length === 0) return;
+  if (openCandidateIds(record).length > 0) return;
+  if (!progress.recordChanged) return;
+  ctx.state.sendSystemReminder("falsification", falsificationMessage(record));
 }
 
 // One id, because a session has one report: a later phase replaces the card
@@ -320,43 +301,40 @@ export async function runOneTurn(ctx: RunContext): Promise<TurnResult> {
   if (change !== null) {
     log.info({ turn, change }, "offered toolset changed mid-run");
     state.offered = nowOffered;
-    state.sendSystemReminder(change);
+    state.sendSystemReminder("toolset_change", change);
     await state.flush();
   }
 
   // Read once before any tool runs: the challenge and the stage both decide from
   // this snapshot, which no tool has moved yet.
   const recordBefore = await getRecord(sessionId);
-  /* The challenge precedes the stage it opens, so a close lands inside it. When
-     it fires the reminder is in the rows, so the stage re-derives to see it. */
-  let progress = deriveRunProgress(state.allRows());
-  if (emitChallengeIfDue(ctx, progress, recordBefore)) {
-    progress = deriveRunProgress(state.allRows());
-  }
-
-  // Which stage the run is in, derived from the transcript rather than
-  // remembered, so a resumed run lands where it left off.
+  /* The challenge precedes the stage it opens, so a close lands inside it. The
+     position takes the challenge as it is written, so the stage below sees it. */
+  const progress = state.position;
+  emitChallengeIfDue(ctx, progress, recordBefore);
   const stage = stageOf(ctx, progress, recordBefore);
   /* Each stage says what it wants before it offers the tools to answer with, so
      the ask and the toolset that serves it are decided in one place. */
   if (stage === "opening" && !progress.openingSaid) {
-    state.sendSystemReminder(CANDIDATES_OPENING_MESSAGE);
+    state.sendSystemReminder("candidates_opening", CANDIDATES_OPENING_MESSAGE);
   } else if (stage === "writingReport") {
-    const attempt = ctx.reportAttempts();
-    if (attempt === null) {
+    const ask = reportAsk(progress);
+    if (ask === null) {
       log.warn({ turn }, "write-up not written within its attempts");
       await appendErrorMessage(sessionId, REPORT_GIVEN_UP);
       publishReportCard(sessionId, "failed");
       return { kind: "outcome", outcome: "completed" };
     }
     publishReportCard(sessionId, "building");
-    state.sendSystemReminder(
-      attempt === 1 ? await writeUpRequest(ctx) : REPORT_RETRY_MESSAGE,
-    );
+    if (ask === "request") {
+      state.sendSystemReminder("report_request", await writeUpRequest(ctx));
+    } else {
+      state.sendSystemReminder("report_retry", REPORT_RETRY_MESSAGE);
+    }
   } else if (stage === "closingTurn") {
     if (recordBefore === undefined)
       return { kind: "outcome", outcome: "completed" };
-    state.sendSystemReminder(closingMessage(recordBefore));
+    state.sendSystemReminder("closing", closingMessage(recordBefore));
   }
   await state.flush();
   const forThisStage = toolsForStage(stage, state.offered);
@@ -444,9 +422,10 @@ export async function runOneTurn(ctx: RunContext): Promise<TurnResult> {
     }
     /* Finishing is an act, so a turn that asked for nothing has not asked to
        finish. Say so, and stand down once the allowance for saying it is spent. */
-    if (ctx.closePrompts()) {
+    if (nudgeLeft(progress)) {
       log.info({ turn }, "investigation turn called no tool; nudging it");
       state.sendSystemReminder(
+        "text_only",
         textOnlyReplyMessage(
           stage,
           recordBefore === undefined ? [] : openCandidateRows(recordBefore),
@@ -472,33 +451,14 @@ export async function runOneTurn(ctx: RunContext): Promise<TurnResult> {
     sessionId,
   };
 
-  const { toolResults, gated, refused } = await processToolUses({
+  const { toolResults, gated } = await processToolUses({
     toolUses: response.toolUses,
     offered: forThisStage,
     sessionId,
     execCtx,
     log,
-    alreadyRefused: state.refusedNames,
+    alreadyRefused: progress.spent.unavailableAsks,
   });
-  for (const name of refused) {
-    state.refusedNames.set(name, (state.refusedNames.get(name) ?? 0) + 1);
-  }
-
-  const barren = ctx.barrenTurns(
-    response.toolUses.length,
-    refused.length,
-    state.offered,
-  );
-  if (barren !== null) {
-    log.warn(
-      { turn, refused: [...state.refusedNames.keys()] },
-      "run asked only for unavailable tools; ending it",
-    );
-    state.stageResults(response.toolUses, toolResults);
-    await state.flush();
-    await appendErrorMessage(sessionId, barren);
-    return { kind: "outcome", outcome: "completed" };
-  }
 
   // A turn's tools outlive the stop that arrives during them, so the gate is
   // reached already aborted; suspending here parks an interrupt on a dead run.
@@ -517,6 +477,16 @@ export async function runOneTurn(ctx: RunContext): Promise<TurnResult> {
   // Drained at the tool boundary, the earliest point the model can act on one,
   // as their own turn after the results.
   state.stageResults(response.toolUses, toolResults);
+  const barren = barrenEnding(progress, state.offered);
+  if (barren !== null) {
+    log.warn(
+      { turn, refused: [...progress.spent.unavailableAsks.keys()] },
+      "run asked only for unavailable tools; ending it",
+    );
+    await state.flush();
+    await appendErrorMessage(sessionId, barren);
+    return { kind: "outcome", outcome: "completed" };
+  }
   // Read once after the tools ran: the frontier, the card, and the record debt
   // all reflect what this turn just settled.
   const recordAfter = await getRecord(sessionId);
@@ -524,10 +494,10 @@ export async function runOneTurn(ctx: RunContext): Promise<TurnResult> {
   // exists to tell the model, which is a separate concern from keeping it.
   const injected = ctx.drainInbox?.(sessionId) ?? [];
   if (injected.length > 0) {
-    state.sendSystemReminder(formatInjectedAlerts(injected));
+    state.sendSystemReminder("injected_alerts", formatInjectedAlerts(injected));
   }
 
-  await emitFrontierIfChanged(ctx, recordAfter);
+  emitFrontierIfChanged(ctx, recordBefore, recordAfter);
 
   /* The write-up landed, so the card that was spinning now names what it opens.
      A refusal leaves the record behind, which is the next turn's write-up stage. */
@@ -552,29 +522,26 @@ export async function runOneTurn(ctx: RunContext): Promise<TurnResult> {
       ? response.toolUses.find((use) => use.name === "CloseInvestigation")
       : undefined;
   if (closing !== undefined) {
-    const accepted = toolResults.some(
-      (result) =>
-        result.toolCallId === closing.toolCallId && result.isError !== true,
+    const answer = toolResults.find(
+      (result) => result.toolCallId === closing.toolCallId,
     );
-    // An accepted close is read off the transcript next turn; a refusal spends
-    // its allowance and may stand the run down.
-    if (!accepted) {
-      const ending = await spendCloseRefusal(ctx, turn);
-      if (ending !== null) {
+    // An accepted close moves the stage next turn; a refusal already counted
+    // against its allowance, and once that is spent the run stands down.
+    const refusal = answer?.refusal;
+    if (refusal?.kind === "record_gaps") {
+      if (refusalsSpent(progress, refusal.gaps)) {
+        log.warn({ turn }, "close refused past its allowance; standing down");
         await state.flush();
-        return ending;
+        return { kind: "stand_down" };
       }
+      log.info({ turn, gaps: refusal.gaps }, "close refused: record short");
     }
   }
 
-  const claims = (recordAfter?.findings ?? []).length;
-  const ask = ctx.recordDebt.check(
-    claims,
-    citableAnswers(response.toolUses, toolResults),
-  );
+  const ask = recordCheckDue(progress, ctx.opensInvestigation);
   if (ask !== null) {
     log.info({ turn }, "reads unaccounted for; asking");
-    state.sendSystemReminder(ask);
+    state.sendSystemReminder("record_check", ask);
   }
   await state.flush();
   return { kind: "continue" };

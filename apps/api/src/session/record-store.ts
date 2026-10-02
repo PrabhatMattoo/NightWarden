@@ -8,7 +8,6 @@ import { getDb, type Db } from "../db.js";
 interface RecordRow {
   candidates: string;
   findings: string;
-  lastStatedCandidates: string;
   report: string | null;
   updatedAt: string | null;
 }
@@ -21,7 +20,6 @@ export function assembleRecord(
   if (row === undefined) return undefined;
   const candidates = JSON.parse(row.candidates) as Candidate[];
   const findings = JSON.parse(row.findings) as Finding[];
-  const lastStatedCandidates = JSON.parse(row.lastStatedCandidates) as string[];
   const report =
     row.report === null
       ? null
@@ -32,7 +30,6 @@ export function assembleRecord(
   return {
     candidates,
     findings,
-    lastStatedCandidates,
     report,
     updatedAt: row.updatedAt ?? new Date(0).toISOString(),
   };
@@ -47,7 +44,6 @@ export async function getRecord(
     .select([
       "candidates",
       "findings",
-      "last_stated_candidates as lastStatedCandidates",
       "report",
       "record_updated_at as updatedAt",
     ])
@@ -60,7 +56,6 @@ function emptyRecord(): InvestigationRecord {
   return {
     candidates: [],
     findings: [],
-    lastStatedCandidates: [],
     report: null,
     updatedAt: new Date(0).toISOString(),
   };
@@ -76,7 +71,6 @@ async function write(
     .set({
       candidates: JSON.stringify(record.candidates),
       findings: JSON.stringify(record.findings),
-      last_stated_candidates: JSON.stringify(record.lastStatedCandidates),
       report: record.report === null ? null : JSON.stringify(record.report),
       record_updated_at: new Date().toISOString(),
     })

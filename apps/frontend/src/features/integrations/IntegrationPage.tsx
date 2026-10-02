@@ -93,6 +93,7 @@ export function IntegrationPage({
   facts,
   state,
   rejection = null,
+  back = { to: "/integrations", label: "Integrations" },
   children,
 }: {
   identity: IntegrationIdentity;
@@ -100,10 +101,11 @@ export function IntegrationPage({
   // Said here and nowhere else on the page.
   state: ConnectionState;
   rejection?: CredentialRejection | null;
+  back?: { to: string; label: string };
   children: React.ReactNode;
 }): React.JSX.Element {
   return (
-    <Page back={{ to: "/integrations", label: "Integrations" }}>
+    <Page back={back}>
       <div className="flex flex-col gap-8">
         {/* Top-aligned, so a line that wraps grows downward and never lifts the name off the logo. */}
         <header

@@ -57,11 +57,11 @@ function Item({
   render,
   ...props
 }: useRender.ComponentProps<"div"> & VariantProps<typeof itemVariants>) {
-  return useRender({
+  const row = useRender({
     defaultTagName: "div",
     props: mergeProps<"div">(
       {
-        role: "listitem",
+        ...(render === undefined && { role: "listitem" }),
         className: cn(itemVariants({ size, layout, className })),
       },
       props,
@@ -69,6 +69,8 @@ function Item({
     render,
     state: { slot: "item", size },
   });
+  // A row rendered as a link keeps the link's own role, so the list item wraps it.
+  return render === undefined ? row : <div role="listitem">{row}</div>;
 }
 
 function ItemMedia({ className, ...props }: React.ComponentProps<"div">) {

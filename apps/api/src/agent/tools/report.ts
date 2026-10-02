@@ -168,7 +168,14 @@ export const REPORT_TOOLS: Tool[] = [
       const gaps = await recordGaps(ctx.sessionId);
       return gaps.length === 0
         ? { content: "Accepted. Every candidate you opened carries a finding." }
-        : { content: recordGapsMessage(gaps), isError: true };
+        : {
+            content: recordGapsMessage(gaps),
+            isError: true,
+            refusal: {
+              kind: "record_gaps",
+              gaps: gaps.map((gap) => gap.kind),
+            },
+          };
     },
   }),
   apiTool({

@@ -48,7 +48,6 @@ const RESPONSE: SessionReportResponse = {
         openedAtEvidence: 0,
       },
     ],
-    lastStatedCandidates: [],
     findings: [
       {
         id: "f1",

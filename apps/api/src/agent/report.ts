@@ -325,18 +325,6 @@ export async function openCandidates(
   };
 }
 
-// The candidate ids named in the last frontier message, so a resumed run reads
-// what it already stated rather than restating it.
-export async function setLastStatedCandidates(
-  sessionId: string,
-  ids: string[],
-): Promise<void> {
-  await amendRecord(sessionId, (record) => ({
-    ...record,
-    lastStatedCandidates: ids,
-  }));
-}
-
 interface RecordFindingInput {
   verdict: Verdict;
   explanation: string;

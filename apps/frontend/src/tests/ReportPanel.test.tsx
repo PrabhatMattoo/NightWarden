@@ -66,7 +66,6 @@ const RECORD: InvestigationRecord = {
       openedAtEvidence: 0,
     },
   ],
-  lastStatedCandidates: [],
   findings: [
     {
       id: "f1",

@@ -211,7 +211,7 @@ function ToolRow({ item }: { item: ToolCallItem }): React.JSX.Element {
       data-revealed={revealed || undefined}
       className={cn(
         "-mx-2 scroll-mt-6 rounded-control px-2 transition-colors duration-(--duration-slow)",
-        revealed && "bg-hover",
+        revealed && "bg-selected",
       )}
     >
       <Collapsible open={open} onOpenChange={setOpen} disabled={unanswered}>

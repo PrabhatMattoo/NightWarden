@@ -1,6 +1,8 @@
 // A turn is kept as parts alone. Whatever a provider needs handed back verbatim
 // rides on the part it belongs to, under that provider's own name.
 
+import type { RecordGapKind } from "./reports.js";
+
 type JsonValue = null | string | number | boolean | JsonObject | JsonValue[];
 type JsonObject = { [key: string]: JsonValue | undefined };
 
@@ -42,7 +44,15 @@ export interface ToolResultPart {
   // Whether the tool failed. What it found is the output's own business: a
   // query that matched nothing answers with an empty result and no error.
   isError?: boolean;
+  // Present when the harness refused the call, so the run's allowances count
+  // refusals from the result rather than from its wording.
+  refusal?: ToolRefusal;
 }
+
+// A tool this turn was not offered, or a close the record cannot support yet.
+export type ToolRefusal =
+  | { kind: "unavailable"; tool: string }
+  | { kind: "record_gaps"; gaps: RecordGapKind[] };
 
 // The signed-in person who made a human decision, stamped from the request's own
 // session so the audit trail names who, not just what. Optional on older parts.

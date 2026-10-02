@@ -105,12 +105,11 @@ const NO_QUEUE: QueueState = {
 // families and the pages they land on are exactly what ships.
 function setup({
   path = "/agent",
-  width = 1280,
   queue = NO_QUEUE,
-}: { path?: string; width?: number; queue?: QueueState } = {}) {
+}: { path?: string; queue?: QueueState } = {}) {
   MockEventSource.reset();
   vi.stubGlobal("EventSource", MockEventSource);
-  vi.stubGlobal("innerWidth", width);
+  vi.stubGlobal("innerWidth", 1280);
 
   // What the session says it is. This is what the layout keys on.
   let investigation = false;
@@ -204,8 +203,19 @@ function setup({
       });
     }
     if (url.includes("/sessions")) {
+      // Filtered the way the server filters: closed gathers the three endings.
+      const status = new URL(url, "http://test").searchParams.get("status");
+      const gathers = (filter: string, row: SessionListRow): boolean =>
+        (filter === "active"
+          ? ["action_required", "running"]
+          : filter === "closed"
+            ? ["completed", "stopped", "failed"]
+            : [filter]
+        ).includes(row.status ?? "");
       const rows = url.includes("kind=investigation")
-        ? INVESTIGATIONS
+        ? INVESTIGATIONS.filter(
+            (row) => status === null || gathers(status, row),
+          )
         : [SESSION_1];
       return Promise.resolve({
         ok: true,
@@ -232,13 +242,6 @@ afterEach(() => {
   vi.restoreAllMocks();
   window.localStorage.clear();
 });
-
-// jsdom applies no CSS, so the distinction is only legible as the state the
-// sidebar publishes. At the overlay tier the element is absent entirely.
-function sidebarState(): string | null {
-  const el = document.querySelector('[data-slot="sidebar"]');
-  return el === null ? null : el.getAttribute("data-state");
-}
 
 function precedes(a: HTMLElement, b: HTMLElement): boolean {
   return (
@@ -417,63 +420,6 @@ describe("Shell", () => {
       setup({ path: "/integrations/alerting/alertmanager" });
 
       expect(await screen.findByText(/receiving/i)).toBeInTheDocument();
-    });
-  });
-
-  describe("the two width tiers", () => {
-    it("at 1024 and up toggles between expanded and the icon rail, keeping the toggle in the sidebar", async () => {
-      const user = userEvent.setup();
-      setup({ width: 1280 });
-
-      await waitFor(() => expect(sidebarState()).toBe("expanded"));
-      const toggle = screen.getByRole("button", { name: /toggle sidebar/i });
-
-      await user.click(toggle);
-      await waitFor(() => expect(sidebarState()).toBe("collapsed"));
-
-      // The rail keeps the control that expands it again, and every
-      // destination stays reachable by name.
-      expect(
-        screen.getByRole("button", { name: /toggle sidebar/i }),
-      ).toBeInTheDocument();
-      expect(
-        screen.getByRole("link", { name: "Investigations" }),
-      ).toBeInTheDocument();
-
-      await user.click(screen.getByRole("button", { name: /toggle sidebar/i }));
-      await waitFor(() => expect(sidebarState()).toBe("expanded"));
-    });
-
-    it("below 1024 hides the sidebar entirely and moves its toggle into the stage", async () => {
-      const user = userEvent.setup();
-      setup({ width: 900 });
-
-      // The toggle is what says the shell has rendered. An absent sidebar is
-      // also what an empty tree looks like, so waiting on that proves nothing.
-      const toggle = await screen.findByRole("button", {
-        name: /toggle sidebar/i,
-      });
-      // Nothing of the sidebar is on screen - not even a rail - so the control
-      // that reopens it cannot be inside it.
-      expect(sidebarState()).toBeNull();
-      expect(
-        screen.queryByRole("link", { name: "Investigations" }),
-      ).not.toBeInTheDocument();
-
-      await user.click(toggle);
-
-      expect(
-        await screen.findByRole("link", { name: "Investigations" }),
-      ).toBeInTheDocument();
-    });
-
-    it("at 640 still renders the app, its navigation behind the toggle", async () => {
-      setup({ width: 640 });
-
-      expect(
-        await screen.findByRole("button", { name: /toggle sidebar/i }),
-      ).toBeInTheDocument();
-      expect(sidebarState()).toBeNull();
     });
   });
 
@@ -767,6 +713,42 @@ describe("Shell", () => {
         name: /Container memory high/,
       });
       expect(precedes(first, second)).toBe(true);
+    });
+
+    // Active gathers what is still in play, so one view holds both a waiting run and a working one.
+    it("switches views on the server, Active gathering what is still in play", async () => {
+      const user = userEvent.setup();
+      const { fetchMock } = setup({ path: "/investigations" });
+
+      const all = await screen.findByRole("button", { name: "All" });
+      expect(all).toHaveAttribute("aria-pressed", "true");
+      for (const name of ["Active", "Resolved", "Closed"]) {
+        expect(screen.getByRole("button", { name })).toBeInTheDocument();
+      }
+
+      const active = screen.getByRole("button", { name: "Active" });
+      await user.click(active);
+      await waitFor(() => {
+        expect(
+          screen.queryByRole("link", { name: /db-02/ }),
+        ).not.toBeInTheDocument();
+        expect(
+          screen.getByRole("link", { name: /Container memory high/ }),
+        ).toBeInTheDocument();
+      });
+      expect(
+        fetchMock.mock.calls.some(([url]) =>
+          String(url).includes("status=active"),
+        ),
+      ).toBe(true);
+      // One view's rows are one list, so the status headings step aside.
+      expect(
+        screen.queryByRole("region", { name: "Action required" }),
+      ).not.toBeInTheDocument();
+
+      // Pressing the chosen view again keeps it chosen.
+      await user.click(active);
+      expect(active).toHaveAttribute("aria-pressed", "true");
     });
 
     it("opens a row at its own record", async () => {

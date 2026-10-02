@@ -4,8 +4,9 @@ import type {
   SessionKind,
   SessionListPage,
   InvestigationStatus,
+  StatusFilter,
 } from "@nightwarden/shared";
-import { principalFindings } from "@nightwarden/shared";
+import { FILTER_STATUSES, principalFindings } from "@nightwarden/shared";
 import { queueState } from "../run-pool.js";
 import {
   countInvestigations,
@@ -81,8 +82,15 @@ export async function listSessionPage(
   limit: number,
   offset: number,
   kind: SessionKind,
+  filter: { status?: StatusFilter; q?: string } = {},
 ): Promise<SessionListPage> {
-  const { facts, nextOffset } = await listSessionFacts(limit, offset, kind);
+  const { facts, nextOffset } = await listSessionFacts(limit, offset, kind, {
+    ...(filter.status !== undefined && {
+      statuses: FILTER_STATUSES[filter.status],
+    }),
+    ...(filter.q !== undefined &&
+      filter.q !== "" && { titleContains: filter.q }),
+  });
   return {
     rows: facts.map((row) => {
       const { investigation } = row;

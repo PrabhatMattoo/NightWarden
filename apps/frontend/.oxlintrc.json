@@ -157,15 +157,6 @@
         "shadcn/require-static-classes": "off",
         "no-restricted-globals": "off"
       }
-    },
-    {
-      "files": [
-        "src/features/session/SessionView.tsx",
-        "src/features/investigations/InvestigationWorkspace.tsx"
-      ],
-      "rules": {
-        "react/set-state-in-effect": "off"
-      }
     }
   ]
 }

@@ -2,13 +2,14 @@ import * as React from "react";
 
 import { cn } from "@/shared/lib/utils";
 
-// Aligned to the column it replaces, so an empty page keeps the page's left edge.
+/* An outlined well where the content would be, dashed so it reads as a place to
+   fill. A dash covers half its line, so it takes the input edge to read as a tile's. */
 function Empty({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="empty"
       className={cn(
-        "flex w-full max-w-md min-w-0 flex-col items-start gap-4 py-10",
+        "flex w-full min-w-0 flex-col items-center justify-center gap-6 rounded-card border border-dashed border-edge-input px-6 py-12 text-center text-balance",
         className,
       )}
       {...props}
@@ -20,7 +21,7 @@ function EmptyHeader({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="empty-header"
-      className={cn("flex flex-col items-start gap-1", className)}
+      className={cn("flex max-w-sm flex-col items-center gap-2", className)}
       {...props}
     />
   );
@@ -31,7 +32,7 @@ function EmptyMedia({ className, ...props }: React.ComponentProps<"div">) {
     <div
       data-slot="empty-icon"
       className={cn(
-        "mb-2 flex text-ink-faint [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-6",
+        "mb-2 flex size-10 shrink-0 items-center justify-center rounded-control bg-control text-ink-base shadow-control [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-5",
         className,
       )}
       {...props}
@@ -62,4 +63,25 @@ function EmptyDescription({
   );
 }
 
-export { Empty, EmptyHeader, EmptyTitle, EmptyDescription, EmptyMedia };
+// The one next step, under the words that explain why there is nothing here.
+function EmptyContent({ className, ...props }: React.ComponentProps<"div">) {
+  return (
+    <div
+      data-slot="empty-content"
+      className={cn(
+        "flex w-full max-w-sm min-w-0 flex-col items-center gap-4",
+        className,
+      )}
+      {...props}
+    />
+  );
+}
+
+export {
+  Empty,
+  EmptyHeader,
+  EmptyTitle,
+  EmptyDescription,
+  EmptyMedia,
+  EmptyContent,
+};

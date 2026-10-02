@@ -2,6 +2,7 @@ import {
   messagePartsToText,
   type MessagePart,
   type NormalizedAlert,
+  type ReminderKind,
   type ResolvedLLMConfig,
   type TranscriptRow,
 } from "@nightwarden/shared";
@@ -23,14 +24,7 @@ import type {
   ToolSchema,
   ToolUse,
 } from "../../llm/types.js";
-import { citableIds } from "./guardrails.js";
-import type {
-  BarrenTurns,
-  ClosePrompts,
-  FinishGate,
-  RecordDebt,
-  ReportAttempts,
-} from "./guardrails.js";
+import { citableIds, RunPosition } from "./guardrails.js";
 
 // A thrown error is the fourth state, "failed", and the dispatcher's catch
 // owns it: it is never returned here.
@@ -45,8 +39,8 @@ export type ChatFn = (
   signal?: AbortSignal,
 ) => Promise<ChatResponse>;
 
-/* The transcript this run is building, and the five operations over it. The
-   rows are kept in memory and the tail past `flushed` is what reaches disk. */
+/* The transcript this run is building, and the operations over it. The rows are
+   kept in memory and the tail past `flushed` is what reaches disk. */
 export class RunState {
   readonly rows: TranscriptRow[] = [];
   private flushed = 0;
@@ -55,8 +49,8 @@ export class RunState {
   // Set before the first turn and re-read each turn as integrations connect.
   offered!: OfferedToolset;
   turn = 0;
-  // Per name across the whole run, so the fourth ask is answered as the fourth.
-  readonly refusedNames = new Map<string, number>();
+  // Folded from the stored rows, then fed every row this run writes.
+  readonly position: RunPosition;
 
   constructor(
     readonly sessionId: string,
@@ -64,34 +58,39 @@ export class RunState {
     nextEvidence: number,
     // Read-only prefix already on disk, ahead of what this run appends.
     private readonly seeded: readonly ProviderMessage[],
-    // The durable transcript before this run, so the stage derives from the whole
-    // session while this run adds to it in memory.
-    private readonly priorRows: readonly TranscriptRow[] = [],
+    // The durable transcript before this run, dead exchanges unwound.
+    priorRows: readonly TranscriptRow[] = [],
   ) {
     this.nextSeq = nextSeq;
     this.nextEvidence = nextEvidence;
+    this.position = RunPosition.of(priorRows);
   }
 
+  // A harness row is written only by sendSystemReminder, which names its kind.
   enqueue(
-    kind: TranscriptRow["kind"],
+    kind: Exclude<TranscriptRow["kind"], "system_reminder">,
     parts: MessagePart[],
     clientId?: string,
   ): void {
-    this.rows.push({
+    this.push(kind, parts, { ...(clientId !== undefined && { clientId }) });
+  }
+
+  private push(
+    kind: TranscriptRow["kind"],
+    parts: MessagePart[],
+    extra: Pick<TranscriptRow, "clientId" | "reminder">,
+  ): void {
+    const row: TranscriptRow = {
       sessionId: this.sessionId,
       seq: this.nextSeq++,
       kind,
       content: messagePartsToText(parts),
       parts,
       timestamp: new Date().toISOString(),
-      ...(clientId !== undefined && { clientId }),
-    });
-  }
-
-  // The durable prefix plus this run's rows, so the stage reads one view of the
-  // session live and on resume alike.
-  allRows(): TranscriptRow[] {
-    return [...this.priorRows, ...this.rows];
+      ...extra,
+    };
+    this.rows.push(row);
+    this.position.apply(row);
   }
 
   conversation(): ProviderMessage[] {
@@ -119,17 +118,19 @@ export class RunState {
     this.enqueue("user", stamped.parts);
   }
 
-  // The one emitter of the marker, so also the door untrusted text arrives at:
+  // The one emitter of the tag, so also the door untrusted text arrives at:
   // an injected alert's labels are the sender's and must not close our tag.
-  sendSystemReminder(text: string): void {
-    this.enqueue("system_reminder", [
-      { type: "text", text: asSystemReminder(stripSystemReminder(text)) },
-    ]);
+  sendSystemReminder(reminder: ReminderKind, text: string): void {
+    this.push(
+      "system_reminder",
+      [{ type: "text", text: asSystemReminder(stripSystemReminder(text)) }],
+      { reminder },
+    );
   }
 }
 
-// What the driver hands the turn cycle: the run's fixed facts, the bound chat
-// call, and the three guardrail policies. The state above carries the rest.
+// What the driver hands the turn cycle: the run's fixed facts and the bound chat
+// call. The state above carries the rest, its position included.
 export interface RunContext {
   readonly state: RunState;
   readonly sessionId: string;
@@ -147,11 +148,6 @@ export interface RunContext {
   readonly llm: ResolvedLLMConfig;
   readonly toolCallCeilingMs: number;
   readonly chat: ChatFn;
-  readonly finishGate: FinishGate;
-  readonly closePrompts: ClosePrompts;
-  readonly reportAttempts: ReportAttempts;
-  readonly barrenTurns: BarrenTurns;
-  readonly recordDebt: RecordDebt;
   readonly drainInbox?: (sessionId: string) => NormalizedAlert[];
 }
 

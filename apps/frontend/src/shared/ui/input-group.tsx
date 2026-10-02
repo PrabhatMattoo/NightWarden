@@ -17,7 +17,8 @@ const inputGroupVariants = cva("", {
   variants: {
     variant: {
       field: FOCUS_RING,
-      row: `h-auto border-transparent bg-control py-1 hover:border-transparent ${FOCUS_RING}`,
+      // The chosen option's own geometry and fill, so opening it into a field moves nothing.
+      row: `h-9 gap-3 border-transparent bg-selected px-3 hover:border-transparent ${FOCUS_RING} *:data-[slot=input-group-control]:h-full *:data-[slot=input-group-control]:px-0`,
       composer: `edge-lit h-auto rounded-card border-0 bg-shade shadow-lift p-1 ${FOCUS_RING} *:data-[slot=input-group-control]:px-2 *:data-[slot=input-group-control]:pt-2 *:data-[slot=input-group-control]:type-prose`,
     },
   },

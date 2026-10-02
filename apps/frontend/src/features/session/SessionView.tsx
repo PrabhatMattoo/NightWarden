@@ -184,20 +184,20 @@ function TranscriptColumn({
   );
 }
 
-/** /agent renders with no id; the two $id routes pass the param. */
+/* /agent renders with no id and the two $id routes pass the param. The parent
+   keys this view by session, so moving to another one starts it afresh. */
 export function SessionView({
   sessionId: sessionIdFromRoute = null,
-  reportOpen: _reportOpen = false,
 }: {
   sessionId?: string | null;
-  // The candidate board is docked only for the run; once the report is open
-  // beside the chat, the board's job is done and it steps aside.
-  reportOpen?: boolean;
 } = {}): React.JSX.Element {
-  const [activeSessionId, setActiveSessionId] = useState<string | null>(
-    sessionIdFromRoute,
-  );
-  const activeSessionIdRef = useRef<string | null>(sessionIdFromRoute);
+  // A chat created here holds its id until the route catches up with it.
+  const [createdId, setCreatedId] = useState<string | null>(null);
+  const activeSessionId = sessionIdFromRoute ?? createdId;
+  const activeSessionIdRef = useRef<string | null>(activeSessionId);
+  useEffect(() => {
+    activeSessionIdRef.current = activeSessionId;
+  }, [activeSessionId]);
 
   const [liveItems, setLiveItems] = useState<TranscriptItem[]>([]);
   const [isRunning, setIsRunning] = useState(false);
@@ -216,52 +216,25 @@ export function SessionView({
 
   const session = useSession(activeSessionId);
 
-  // Read once: after that the stream is the truth, and a refetch mid-suspend
-  // would undo it.
-  const seededFor = useRef<string | null>(null);
-  useEffect(() => {
-    if (activeSessionId === null || session === null) return;
-    if (session.sessionId !== activeSessionId) return;
-    if (seededFor.current === activeSessionId) return;
-    seededFor.current = activeSessionId;
+  // Read once per session: after that the stream is the truth, and a refetch
+  // mid-suspend would undo it.
+  const [seededFor, setSeededFor] = useState<string | null>(null);
+  if (
+    session !== null &&
+    activeSessionId !== null &&
+    session.sessionId === activeSessionId &&
+    seededFor !== activeSessionId
+  ) {
+    setSeededFor(activeSessionId);
     if (session.running) setIsRunning(true);
-  }, [session, activeSessionId]);
-
-  const prevRouteIdRef = useRef<string | null>(sessionIdFromRoute);
-  useEffect(() => {
-    const prev = prevRouteIdRef.current;
-    const curr = sessionIdFromRoute;
-    prevRouteIdRef.current = curr;
-
-    if (curr === null) {
-      activeSessionIdRef.current = null;
-      setActiveSessionId(null);
-      setLiveItems([]);
-      setIsRunning(false);
-      setPendingEcho(null);
-      setActivityNotice(null);
-      seededFor.current = null;
-      return;
-    }
-
-    if (prev !== null && prev !== curr) {
-      setLiveItems([]);
-      setIsRunning(false);
-      setPendingEcho(null);
-      setActivityNotice(null);
-      seededFor.current = null;
-    }
-
-    activeSessionIdRef.current = curr;
-    setActiveSessionId(curr);
-  }, [sessionIdFromRoute]);
+  }
 
   const persistedItems = session?.transcript ?? EMPTY_ITEMS;
 
   const handleSessionCreated = useCallback(
     (newId: string, firstMessage: string) => {
       activeSessionIdRef.current = newId;
-      setActiveSessionId(newId);
+      setCreatedId(newId);
 
       // Typing here opens a chat. An investigation is opened by an alert, so
       // the row goes to the chat list and never moves between them.
@@ -312,9 +285,8 @@ export function SessionView({
       if (env.type === "MESSAGE") {
         const { sessionId } = env.payload;
         if (sessionId !== sid) return;
-        // A persisted row, not a lifecycle signal - never touch isRunning here.
-        // Housekeeping, not correctness: the render already hides a streamed
-        // turn the transcript holds. This only bounds the buffer.
+        // A persisted row, never a lifecycle signal. The render already hides a
+        // streamed turn the transcript holds, so clearing only bounds the buffer.
         void queryClient
           .invalidateQueries({ queryKey: sessionQuery(sid).queryKey })
           .then(() => setLiveItems([]));
@@ -322,12 +294,15 @@ export function SessionView({
       }
 
       if (env.type === "RUN_FINISHED") {
-        // Settle run state only; the streamed rows stay until each one's own
-        // MESSAGE lands, so a fast finish never blanks the answer between them.
+        // The streamed rows stay until each one's own MESSAGE lands, so a fast
+        // finish never blanks the answer; the session is asked whether it reopens.
         const { sessionId } = env.payload;
         if (sessionId !== sid) return;
         setIsRunning(false);
         setActivityNotice(null);
+        void queryClient.invalidateQueries({
+          queryKey: sessionQuery(sid).queryKey,
+        });
         return;
       }
 
@@ -477,9 +452,8 @@ export function SessionView({
   const submittingToolUseId = respond.isPending
     ? (respond.variables?.toolCallId ?? null)
     : null;
-  /* The one live line: a server notice whenever there is one, the placeholder
-     while a run works silently, and nothing once the transcript speaks. The
-     notice is not gated on the run, because a sandbox provisions before one. */
+  /* The one live line: a server notice, else the placeholder while a run works
+     silently. A sandbox provisions before a run, so the notice is not gated on one. */
   const awaitingHuman = dockedItem !== undefined;
   // Suspended on a person is still the same run, so the group stays live and
   // the clock keeps counting until the answer lands.
@@ -510,9 +484,8 @@ export function SessionView({
           <MessageScrollerButton direction="end" />
         </MessageScroller>
 
-        {/* Highest of the three: it is the standing state of the work, while
-            the two below it are things asking to be acted on. Dismissed once
-            a report stands, and restored if a later run opens new candidates. */}
+        {/* Highest of the three, as the standing state of the work. Dismissed once
+            a report stands, and back if a later run opens new candidates. */}
         {candidateItem &&
           (reportItem?.kind !== "report_card" ||
             reportItem.state.phase !== "ready" ||
@@ -556,6 +529,7 @@ export function SessionView({
         <ScrollToEndChatInput
           sessionId={activeSessionId}
           isRunning={isRunning}
+          reopenable={session?.reopenable ?? false}
           onSessionCreated={handleSessionCreated}
           onSend={handleSend}
           onSendFailed={handleSendFailed}
