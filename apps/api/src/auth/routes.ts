@@ -1,14 +1,9 @@
 import { fromNodeHeaders } from "better-auth/node";
 import type { FastifyInstance } from "fastify";
 import type { AuthStatusResponse } from "@nightwarden/shared";
-import { getDb } from "../db.js";
 import { getAuth } from "./instance.js";
+import { ownerExists } from "./owner-store.js";
 import { currentUser } from "./session.js";
-
-async function ownerExists(): Promise<boolean> {
-  const row = await getDb().selectFrom("user").select("id").executeTakeFirst();
-  return row !== undefined;
-}
 
 export async function registerAuthRoutes(
   fastify: FastifyInstance,

@@ -110,6 +110,27 @@ describe("layering", () => {
   });
 });
 
+/* Every query lives in a store file, so the database has one way in per module.
+   Better Auth is handed the same handle to reach its own tables, by name. */
+describe("durable state", () => {
+  const BETTER_AUTH = "auth/instance.ts";
+
+  it("lets only a store file obtain a Db, beside the handle Better Auth is given", () => {
+    for (const [path, text] of MODULES) {
+      if (path === "db.ts" || path.endsWith("store.ts")) continue;
+      const obtained = [...text.matchAll(/getDb\(/g)].length;
+      if (path === BETTER_AUTH) {
+        expect(text, `${path} hands Better Auth its handle`).toMatch(
+          /database: \{ db: getDb\(\)/,
+        );
+        expect(obtained, `${path} obtains a Db beyond Better Auth's`).toBe(1);
+        continue;
+      }
+      expect(obtained, `${path} obtains a Db; only a store file may`).toBe(0);
+    }
+  });
+});
+
 /* The sandbox is package-shaped so that extracting it stays a move rather than
    surgery: node builtins, external packages and its own files, nothing else. */
 describe("the sandbox boundary", () => {

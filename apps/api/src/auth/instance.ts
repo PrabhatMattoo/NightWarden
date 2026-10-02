@@ -12,6 +12,7 @@ import { themePreferenceSchema } from "@nightwarden/shared/schemas";
 import { getDb } from "../db.js";
 import { configuredPublicUrl, extraTrustedOrigins } from "../public-url.js";
 import { authSecret } from "../secrets.js";
+import { ownerExists } from "./owner-store.js";
 
 /* Snake_case throughout, because Postgres folds an unquoted identifier to
    lowercase and camelCase columns would need quoting for the rest of time. */
@@ -74,11 +75,7 @@ function buildAuth() {
       validateUserInfo: async ({ source }) => {
         if (source.action !== "create-user") return;
         if (source.method !== "email-password") return;
-        const owner = await getDb()
-          .selectFrom("user")
-          .select("id")
-          .executeTakeFirst();
-        if (owner) {
+        if (await ownerExists()) {
           return {
             error: "setup_already_complete",
             errorDescription: "This install already has an owner.",
@@ -117,11 +114,7 @@ function buildAuth() {
           // The plugin stamps every account 'user', so the install would have
           // no administrator without this.
           before: async (user) => {
-            const owner = await getDb()
-              .selectFrom("user")
-              .select("id")
-              .executeTakeFirst();
-            return owner
+            return (await ownerExists())
               ? { data: user }
               : { data: { ...user, role: "admin" } };
           },
