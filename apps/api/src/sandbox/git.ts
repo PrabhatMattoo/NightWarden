@@ -1,13 +1,28 @@
 import { execFile } from "node:child_process";
 import { GitOperationError } from "./errors.js";
+import { gitDirFor } from "./paths.js";
 
 const GIT_TIMEOUT_MS = 5 * 60_000;
 const MAX_GIT_BUFFER = 16 * 1024 * 1024;
 
 interface GitOptions {
-  cwd?: string;
+  workTree?: string;
   authHeader?: string;
   timeoutMs?: number;
+}
+
+// The sandbox can write the workspace's .git gitfile, so git is pointed at the
+// real git dir explicitly and inherits nothing else from the API's environment.
+function gitEnv(workTree: string | undefined): NodeJS.ProcessEnv {
+  return {
+    PATH: process.env["PATH"],
+    HOME: process.env["HOME"],
+    GIT_TERMINAL_PROMPT: "0",
+    ...(workTree !== undefined && {
+      GIT_DIR: gitDirFor(workTree),
+      GIT_WORK_TREE: workTree,
+    }),
+  };
 }
 
 function redactSecret(text: string, secret: string | undefined): string {
@@ -29,10 +44,10 @@ function runGit(args: string[], opts: GitOptions): Promise<string> {
       "git",
       fullArgs,
       {
-        ...(opts.cwd !== undefined && { cwd: opts.cwd }),
+        ...(opts.workTree !== undefined && { cwd: opts.workTree }),
         timeout: opts.timeoutMs ?? GIT_TIMEOUT_MS,
         maxBuffer: MAX_GIT_BUFFER,
-        env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+        env: gitEnv(opts.workTree),
       },
       (error, stdout, stderr) => {
         if (error !== null) {
@@ -62,34 +77,43 @@ interface CloneOptions {
 // Clone, then put the checkout on the session branch: a resumed session finds
 // its branch on the remote and continues it; a fresh one creates it locally.
 export async function cloneAndCheckout(opts: CloneOptions): Promise<void> {
-  await runGit(["clone", "--no-tags", opts.url, opts.dir], {
-    authHeader: opts.authHeader,
-  });
+  await runGit(
+    [
+      "clone",
+      "--no-tags",
+      `--separate-git-dir=${gitDirFor(opts.dir)}`,
+      opts.url,
+      opts.dir,
+    ],
+    { authHeader: opts.authHeader },
+  );
   const remoteExists = await runGit(
     ["rev-parse", "--verify", `origin/${opts.branch}`],
-    { cwd: opts.dir },
+    { workTree: opts.dir },
   ).then(
     () => true,
     () => false,
   );
   if (remoteExists) {
     await runGit(["checkout", "-B", opts.branch, `origin/${opts.branch}`], {
-      cwd: opts.dir,
+      workTree: opts.dir,
     });
   } else {
-    await runGit(["checkout", "-b", opts.branch], { cwd: opts.dir });
+    await runGit(["checkout", "-b", opts.branch], { workTree: opts.dir });
   }
 }
 
 export async function isDirty(dir: string): Promise<boolean> {
-  const status = await runGit(["status", "--porcelain"], { cwd: dir });
+  const status = await runGit(["status", "--porcelain"], { workTree: dir });
   return status.trim().length > 0;
 }
 
 // The checkout itself records the session branch, so boot-time salvage needs
 // no database row to know where to push.
 export async function currentBranch(dir: string): Promise<string> {
-  const out = await runGit(["rev-parse", "--abbrev-ref", "HEAD"], { cwd: dir });
+  const out = await runGit(["rev-parse", "--abbrev-ref", "HEAD"], {
+    workTree: dir,
+  });
   return out.trim();
 }
 
@@ -104,7 +128,7 @@ export async function commitAll(
   message: string,
   author: CommitAuthor,
 ): Promise<void> {
-  await runGit(["add", "-A"], { cwd: dir });
+  await runGit(["add", "-A"], { workTree: dir });
   await runGit(
     [
       "-c",
@@ -115,7 +139,7 @@ export async function commitAll(
       "-m",
       message,
     ],
-    { cwd: dir },
+    { workTree: dir },
   );
 }
 
@@ -123,7 +147,7 @@ export async function commitAll(
 // given to the user, so an unresolvable base throws rather than reads as zero.
 export async function commitsAgainstBase(dir: string): Promise<number> {
   const out = await runGit(["rev-list", "--count", "origin/HEAD..HEAD"], {
-    cwd: dir,
+    workTree: dir,
   });
   const count = parseInt(out.trim(), 10);
   if (Number.isNaN(count)) {
@@ -139,7 +163,7 @@ export async function commitsAgainstBase(dir: string): Promise<number> {
 export async function hasUnpushedWork(dir: string): Promise<boolean> {
   const count = await runGit(
     ["rev-list", "--count", "HEAD", "--not", "--remotes=origin"],
-    { cwd: dir },
+    { workTree: dir },
   );
   return parseInt(count.trim(), 10) > 0;
 }
@@ -150,7 +174,7 @@ export async function push(
   authHeader: string,
 ): Promise<void> {
   await runGit(["push", "--set-upstream", "origin", branch], {
-    cwd: dir,
+    workTree: dir,
     authHeader,
   });
 }
@@ -160,7 +184,7 @@ export async function push(
 export async function changedFiles(dir: string): Promise<string[]> {
   try {
     const out = await runGit(["diff", "--name-only", "origin/HEAD...HEAD"], {
-      cwd: dir,
+      workTree: dir,
     });
     return out
       .split("\n")

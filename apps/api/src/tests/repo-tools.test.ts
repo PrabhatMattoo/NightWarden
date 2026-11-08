@@ -71,9 +71,14 @@ function installGitMock(): void {
     switch (sub) {
       case "clone": {
         const dir = stripped[stripped.length - 1]!;
-        // A real clone always yields .git/info (the local-exclude append
-        // depends on it), so the double must too.
-        mkdirSync(join(dir, ".git", "info"), { recursive: true });
+        // A real clone always yields info/ in its git dir (the local-exclude
+        // append depends on it), so the double must too.
+        const gitDir = stripped.find((a) =>
+          a.startsWith("--separate-git-dir="),
+        )!;
+        mkdirSync(join(gitDir.slice("--separate-git-dir=".length), "info"), {
+          recursive: true,
+        });
         for (const [rel, content] of Object.entries(FIXTURE_FILES)) {
           mkdirSync(join(dir, rel, ".."), { recursive: true });
           writeFileSync(join(dir, rel), content);

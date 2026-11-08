@@ -20,6 +20,7 @@ import {
 import { resolveInstallPlan } from "./install.js";
 import { ensureProxy, proxyEnv } from "./proxy.js";
 import { capOutput } from "./output.js";
+import { gitDirFor, homeDirFor } from "./paths.js";
 
 // Structural subset of pino so the host injects its logger instead of the
 // module importing one - a hard requirement of the package-shaped boundary.
@@ -117,10 +118,10 @@ const creating = new Map<string, Promise<Entry>>();
 // event, so it is logged once per process rather than on every sandbox.
 let warnedRootApi = false;
 
-// Single owner of the "<dir>.home" sibling-mount convention; salvage derives
-// its skip-and-remove logic from this too.
-export function homeDirFor(dir: string): string {
-  return `${dir}.home`;
+export async function removeCheckout(dir: string): Promise<void> {
+  await rm(dir, { recursive: true, force: true });
+  await rm(gitDirFor(dir), { recursive: true, force: true });
+  await rm(homeDirFor(dir), { recursive: true, force: true });
 }
 
 // In allowlist mode the shared proxy (with current config) must exist before
@@ -231,8 +232,7 @@ async function provisionEntry(
   // The branch is the durable state, so a fresh clone is correct once what is
   // here has reached it: a push that failed left the only copy.
   await pushLeftovers(dir, options);
-  await rm(dir, { recursive: true, force: true });
-  await rm(homeDir, { recursive: true, force: true });
+  await removeCheckout(dir);
   await mkdir(dir, { recursive: true });
   await mkdir(homeDir, { recursive: true });
   options.onStatus?.("cloning");
@@ -245,7 +245,7 @@ async function provisionEntry(
   });
   // Local-only ignore: a repo without a .gitignore must never get an
   // agent-installed node_modules checkpoint-committed.
-  await appendFile(join(dir, ".git", "info", "exclude"), "node_modules/\n");
+  await appendFile(join(gitDirFor(dir), "info", "exclude"), "node_modules/\n");
   if (apiRunsAsRoot() && !warnedRootApi) {
     warnedRootApi = true;
     options.log?.warn(
@@ -262,7 +262,6 @@ async function provisionEntry(
     limits: options.limits,
     requireGvisor: options.requireGvisor,
     network,
-    gitIdentity: options.commitAuthor,
   });
 
   let installNote: string | null = await installDependencies(
@@ -408,10 +407,7 @@ export async function teardown(
   if (entry.idleTimer !== null) clearTimeout(entry.idleTimer);
   sessions.delete(sessionId);
   await destroyContainer(entry.containerId).catch(() => undefined);
-  if (saved) {
-    await rm(workspace.dir, { recursive: true, force: true });
-    await rm(homeDirFor(workspace.dir), { recursive: true, force: true });
-  }
+  if (saved) await removeCheckout(workspace.dir);
   options.log?.info({ sessionId, reason, saved }, "sandbox torn down");
 }
 

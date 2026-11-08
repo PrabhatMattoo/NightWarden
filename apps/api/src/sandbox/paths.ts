@@ -46,3 +46,13 @@ export async function assertContained(
     }
   }
 }
+
+// A checkout's siblings sit outside its bind mount: HOME is mounted on its own,
+// and the git directory is never mounted, so the sandbox cannot plant a hook.
+export function homeDirFor(dir: string): string {
+  return `${dir}.home`;
+}
+
+export function gitDirFor(dir: string): string {
+  return `${dir}.git`;
+}

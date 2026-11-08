@@ -1,4 +1,6 @@
 import {
+  chmodSync,
+  copyFileSync,
   mkdtempSync,
   existsSync,
   mkdirSync,
@@ -28,6 +30,7 @@ vi.mock("dockerode", () => ({ default: MockDocker }));
 
 import {
   releaseContainers,
+  teardown,
   withWorkspace,
   type Workspace,
   type WorkspaceOptions,
@@ -40,7 +43,7 @@ import { waitFor } from "./wait.js";
 const AUTH_HEADER = "Basic c2VjcmV0dG9rZW4=";
 
 // Scriptable git double honouring the execFile callback contract exactly: (error, stdout,
-// stderr). Clone materializes cloneFiles plus .git/info, matching a real clone's disk layout.
+// stderr). Clone materializes cloneFiles plus the git dir's info/, matching a real clone's disk layout.
 const gitState = {
   remoteBranchExists: false,
   dirty: false,
@@ -68,7 +71,12 @@ function installGitMock(): void {
         return ok("git version 2.44.0");
       case "clone": {
         const dir = stripped[stripped.length - 1]!;
-        mkdirSync(join(dir, ".git", "info"), { recursive: true });
+        const gitDir = stripped.find((a) =>
+          a.startsWith("--separate-git-dir="),
+        )!;
+        mkdirSync(join(gitDir.slice("--separate-git-dir=".length), "info"), {
+          recursive: true,
+        });
         for (const [rel, content] of Object.entries(gitState.cloneFiles)) {
           mkdirSync(join(dir, rel, ".."), { recursive: true });
           writeFileSync(join(dir, rel), content);
@@ -450,6 +458,7 @@ describe("workspace lifecycle", () => {
     // last - so waiting on it is what proves the whole sequence finished.
     await waitFor(() => !existsSync(join(workspacesDir, `${sessionId}.home`)));
     expect(existsSync(join(workspacesDir, sessionId))).toBe(false);
+    expect(existsSync(join(workspacesDir, `${sessionId}.git`))).toBe(false);
     expect(dockerState.removed).toHaveLength(1);
     expect(gitState.calls.some((a) => a.includes("push"))).toBe(false);
 
@@ -539,6 +548,83 @@ describe("workspace lifecycle", () => {
     const reaped = await reapOrphans();
     expect(reaped).toBe(2);
     expect(dockerState.removed).toEqual(["orphan-1", "orphan-2"]);
+  });
+});
+
+describe("host-side git with real git", () => {
+  // Real git and its real execFile: the harm is git reading what the sandbox
+  // wrote, which a double cannot reproduce.
+  let realExecFileSync: typeof import("node:child_process").execFileSync;
+  const gitEnv = {
+    PATH: process.env["PATH"],
+    GIT_CONFIG_NOSYSTEM: "1",
+    GIT_CONFIG_GLOBAL: "/dev/null",
+  };
+  const git = (...args: string[]): string =>
+    realExecFileSync("git", args, { env: gitEnv, encoding: "utf8" });
+
+  beforeAll(async () => {
+    const real =
+      await vi.importActual<typeof import("node:child_process")>(
+        "node:child_process",
+      );
+    realExecFileSync = real.execFileSync;
+    execFileMock.mockImplementation(real.execFile);
+  });
+
+  afterAll(() => {
+    installGitMock();
+  });
+
+  it("never runs a hook or fsmonitor command the sandbox planted in the checkout", async () => {
+    const root = mkdtempSync(join(tmpdir(), "nw-real-git-"));
+    const seed = join(root, "seed");
+    const remote = join(root, "remote.git");
+    git("init", "-q", "-b", "main", seed);
+    writeFileSync(join(seed, "README.md"), "seed\n");
+    git("-C", seed, "add", ".");
+    git(
+      "-C",
+      seed,
+      "-c",
+      "user.name=t",
+      "-c",
+      "user.email=t@t",
+      "commit",
+      "-qm",
+      "seed",
+    );
+    git("clone", "-q", "--bare", seed, remote);
+
+    const marker = join(root, "planted-ran");
+    const payload = join(root, "payload.sh");
+    writeFileSync(payload, `#!/bin/sh\ntouch '${marker}'\n`);
+    chmodSync(payload, 0o755);
+
+    const sessionId = nextSessionId();
+    await withWorkspace(sessionId, options({ cloneUrl: remote }), (ws) => {
+      // What anything in the container can do: replace whatever .git is with
+      // a repository of its own that carries a hook, a hooksPath and fsmonitor.
+      rmSync(join(ws.dir, ".git"), { recursive: true, force: true });
+      git("init", "-q", ws.dir);
+      const hooks = join(ws.dir, ".git", "hooks");
+      mkdirSync(hooks, { recursive: true });
+      for (const hook of ["pre-commit", "post-commit", "pre-push"]) {
+        copyFileSync(payload, join(hooks, hook));
+      }
+      git("-C", ws.dir, "config", "core.hooksPath", hooks);
+      git("-C", ws.dir, "config", "core.fsmonitor", payload);
+      writeFileSync(join(ws.dir, "fix.ts"), "export {};\n");
+      return Promise.resolve();
+    });
+    await teardown(sessionId, "idle");
+
+    expect(existsSync(marker)).toBe(false);
+    // The checkpoint commit still reached the session branch on the remote.
+    expect(
+      git("--git-dir", remote, "ls-tree", "--name-only", options().branch),
+    ).toContain("fix.ts");
+    rmSync(root, { recursive: true, force: true });
   });
 });
 
@@ -649,7 +735,7 @@ describe("sandbox network modes", () => {
     gitState.cloneFiles = { "package.json": '{ "name": "fixture" }\n' };
     const ws = await createWorkspace();
     expect(
-      readFileSync(join(ws.dir, ".git", "info", "exclude"), "utf8"),
+      readFileSync(join(`${ws.dir}.git`, "info", "exclude"), "utf8"),
     ).toContain("node_modules/");
   });
 
@@ -689,8 +775,9 @@ describe("boot salvage", () => {
 
   function makeWorkspace(name: string): string {
     const dir = join(salvageDir, name);
-    mkdirSync(join(dir, ".git"), { recursive: true });
-    mkdirSync(join(salvageDir, `${name}.home`), { recursive: true });
+    mkdirSync(dir, { recursive: true });
+    mkdirSync(`${dir}.git`, { recursive: true });
+    mkdirSync(`${dir}.home`, { recursive: true });
     return dir;
   }
 
@@ -702,7 +789,7 @@ describe("boot salvage", () => {
     rmSync(salvageDir, { recursive: true, force: true });
   });
 
-  it("commits dirty work, pushes to the checkout's own branch, and removes the folder pair", async () => {
+  it("commits dirty work, pushes to the checkout's own branch, and removes the checkout with its siblings", async () => {
     const dir = makeWorkspace("session-dirty");
     gitState.dirty = true;
 
@@ -714,7 +801,8 @@ describe("boot salvage", () => {
     expect(push).toContain("nightwarden/fix-oom-12345678");
     expect(push?.[1]).toBe(`http.extraHeader=Authorization: ${AUTH_HEADER}`);
     expect(existsSync(dir)).toBe(false);
-    expect(existsSync(join(salvageDir, "session-dirty.home"))).toBe(false);
+    expect(existsSync(`${dir}.git`)).toBe(false);
+    expect(existsSync(`${dir}.home`)).toBe(false);
   });
 
   it("pushes committed-but-unpushed work without a new commit", async () => {

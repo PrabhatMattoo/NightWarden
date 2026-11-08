@@ -1,4 +1,4 @@
-import { access, readdir, rm } from "node:fs/promises";
+import { access, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import {
   commitAll,
@@ -8,9 +8,10 @@ import {
   push,
   type CommitAuthor,
 } from "./git.js";
-import { homeDirFor, type SandboxLog } from "./workspace.js";
+import { gitDirFor, homeDirFor } from "./paths.js";
+import { removeCheckout, type SandboxLog } from "./workspace.js";
 
-const HOME_SUFFIX = homeDirFor("");
+const SIBLING_SUFFIXES = [homeDirFor(""), gitDirFor("")];
 
 interface SalvageOptions {
   workspacesDir: string;
@@ -33,11 +34,6 @@ function exists(path: string): Promise<boolean> {
   );
 }
 
-async function removeWithHome(dir: string): Promise<void> {
-  await rm(dir, { recursive: true, force: true });
-  await rm(homeDirFor(dir), { recursive: true, force: true });
-}
-
 // The checkout is a host bind mount, so unpushed work needs nothing from the
 // dead process. Fails open per directory, so boot proceeds regardless.
 export async function salvageWorkspaces(
@@ -52,12 +48,17 @@ export async function salvageWorkspaces(
     return result;
   }
   for (const entry of entries) {
-    if (!entry.isDirectory() || entry.name.endsWith(HOME_SUFFIX)) continue;
+    if (
+      !entry.isDirectory() ||
+      SIBLING_SUFFIXES.some((suffix) => entry.name.endsWith(suffix))
+    ) {
+      continue;
+    }
     const dir = join(opts.workspacesDir, entry.name);
     try {
-      if (!(await exists(join(dir, ".git")))) {
+      if (!(await exists(gitDirFor(dir)))) {
         // A crash mid-clone leaves a non-repo folder; garbage either way.
-        await removeWithHome(dir);
+        await removeCheckout(dir);
         continue;
       }
       if (await isDirty(dir)) {
@@ -68,7 +69,7 @@ export async function salvageWorkspaces(
         result.pushed++;
         opts.log?.info({ dir: entry.name }, "salvaged orphaned workspace");
       }
-      await removeWithHome(dir);
+      await removeCheckout(dir);
     } catch (err) {
       result.kept++;
       opts.log?.warn(
