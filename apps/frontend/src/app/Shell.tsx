@@ -52,8 +52,7 @@ import { cssNumber } from "@/shared/lib/cssNumber";
 import { ICON_NAV, ICON_UI } from "@/shared/lib/iconProps";
 import { useMediaQuery } from "@/shared/hooks/useMediaQuery";
 
-const DOCS_URL =
-  "https://github.com/PrabhatMattoo/NightWarden/blob/main/ARCHITECTURE.md";
+const DOCS_URL = "https://github.com/PrabhatMattoo/NightWarden#readme";
 
 // The rail keeps its own column from lg; narrower, it opens over the stage.
 const WIDE = `(width >= ${cssNumber("--breakpoint-lg", 1024)}px)`;

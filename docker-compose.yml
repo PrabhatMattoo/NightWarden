@@ -25,7 +25,7 @@ services:
     # reading its base URL at import rejects.
     # First-boot seeds all live in .env: NIGHTWARDEN_LLM_PROVIDER, the
     # <PROVIDER>_API_KEY / _MODEL / _BASE_URL trio, PROMETHEUS_URL, LOKI_URL and
-    # the runner image overrides. See ARCHITECTURE.md#configuration.
+    # the runner image overrides.
     env_file:
       - path: .env
         required: false
