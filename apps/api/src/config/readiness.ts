@@ -50,7 +50,6 @@ export async function checkLLMReadiness(): Promise<LLMReadiness> {
       maxInputTokens: described?.maxInputTokens ?? null,
       compaction: described?.compaction ?? false,
       maxRetries: config.maxRetries,
-      requestTimeoutMs: config.requestTimeoutMs,
       reasoningLevel: settings.reasoningLevel,
       reasoning: described?.reasoning ?? null,
     },

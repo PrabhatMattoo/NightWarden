@@ -38,15 +38,6 @@ export function LimitsSection({
 
       <SettingsGroup title="Model requests">
         <PresetRow
-          id="settings-request-timeout"
-          setting="requestTimeoutMs"
-          title="Model response timeout"
-          description="How long one request to the model may take."
-          value={config.requestTimeoutMs}
-          format={formatDuration}
-          onCommit={(ms) => save({ requestTimeoutMs: ms })}
-        />
-        <PresetRow
           id="settings-max-retries"
           setting="maxRetries"
           title="Retry failed model requests"

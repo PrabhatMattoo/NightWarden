@@ -10,7 +10,8 @@ import {
 import { sessionExists } from "./session/store.js";
 import { appendErrorMessage } from "./session/transcript-store.js";
 import { markStopped } from "./session/status-store.js";
-import { describeLLMError, isTransientLLMError } from "./llm/failures.js";
+import { describeLLMError, isRetryableLLMError } from "./llm/failures.js";
+import { loadConfig } from "./config/store.js";
 import { logger } from "./logger.js";
 import {
   publishRunFailed,
@@ -53,11 +54,11 @@ export function createDispatcher(opts: DispatcherOptions): Dispatcher {
     logger.error({ err, sessionId }, "investigation failed");
     await recordRunFailure(
       sessionId,
-      isTransientLLMError(err) ? "transient" : "permanent",
+      isRetryableLLMError(err) ? "transient" : "permanent",
     );
     // The failure becomes a durable transcript row rendered like any other
     // message; a synthetic row still unsticks the frontend if persist fails.
-    const text = describeLLMError(err);
+    const text = describeLLMError(err, (await loadConfig()).maxRetries);
     let row: TranscriptRow;
     try {
       row = await appendErrorMessage(sessionId, text);

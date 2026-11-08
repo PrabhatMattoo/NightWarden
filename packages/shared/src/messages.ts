@@ -3,7 +3,13 @@
 
 import type { RecordGapKind } from "./reports.js";
 
-type JsonValue = null | string | number | boolean | JsonObject | JsonValue[];
+type JsonValue =
+  | null
+  | string
+  | number
+  | boolean
+  | Readonly<JsonObject>
+  | readonly JsonValue[];
 type JsonObject = { [key: string]: JsonValue | undefined };
 
 // Keyed by provider, so a part replayed into a different one carries nothing
@@ -32,6 +38,8 @@ export interface ToolCallPart {
   toolCallId: string;
   name: string;
   input: Record<string, unknown>;
+  // Reasoning a vendor sealed onto the call rather than a reasoning part, sent back verbatim.
+  providerOptions?: PartProviderOptions;
 }
 
 export interface ToolResultPart {

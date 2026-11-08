@@ -1,16 +1,9 @@
 import { messageBody } from "./session-helper.js";
 import { harness, type Harness } from "./harness.js";
-import {
-  afterAll,
-  afterEach,
-  beforeAll,
-  describe,
-  expect,
-  it,
-  vi,
-} from "vitest";
-import { APICallError } from "@ai-sdk/provider";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { APICallError } from "ai";
 import type { FrontendEvent } from "@nightwarden/shared";
+import type { ProviderCallOptions } from "../llm/types.js";
 
 vi.mock("../llm/factory.js", () => import("./llm-factory-mock.js"));
 
@@ -45,7 +38,7 @@ function healthyProvider(text: string): ContractFakeProvider {
   return createContractFakeProvider([{ toolUses: [], text }]);
 }
 
-describe("run failure surfacing (dispatch -> retry -> transcript -> SSE)", () => {
+describe("run failure surfacing (dispatch -> transcript -> SSE)", () => {
   let nw: Harness;
   let port: number;
   let SESSION: string;
@@ -64,10 +57,6 @@ describe("run failure surfacing (dispatch -> retry -> transcript -> SSE)", () =>
     client.close();
     await nw.close();
     vi.unstubAllEnvs();
-  });
-
-  afterEach(() => {
-    vi.useRealTimers();
   });
 
   async function startChat(message: string): Promise<string> {
@@ -90,36 +79,42 @@ describe("run failure surfacing (dispatch -> retry -> transcript -> SSE)", () =>
     );
   }
 
-  it("rides out transient 502s and finishes without an error row", async () => {
-    const fake = healthyProvider("Recovered fine.");
-    fake.chat
-      .mockRejectedValueOnce(providerError(502))
-      .mockRejectedValueOnce(providerError(502));
-    mockCreateProvider.mockImplementation(() => fake);
+  // The provider retries a failed stream itself; the run's part is telling the reader.
+  it("tells the reader when a reply is starting over", async () => {
+    mockCreateProvider.mockImplementation(
+      (_s: string, _c: unknown, _k: unknown, opts?: ProviderCallOptions) =>
+        createContractFakeProvider(
+          [{ toolUses: [], text: "Recovered fine." }],
+          {
+            // Reported mid-call, the way the SDK reports a stream it is retrying.
+            gate: () => {
+              opts?.onRetry?.({
+                attempt: 2,
+                maxAttempts: 4,
+                err: providerError(529),
+              });
+              return Promise.resolve();
+            },
+          },
+        ),
+    );
 
-    vi.useFakeTimers({ shouldAdvanceTime: true });
     const sessionId = await startChat("summarize the codebase");
-
-    await waitFor(() => retryEventsFor(sessionId).length >= 1);
-    await vi.advanceTimersByTimeAsync(5_000);
-    await waitFor(() => retryEventsFor(sessionId).length >= 2);
-    await vi.advanceTimersByTimeAsync(15_000);
 
     await waitFor(() =>
       client.events.find(
         (e) => e.type === "RUN_FINISHED" && e.payload.sessionId === sessionId,
       ),
     );
-
-    const first = retryEventsFor(sessionId)[0];
-    expect(first?.type === "RUN_RETRYING" && first.payload.summary).toBe(
-      "Provider error (502). Retrying in 5s - attempt 2 of 4.",
+    const retry = retryEventsFor(sessionId)[0];
+    expect(retry?.type === "RUN_RETRYING" && retry.payload.summary).toBe(
+      "Provider error (529). Retrying - attempt 2 of 4.",
     );
     const roles = (await getTranscriptRows(sessionId)).map((m) => m.kind);
     expect(roles).toEqual(["user", "assistant"]);
   });
 
-  it("persists a plain-language error row when retries run out, and publishes it", async () => {
+  it("persists a plain-language error row when the provider gives up, and publishes it", async () => {
     const fake = healthyProvider("never reached");
     fake.chat.mockRejectedValue(
       providerError(502, {
@@ -129,13 +124,7 @@ describe("run failure surfacing (dispatch -> retry -> transcript -> SSE)", () =>
     );
     mockCreateProvider.mockImplementation(() => fake);
 
-    vi.useFakeTimers({ shouldAdvanceTime: true });
     const sessionId = await startChat("what is down?");
-
-    for (const [i, delay] of [5_000, 15_000, 45_000].entries()) {
-      await waitFor(() => retryEventsFor(sessionId).length >= i + 1);
-      await vi.advanceTimersByTimeAsync(delay);
-    }
 
     const failed = await waitFor(() =>
       client.events.find(

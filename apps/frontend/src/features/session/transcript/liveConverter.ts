@@ -50,7 +50,7 @@ export function applyLiveEvent(
   }
 
   // The retry re-streams the whole turn from the start, so drop the partial
-  // text it produced before the transient error.
+  // text the failed attempt produced.
   if (env.type === "RUN_RETRYING") {
     if (env.payload.sessionId !== sessionId) return items;
     let end = items.length;

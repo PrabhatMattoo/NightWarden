@@ -21,9 +21,6 @@ function retrying(sessionId = "s1"): FrontendEvent {
     type: "RUN_RETRYING",
     payload: {
       sessionId,
-      attempt: 1,
-      maxAttempts: 4,
-      delaySeconds: 5,
       summary: "Provider error (502). Retrying…",
     },
   };

@@ -50,6 +50,9 @@ function effort(
     : config.reasoningLevel;
 }
 
+// Anthropic's automatic caching: one breakpoint that follows the conversation's tail.
+const CACHE_TAIL = { type: "ephemeral" } as const;
+
 // The only place a provider is named for what a request carries. Each level came
 // from that provider's own catalogue, so it passes through unmapped.
 export function requestOptions(
@@ -62,6 +65,7 @@ export function requestOptions(
       return {
         anthropic: {
           thinking: { type: "adaptive", display: "summarized" },
+          cacheControl: CACHE_TAIL,
           ...(level !== null && { effort: level }),
           // No trigger: Anthropic's own default decides when, and a number of
           // ours would be a guess dressed as a setting.
@@ -83,10 +87,15 @@ export function requestOptions(
         },
       };
     }
+    // Read by Anthropic's models and ignored by the rest, as OpenRouter does any
+    // parameter a model cannot take.
     case "openrouter":
-      return level === null
-        ? {}
-        : { openrouter: { reasoning: { effort: level } } };
+      return {
+        openrouter: {
+          cacheControl: CACHE_TAIL,
+          ...(level !== null && { reasoning: { effort: level } }),
+        },
+      };
   }
 }
 
@@ -109,7 +118,9 @@ export function createProvider(
 ): LLMProvider {
   return new SdkProvider(languageModel(config, apiKey), system, {
     maxOutputTokens: config.maxOutputTokens,
+    maxRetries: config.maxRetries,
     providerOptions: requestOptions(config, opts),
+    ...(opts?.onRetry !== undefined && { onRetry: opts.onRetry }),
   });
 }
 

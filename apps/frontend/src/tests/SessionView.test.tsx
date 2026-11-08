@@ -1244,26 +1244,21 @@ describe("SessionView", () => {
           type: "RUN_RETRYING",
           payload: {
             sessionId: "s1",
-            attempt: 2,
-            maxAttempts: 4,
-            delaySeconds: 15,
-            summary: "Provider error (502). Retrying in 15s - attempt 2 of 4.",
+            summary: "Provider error (529). Retrying - attempt 2 of 4.",
           },
         });
       });
 
       await waitFor(() => {
         expect(
-          screen.getByText(
-            "Provider error (502). Retrying in 15s - attempt 2 of 4.",
-          ),
+          screen.getByText("Provider error (529). Retrying - attempt 2 of 4."),
         ).toBeInTheDocument();
       });
       // One line that morphs: the retry takes the placeholder's place rather
       // than adding a second text somewhere else on screen.
       expect(screen.getAllByTestId("working-indicator")).toHaveLength(1);
       expect(screen.getByTestId("working-indicator")).toHaveTextContent(
-        "Provider error (502). Retrying in 15s - attempt 2 of 4.",
+        "Provider error (529). Retrying - attempt 2 of 4.",
       );
 
       act(() => {
@@ -1277,7 +1272,7 @@ describe("SessionView", () => {
       await waitFor(() => {
         expect(
           screen.queryByText(
-            "Provider error (502). Retrying in 15s - attempt 2 of 4.",
+            "Provider error (529). Retrying - attempt 2 of 4.",
           ),
         ).not.toBeInTheDocument();
       });

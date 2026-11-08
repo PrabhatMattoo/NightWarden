@@ -34,7 +34,6 @@ interface ConfigTable {
   id: string;
   active_provider: string | null;
   max_retries: Generated<number>;
-  request_timeout_ms: Generated<number>;
   max_investigations_per_hour: Generated<number>;
   check_in_after_ms: Generated<number>;
   tool_call_ceiling_ms: Generated<number>;

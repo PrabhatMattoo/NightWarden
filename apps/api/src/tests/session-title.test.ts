@@ -1,7 +1,6 @@
 import { messageBody } from "./session-helper.js";
 import { harness, type Harness } from "./harness.js";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { APICallError } from "@ai-sdk/provider";
 import type { FrontendEvent, NormalizedAlert } from "@nightwarden/shared";
 
 vi.mock("../llm/factory.js", () => import("./llm-factory-mock.js"));
@@ -30,7 +29,6 @@ function configuredConfig(): ResolvedLLMConfig {
     maxInputTokens: null,
     compaction: false,
     maxRetries: 0,
-    requestTimeoutMs: 10_000,
     reasoningLevel: null,
     reasoning: {
       levels: [
@@ -112,53 +110,6 @@ describe("session title generation", () => {
       sessionId,
       title: "Checkout Latency Spike",
     });
-  });
-
-  // Without the run's retry policy one provider blip strands a session on its
-  // temporary title, which is the row's most prominent field.
-  it("rides out a transient provider error without touching the run's stream", async () => {
-    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-    const provider = createContractFakeProvider([
-      { toolUses: [], text: '"Checkout Latency Spike"' },
-    ]);
-    let attempts = 0;
-    mockCreateTitleProvider.mockImplementationOnce(() => ({
-      ...provider,
-      chat: async (...args: Parameters<typeof provider.chat>) => {
-        attempts++;
-        if (attempts === 1) {
-          return Promise.reject(
-            new APICallError({
-              message: "down",
-              url: "https://provider.example/v1/messages",
-              requestBodyValues: {},
-            }),
-          );
-        }
-        const [schemas, onDelta, signal] = args;
-        return await provider.chat(schemas, onDelta, signal);
-      },
-    }));
-
-    const sessionId = "sess-title-retry";
-    await seedSession(sessionId, "Why is checkout slow this morning?");
-    const events: FrontendEvent[] = [];
-    const unsubscribe = subscribeFrontend((e) => events.push(e));
-
-    const pending = generateSessionTitle(
-      sessionId,
-      "Why is checkout slow this morning?",
-      configuredConfig(),
-    );
-    await vi.advanceTimersByTimeAsync(5_000);
-    await pending;
-    unsubscribe();
-    vi.useRealTimers();
-
-    expect(attempts).toBe(2);
-    expect((await getSession(sessionId))?.title).toBe("Checkout Latency Spike");
-    // The stream is the investigation's; a title retry is logged, never sent.
-    expect(events.some((e) => e.type === "RUN_RETRYING")).toBe(false);
   });
 
   it("sends the message as quoted material with reasoning off, not as a live turn", async () => {

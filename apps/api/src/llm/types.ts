@@ -3,6 +3,7 @@
 
 import type { JSONSchema7Definition } from "@ai-sdk/provider";
 import type { MessagePart, ToolName, ToolRefusal } from "@nightwarden/shared";
+import type { RetryNotice } from "./failures.js";
 
 export interface ToolSchema {
   // Checked against the shared list, so a tool the frontend draws by name cannot
@@ -70,10 +71,11 @@ export interface ProviderMessage {
   parts: MessagePart[];
 }
 
-// Reasoning is never switched off, so the model's weakest rung is as low as a
-// caller may ask for.
 export interface ProviderCallOptions {
+  // Reasoning is never switched off, so the weakest rung is as low as it goes.
   minimalReasoning?: true;
+  // A stream that failed part way is starting over, so what it streamed is void.
+  onRetry?: (notice: RetryNotice) => void;
 }
 
 /* What the investigation domain talks to. The conversation is passed in rather

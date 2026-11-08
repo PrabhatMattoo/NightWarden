@@ -40,7 +40,6 @@ export const configPatchSchema = z.object({
     })
     .optional(),
   maxRetries: bounded("maxRetries").optional(),
-  requestTimeoutMs: bounded("requestTimeoutMs").optional(),
   maxInvestigationsPerHour: bounded("maxInvestigationsPerHour").optional(),
   checkInAfterMs: bounded("checkInAfterMs").optional(),
   toolCallCeilingMs: bounded("toolCallCeilingMs").optional(),

@@ -1,87 +1,37 @@
-import { APICallError } from "@ai-sdk/provider";
-import { MAX_RETRIES, retryDelaysMs } from "./config.js";
+import { APICallError, RetryError, StreamProviderError } from "ai";
 
-function providerStatus(err: unknown): number | undefined | null {
-  // null: not a provider error at all; undefined: provider connection error.
-  return APICallError.isInstance(err) ? err.statusCode : null;
+type ProviderFailure = APICallError | StreamProviderError;
+
+// What the provider reported, unwrapped from any retries the SDK already spent.
+function providerFailure(err: unknown): ProviderFailure | null {
+  const last = RetryError.isInstance(err) ? err.lastError : err;
+  return APICallError.isInstance(last) || StreamProviderError.isInstance(last)
+    ? last
+    : null;
 }
 
-// The socket faults worth waiting out, the set the SDK itself marks retryable
-// when it wraps a fetch failure.
-const RETRYABLE_NETWORK_CODES = new Set([
-  "ECONNRESET",
-  "ECONNREFUSED",
-  "ETIMEDOUT",
-  "EPIPE",
-  "UND_ERR_SOCKET",
-  "UND_ERR_HEADERS_TIMEOUT",
-  "UND_ERR_BODY_TIMEOUT",
-  "UND_ERR_CONNECT_TIMEOUT",
-]);
-
-// A drop mid-stream can arrive raw rather than wrapped as an APICallError, so
-// the cause chain is walked for a network code or a fetch-failure message.
-function isRetryableNetworkError(err: unknown): boolean {
-  const seen = new Set<unknown>();
-  let current: unknown = err;
-  while (current instanceof Error && !seen.has(current)) {
-    seen.add(current);
-    const code = (current as { code?: unknown }).code;
-    if (typeof code === "string" && RETRYABLE_NETWORK_CODES.has(code)) {
-      return true;
-    }
-    if (/fetch failed|failed to fetch/i.test(current.message)) return true;
-    current = (current as { cause?: unknown }).cause;
-  }
-  return false;
+// The SDK's stall timeout: the provider went quiet, which a later attempt can outlast.
+function isStall(err: unknown): boolean {
+  return err instanceof DOMException && err.name === "TimeoutError";
 }
 
-/* A provider can reject with a plain object rather than an Error: OpenRouter's
-   gateway answers a stalled upstream with { message, code, metadata }. */
-interface ReportedFailure {
-  message: string;
-  status: number | null;
+/* The SDK's own verdict on whether trying again could work. Auth, model and
+   request errors say no, since retrying them cannot succeed. */
+export function isRetryableLLMError(err: unknown): boolean {
+  return providerFailure(err)?.isRetryable === true || isStall(err);
 }
 
-function reportedFailure(err: unknown): ReportedFailure | null {
-  if (err === null || typeof err !== "object" || err instanceof Error) {
-    return null;
-  }
-  const { message, code } = err as { message?: unknown; code?: unknown };
-  if (typeof message !== "string" || message === "") return null;
-  return { message, status: typeof code === "number" ? code : null };
-}
-
-// Outages, rate limits and dropped connections are worth waiting out; auth,
-// model and request errors are not, since retrying them cannot succeed.
-export function isTransientLLMError(err: unknown): boolean {
-  if (APICallError.isInstance(err)) {
-    return err.isRetryable === true || err.statusCode === undefined;
-  }
-  /* A gateway timeout reported as a bare object is the same outage as one
-     wrapped as a provider error, and waiting it out is the same answer. */
-  const reported = reportedFailure(err);
-  if (reported?.status !== null && reported !== null) {
-    return reported.status === 408 || reported.status >= 500;
-  }
-  return isRetryableNetworkError(err);
-}
-
-interface RetryNotice {
+export interface RetryNotice {
   attempt: number;
   maxAttempts: number;
-  delayMs: number;
   err: unknown;
 }
 
 export function retrySummary(notice: RetryNotice): string {
-  const status = providerStatus(notice.err);
+  const status = providerFailure(notice.err)?.statusCode;
   const cause =
-    typeof status === "number"
-      ? `Provider error (${status})`
-      : "Connection error";
-  const seconds = Math.round(notice.delayMs / 1000);
-  return `${cause}. Retrying in ${seconds}s - attempt ${notice.attempt + 1} of ${notice.maxAttempts}.`;
+    status === undefined ? "Provider error" : `Provider error (${status})`;
+  return `${cause}. Retrying - attempt ${notice.attempt} of ${notice.maxAttempts}.`;
 }
 
 // OpenRouter nests the upstream host's name in error.metadata; surface it so
@@ -124,14 +74,12 @@ const CONTEXT_OVERFLOW_WORDING = [
   "context length",
 ];
 
-function isContextOverflow(err: APICallError): boolean {
+function isContextOverflow(err: ProviderFailure): boolean {
   if (errorType(err.data) === "context_length_exceeded") return true;
   const said = `${err.message} ${bodyMessage(err.data)}`.toLowerCase();
   return CONTEXT_OVERFLOW_WORDING.some((wording) => said.includes(wording));
 }
 
-// Plain-language failure text persisted into the transcript. One or two
-// sentences a non-expert can act on, with the raw status in parentheses.
 /* Last resort, so a failure with no message still names its shape rather than
    the word every unlabelled object prints as. */
 function describeUnknown(err: unknown): string {
@@ -140,31 +88,29 @@ function describeUnknown(err: unknown): string {
     : `the provider returned ${typeof err} with no message`;
 }
 
-export function describeLLMError(err: unknown): string {
-  if (!APICallError.isInstance(err)) {
-    // String(err) on a plain object reads "[object Object]", which tells the
-    // user nothing about the one thing they most need to know.
-    const reported = reportedFailure(err);
-    const message =
-      err instanceof Error
-        ? err.message
-        : (reported?.message ?? describeUnknown(err));
-    const detail =
-      reported === null || reported.status === null
-        ? ""
-        : ` (HTTP ${reported.status})`;
-    return `The run failed unexpectedly: ${message}${detail}`;
+// Plain-language failure text persisted into the transcript. One or two
+// sentences a non-expert can act on, with the raw status in parentheses.
+export function describeLLMError(err: unknown, maxRetries: number): string {
+  const attempts = maxRetries + 1;
+  const failure = providerFailure(err);
+  if (failure === null) {
+    if (isStall(err)) {
+      return "The model provider stopped sending its reply part way and never resumed. This is upstream, not your setup; send a message to try again.";
+    }
+    const message = err instanceof Error ? err.message : describeUnknown(err);
+    return `The run failed unexpectedly: ${message}`;
   }
-  const status = err.statusCode;
-  const attempts = MAX_RETRIES + 1;
+  const status = failure.statusCode;
   if (status === undefined) {
-    return "Could not reach the model provider - the connection failed. Check the Base URL in Settings and your network, then send a message to try again.";
+    return APICallError.isInstance(failure)
+      ? "Could not reach the model provider - the connection failed. Check the Base URL in Settings and your network, then send a message to try again."
+      : `The model provider failed part way through its reply: ${failure.message}. NightWarden tried ${attempts} times before giving up.`;
   }
-  const from = upstreamProvider(err.data);
+  const from = upstreamProvider(failure.data);
   const detail = ` (HTTP ${status}${from === null ? "" : ` from ${from}`})`;
   // The host actually serving the model is down, which is neither your key nor
   // your model being wrong: another model routes around it.
-  if (errorType(err.data) === "provider_unavailable") {
+  if (errorType(failure.data) === "provider_unavailable") {
     return `The provider behind this model returned nothing usable, which means it is having an outage rather than anything being wrong with your setup. Try another model in Settings, or wait for it to recover${detail}.`;
   }
   if (status === 401 || status === 403) {
@@ -178,7 +124,7 @@ export function describeLLMError(err: unknown): string {
   }
   // Checked before the generic 400 it arrives as: the user changed nothing,
   // so naming their model and reasoning level points at the wrong screen.
-  if (isContextOverflow(err)) {
+  if (isContextOverflow(failure)) {
     return `This conversation grew past the model's context window, so the provider refused it. Continuing this session would hit the same limit: start a new one, or pick a model with a larger context window under Settings, Provider${detail}.`;
   }
   if (status === 400) {
@@ -191,47 +137,4 @@ export function describeLLMError(err: unknown): string {
     return `The model provider had a server problem - this is upstream, not your setup. NightWarden tried ${attempts} times before giving up${detail}.`;
   }
   return `The provider returned an unexpected error${detail}.`;
-}
-
-function sleep(ms: number, signal?: AbortSignal): Promise<void> {
-  return new Promise((resolve) => {
-    const done = (): void => {
-      clearTimeout(timer);
-      signal?.removeEventListener("abort", done);
-      resolve();
-    };
-    const timer = setTimeout(done, ms);
-    signal?.addEventListener("abort", done, { once: true });
-  });
-}
-
-// The only retry mechanism, since the SDKs' own are off, so the configured count
-// is the real one. Abort cuts the sleep and rethrows the original error.
-export async function withLLMRetries<T>(
-  fn: () => Promise<T>,
-  opts: {
-    signal?: AbortSignal;
-    delays?: readonly number[];
-    onRetry?: (notice: RetryNotice) => void;
-  } = {},
-): Promise<T> {
-  const delays = opts.delays ?? retryDelaysMs(MAX_RETRIES);
-  const maxAttempts = delays.length + 1;
-  for (let attempt = 1; ; attempt++) {
-    try {
-      return await fn();
-    } catch (err) {
-      const delayMs = delays[attempt - 1];
-      if (
-        delayMs === undefined ||
-        !isTransientLLMError(err) ||
-        opts.signal?.aborted
-      ) {
-        throw err;
-      }
-      opts.onRetry?.({ attempt, maxAttempts, delayMs, err });
-      await sleep(delayMs, opts.signal);
-      if (opts.signal?.aborted) throw err;
-    }
-  }
 }

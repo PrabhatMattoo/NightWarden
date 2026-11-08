@@ -17,8 +17,7 @@ export type SandboxNetwork = (typeof SANDBOX_NETWORKS)[number];
 export const SANDBOX_HOST_PATTERN =
   /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/i;
 
-const SECOND = 1_000;
-const MINUTE = 60 * SECOND;
+const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
 
 export interface SettingRange {
@@ -39,11 +38,6 @@ export const SETTING_RANGES = {
     min: 5 * MINUTE,
     max: 4 * HOUR,
     presets: [10 * MINUTE, 15 * MINUTE, 30 * MINUTE, HOUR, 2 * HOUR, 4 * HOUR],
-  },
-  requestTimeoutMs: {
-    min: 30 * SECOND,
-    max: 10 * MINUTE,
-    presets: [30 * SECOND, MINUTE, 2 * MINUTE, 5 * MINUTE, 10 * MINUTE],
   },
   maxRetries: { min: 0, max: 5, presets: [0, 1, 2, 3, 5] },
   toolCallCeilingMs: {
@@ -143,7 +137,6 @@ export interface AgentConfig {
   // frontend renders rather than a list it maintains.
   providerOptions: ProviderOption[];
   maxRetries: number;
-  requestTimeoutMs: number;
   // Over a rolling hour, since every run an alert starts spends the user's credits.
   maxInvestigationsPerHour: number;
   // How long the agent works before finishing its current step and asking
@@ -175,7 +168,6 @@ export interface ResolvedLLMConfig {
   maxInputTokens: number | null;
   compaction: boolean;
   maxRetries: number;
-  requestTimeoutMs: number;
   // The user's pick, in the provider's vocabulary; each adapter translates
   // it into its own wire param. Null means send nothing and take the default.
   reasoningLevel: string | null;

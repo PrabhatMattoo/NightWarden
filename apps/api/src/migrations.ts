@@ -22,7 +22,6 @@ CREATE TABLE IF NOT EXISTS config (
   id                            TEXT     PRIMARY KEY,
   active_provider               TEXT,
   max_retries                   INTEGER  NOT NULL DEFAULT 3,
-  request_timeout_ms            INTEGER  NOT NULL DEFAULT 120000,
   max_investigations_per_hour   INTEGER  NOT NULL DEFAULT 10,
   check_in_after_ms             INTEGER  NOT NULL DEFAULT 1800000,
   tool_call_ceiling_ms          INTEGER  NOT NULL DEFAULT 600000,

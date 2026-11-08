@@ -72,7 +72,6 @@ const CONFIG: AgentConfig = {
   },
   maxRetries: 2,
   maxInvestigationsPerHour: 10,
-  requestTimeoutMs: 120000,
   checkInAfterMs: 1800000,
   toolCallCeilingMs: 600000,
   sandboxIdleTimeoutMs: 3600000,
@@ -771,9 +770,6 @@ describe("SettingsPage", () => {
       expect(
         screen.getByRole("combobox", { name: /longest tool call/i }),
       ).toHaveTextContent("10 minutes");
-      expect(
-        screen.getByRole("combobox", { name: /model response timeout/i }),
-      ).toHaveTextContent("2 minutes");
     });
 
     it("keeps a saved value the presets do not list, rather than showing a blank", async () => {

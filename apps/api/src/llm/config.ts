@@ -2,17 +2,13 @@
 // rather than from here. MAX_OUTPUT_TOKENS covers models publishing no ceiling.
 export const MAX_OUTPUT_TOKENS = 32_000;
 
-// guards truly stalled connections; SDK default is 10 min, streaming keeps normal turns well clear
-export const REQUEST_TIMEOUT_MS = 120_000;
-
-// Retries live in one place: withLLMRetries. The SDKs' own retries are switched
-// off so a single logical call cannot quietly become a dozen HTTP attempts.
+// The SDK spends these on the request, and again on a stream that fails part way.
 export const MAX_RETRIES = 3;
 
-// Exponential from 5s, so the default 3 retries ride out ~65s of provider blip.
-export function retryDelaysMs(retries: number): number[] {
-  return Array.from({ length: Math.max(0, retries) }, (_, i) => 5_000 * 3 ** i);
-}
+/* Before the first token a model may reason unseen or compact a long history,
+   so the wait is long; once output flows, a two-minute silence is a stall. */
+export const FIRST_CHUNK_TIMEOUT_MS = 5 * 60_000;
+export const CHUNK_TIMEOUT_MS = 2 * 60_000;
 
 // Room for a real incident's several alert groups while a storm spends ten runs an hour.
 export const DEFAULT_MAX_INVESTIGATIONS_PER_HOUR = 10;

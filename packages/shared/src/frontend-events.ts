@@ -99,15 +99,12 @@ export interface FrontendSandboxStatus extends FrontendEnvelope {
   };
 }
 
-// A transient provider error mid-run: the run is waiting out a backoff delay,
-// not dead. Ephemeral status only - nothing is persisted.
+// A reply failed part way and the turn is starting over, so what it streamed is
+// void. Ephemeral status only - nothing is persisted.
 export interface FrontendRunRetrying extends FrontendEnvelope {
   type: "RUN_RETRYING";
   payload: {
     sessionId: string;
-    attempt: number;
-    maxAttempts: number;
-    delaySeconds: number;
     summary: string;
   };
 }

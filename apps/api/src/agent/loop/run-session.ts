@@ -6,8 +6,8 @@ import { approvedWriteCount, gatedCalls, toolCallsFrom } from "../report.js";
 import { highestEvidenceNumber } from "../evidence-id.js";
 import { stripSystemReminder } from "../system-reminder.js";
 import { connectedPlatforms } from "../policy.js";
-import { retrySummary, withLLMRetries } from "../../llm/failures.js";
-import { retryDelaysMs } from "../../llm/config.js";
+import { retrySummary } from "../../llm/failures.js";
+import type { RetryNotice } from "../../llm/failures.js";
 import { createProvider } from "../../llm/factory.js";
 import {
   checkLLMReadiness,
@@ -123,9 +123,7 @@ export async function runSession(input: RunSessionInput): Promise<RunOutcome> {
   const { config: llm, apiKey } = readiness;
   const config = await loadConfig();
 
-  // Transient provider errors are waited out instead of killing the run; each
-  // wait is streamed to the frontend as live status.
-  const chatWithRetries = async (
+  const chat = async (
     provider: LLMProvider,
     messages: readonly ProviderMessage[],
     toolSchemas: ToolSchema[],
@@ -134,32 +132,15 @@ export async function runSession(input: RunSessionInput): Promise<RunOutcome> {
     // the investigation deadline once the loop has one.
     chatSignal: AbortSignal | undefined = signal,
   ): Promise<ChatResponse> =>
-    await withLLMRetries(
-      async () =>
-        await provider.chat(
-          messages,
-          toolSchemas,
-          (d) => publishTextMessageContent(sessionId, turn, d),
-          chatSignal,
-        ),
-      {
-        signal: chatSignal,
-        delays: retryDelaysMs(config.maxRetries),
-        onRetry: (notice) => {
-          log.warn(
-            { attempt: notice.attempt, delayMs: notice.delayMs },
-            "transient LLM error, retrying",
-          );
-          publishRunRetrying({
-            sessionId,
-            attempt: notice.attempt + 1,
-            maxAttempts: notice.maxAttempts,
-            delaySeconds: Math.round(notice.delayMs / 1000),
-            summary: retrySummary(notice),
-          });
-        },
-      },
+    await provider.chat(
+      messages,
+      toolSchemas,
+      (d) => publishTextMessageContent(sessionId, turn, d),
+      chatSignal,
     );
+  // The SDK retries a failed stream itself; the reader is told, and drops what it streamed.
+  const onRetry = (notice: RetryNotice): void =>
+    publishRunRetrying({ sessionId, summary: retrySummary(notice) });
 
   // The rows the model is handed, dead exchanges unwound, so the stage and the
   // allowances derive from what it sees rather than from turns it never gets.
@@ -184,7 +165,7 @@ export async function runSession(input: RunSessionInput): Promise<RunOutcome> {
     ending: string,
   ): Promise<RunOutcome> => {
     try {
-      const closing = await chatWithRetries(
+      const closing = await chat(
         closer,
         state.conversation(),
         [],
@@ -213,7 +194,7 @@ export async function runSession(input: RunSessionInput): Promise<RunOutcome> {
     );
     log.info("time budget ended: user chose to end, running closing turn");
     return await standDownTurn(
-      createProvider(systemPrompt, llm, apiKey),
+      createProvider(systemPrompt, llm, apiKey, { onRetry }),
       "investigation ended after user declined to continue",
     );
   }
@@ -252,7 +233,7 @@ export async function runSession(input: RunSessionInput): Promise<RunOutcome> {
           ),
         })
       : buildChatContext(fleetView, promptOptions, opensInvestigation);
-  const provider = createProvider(systemPrompt, llm, apiKey);
+  const provider = createProvider(systemPrompt, llm, apiKey, { onRetry });
 
   if (seeded.length > 0) {
     // Written immediately so the frontend shows the turn the moment it is sent,
@@ -309,7 +290,7 @@ export async function runSession(input: RunSessionInput): Promise<RunOutcome> {
     toolCallCeilingMs: config.toolCallCeilingMs,
     // The provider is bound in here, so the turn cycle never sees it.
     chat: (messages, tools, turn, chatSignal) =>
-      chatWithRetries(provider, messages, tools, turn, chatSignal),
+      chat(provider, messages, tools, turn, chatSignal),
   };
 
   while (Date.now() < deadline) {

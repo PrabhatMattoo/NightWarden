@@ -10,7 +10,6 @@ import {
   DEFAULT_SANDBOX_REQUIRE_GVISOR,
   DEFAULT_TOOL_CALL_CEILING_MS,
   MAX_RETRIES,
-  REQUEST_TIMEOUT_MS,
 } from "../llm/config.js";
 import { PROVIDER_OPTIONS } from "../llm/catalog.js";
 import { decrypt, encrypt, generateSecretKey, maskKey } from "../secrets.js";
@@ -34,7 +33,6 @@ const PROVIDER_NAMES: readonly LLMProviderName[] = PROVIDER_OPTIONS.map(
 type ConfigRow = {
   activeProvider: string | null;
   maxRetries: number;
-  requestTimeoutMs: number;
   maxInvestigationsPerHour: number;
   checkInAfterMs: number;
   toolCallCeilingMs: number;
@@ -62,7 +60,6 @@ function readConfigRow(): Promise<ConfigRow | undefined> {
     .select([
       "active_provider as activeProvider",
       "max_retries as maxRetries",
-      "request_timeout_ms as requestTimeoutMs",
       "max_investigations_per_hour as maxInvestigationsPerHour",
       "check_in_after_ms as checkInAfterMs",
       "tool_call_ceiling_ms as toolCallCeilingMs",
@@ -133,7 +130,6 @@ export async function loadConfig(): Promise<AgentConfig> {
       providers,
       providerOptions: [...PROVIDER_OPTIONS],
       maxRetries: MAX_RETRIES,
-      requestTimeoutMs: REQUEST_TIMEOUT_MS,
       maxInvestigationsPerHour: DEFAULT_MAX_INVESTIGATIONS_PER_HOUR,
       checkInAfterMs: DEFAULT_CHECK_IN_AFTER_MS,
       toolCallCeilingMs: DEFAULT_TOOL_CALL_CEILING_MS,
@@ -151,7 +147,6 @@ export async function loadConfig(): Promise<AgentConfig> {
     providers,
     providerOptions: [...PROVIDER_OPTIONS],
     maxRetries: row.maxRetries,
-    requestTimeoutMs: row.requestTimeoutMs,
     maxInvestigationsPerHour: row.maxInvestigationsPerHour,
     checkInAfterMs: row.checkInAfterMs,
     toolCallCeilingMs: row.toolCallCeilingMs,
@@ -183,7 +178,6 @@ export async function updateConfig(
   const values = {
     active_provider: next.provider,
     max_retries: next.maxRetries,
-    request_timeout_ms: next.requestTimeoutMs,
     max_investigations_per_hour: next.maxInvestigationsPerHour,
     check_in_after_ms: next.checkInAfterMs,
     tool_call_ceiling_ms: next.toolCallCeilingMs,
