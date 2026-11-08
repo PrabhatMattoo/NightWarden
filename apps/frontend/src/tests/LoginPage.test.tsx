@@ -42,7 +42,6 @@ function setup(
         rows: [],
         nextOffset: null,
         investigationTotal: 0,
-        queue: { waiting: 0, running: 0, limit: 10, oldestArrivedAt: null },
       });
     }
     return undefined;

@@ -105,7 +105,7 @@ describe("metrics tools through the tool dispatch", () => {
     const sessionId = `prom-tools-${sessionSeq}`;
     await seedAlertSession(
       { sessionId, title: "test", createdAt: new Date().toISOString() },
-      alerts,
+      alerts.map((a, i) => ({ ...a, sourceAlertId: `${sessionId}-${i}` })),
     );
     return {
       toolCallCeilingMs: 30_000,

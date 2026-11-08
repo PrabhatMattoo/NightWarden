@@ -85,9 +85,6 @@ export interface RunSessionInput {
   // When true: seed prior transcript and run exactly one closing turn (no tools),
   // then finish. Used when the user declines a continue-request interrupt.
   standDown?: boolean;
-  /* Alerts that arrived mid-run, handed in rather than fetched: the dispatcher
-     owns the inbox and calls this, so the loop never imports it back. */
-  drainInbox?: (sessionId: string) => NormalizedAlert[];
 }
 
 // The driver: it sets the run up, then loops runOneTurn until a turn ends the
@@ -313,7 +310,6 @@ export async function runSession(input: RunSessionInput): Promise<RunOutcome> {
     // The provider is bound in here, so the turn cycle never sees it.
     chat: (messages, tools, turn, chatSignal) =>
       chatWithRetries(provider, messages, tools, turn, chatSignal),
-    drainInbox: input.drainInbox,
   };
 
   while (Date.now() < deadline) {

@@ -2,7 +2,6 @@ import { sessionIdsWithOpenAlerts } from "../session/alerts-store.js";
 import { runFailure } from "../session/status-store.js";
 import { getSession } from "../session/store.js";
 import { dispatcher } from "../dispatcher.js";
-import { hasSeat } from "../run-pool.js";
 import { buildSeed } from "../session/seed.js";
 import { logger } from "../logger.js";
 import { type ConditionCache, verifyRecovery } from "./recovery.js";
@@ -92,9 +91,6 @@ async function retryFailedRun(sessionId: string): Promise<boolean> {
   if (failure === undefined) return false;
   if (failure.kind !== "transient") return false;
   if (failure.attempts >= MAX_RUN_RETRIES) return false;
-  // A retry takes a seat like any other run; when there is none, the next pass
-  // of this sweep tries again.
-  if (!(await hasSeat(true))) return false;
 
   const started = await dispatcher.dispatch({
     sessionId,

@@ -9,6 +9,7 @@ import { getDb, type Db } from "../db.js";
 // COUNT always does, so they read as zero rather than being asserted away.
 interface StatusFacts {
   gated: number;
+  held: number;
   stoppedAt: string | null;
   alerts: number | null;
   openAlerts: number | null;
@@ -21,6 +22,7 @@ function facts(db: Db, sessionId: string): Promise<StatusFacts | undefined> {
     .where("s.session_id", "=", sessionId)
     .select((eb) => [
       sql<number>`(s.awaiting_tool_use_id IS NOT NULL)`.as("gated"),
+      sql<number>`(s.held_reason IS NOT NULL)`.as("held"),
       "s.stopped_at as stoppedAt",
       eb
         .selectFrom("alerts as a")
@@ -51,6 +53,8 @@ function statusFrom(f: StatusFacts): InvestigationStatus {
   // A session that fired on no alert has no condition to recover, so the alert
   // count is checked as well as the open count.
   if ((f.alerts ?? 0) > 0 && (f.openAlerts ?? 0) === 0) return "resolved";
+  // Held and never run: once a Start has run, the transcript holds a row.
+  if (f.held === 1 && f.lastKind === null) return "not_started";
   if (f.stoppedAt !== null) return "stopped";
   if (f.lastKind === "error") return "failed";
   return "completed";
@@ -79,8 +83,11 @@ export async function refreshSessionStatus(
 
 // The conditional UPDATE is the whole mutex: two racing dispatches attempt it
 // and one changes a row. Every status but 'running' is claimable.
-export async function claimRun(sessionId: string): Promise<boolean> {
-  const res = await getDb()
+export async function claimRun(
+  sessionId: string,
+  db: Db = getDb(),
+): Promise<boolean> {
+  const res = await db
     .updateTable("sessions")
     .set({ status: "running", stopped_at: null })
     .where("session_id", "=", sessionId)
@@ -101,7 +108,7 @@ export async function markStopped(sessionId: string): Promise<void> {
 }
 
 // Conditional on 'running' so it cannot overwrite the 'action_required' written
-// with the interrupt row: that session is waiting, not idle, and keeps its seat.
+// with the interrupt row: that session is waiting, not idle.
 export async function releaseRun(sessionId: string): Promise<void> {
   await getDb()
     .updateTable("sessions")
@@ -152,8 +159,8 @@ export async function runFailure(
     : { kind: row.kind, attempts: row.attempts };
 }
 
-/* Unconditional, unlike releaseRun: boot recovery gives back a seat held by a
-   session waiting on nobody, which releaseRun leaves alone. */
+/* Unconditional, unlike releaseRun: boot recovery settles a session left
+   waiting on nobody, which releaseRun leaves alone. */
 export async function markDone(sessionId: string): Promise<void> {
   await getDb()
     .updateTable("sessions")
@@ -172,20 +179,8 @@ export async function isRunning(sessionId: string): Promise<boolean> {
   return row !== undefined;
 }
 
-// One rule for both pools: running or waiting on a human holds a seat. Freeing
-// the seat of a gated session only queues a second request behind that person.
-export async function countSeats(investigation: boolean): Promise<number> {
-  const row = await getDb()
-    .selectFrom("sessions")
-    .select((eb) => eb.fn.countAll<number>().as("taken"))
-    .where("investigation", "=", investigation ? 1 : 0)
-    .where("status", "in", ["running", "action_required"])
-    .executeTakeFirst();
-  return row?.taken ?? 0;
-}
-
 // Approving clears the gate before the resume claims the run, so a crash in
-// that gap leaves a session waiting on nobody, holding a seat.
+// that gap leaves a session reading action_required while waiting on nobody.
 export async function abandonedSessionIds(): Promise<string[]> {
   const rows = await getDb()
     .selectFrom("sessions")

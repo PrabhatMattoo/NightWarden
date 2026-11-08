@@ -35,7 +35,7 @@ interface ConfigTable {
   active_provider: string | null;
   max_retries: Generated<number>;
   request_timeout_ms: Generated<number>;
-  max_concurrent_investigations: Generated<number>;
+  max_investigations_per_hour: Generated<number>;
   check_in_after_ms: Generated<number>;
   tool_call_ceiling_ms: Generated<number>;
   sandbox_idle_timeout_ms: Generated<number>;
@@ -150,7 +150,11 @@ interface SessionsTable {
     | "stopped"
     | "failed"
     | "completed"
+    | "not_started"
   >;
+  // Why the hourly limit left this session for a person to start. Kept after a
+  // Start, so the hourly count still reads it as not started automatically.
+  held_reason: string | null;
   failed_attempts: Generated<number>;
   failure_kind: "transient" | "permanent" | null;
   stopped_at: string | null;
@@ -171,7 +175,7 @@ interface SessionsTable {
 
 interface AlertsTable {
   id: Generated<number>;
-  session_id: string | null;
+  session_id: string;
   group_key: string;
   source_alert_id: string;
   // Its own column so json_each reads the labels without the alert beside them.
@@ -181,6 +185,8 @@ interface AlertsTable {
   arrived_at: string;
   cleared_at: string | null;
   injected: Generated<number>;
+  // 1 while an alert that joined a run waits for the model to be told of it.
+  pending_delivery: Generated<number>;
   dropped_alerts: Generated<number>;
   group_context: string | null;
   alert: string;

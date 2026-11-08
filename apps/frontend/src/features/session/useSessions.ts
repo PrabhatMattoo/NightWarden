@@ -9,7 +9,6 @@ import {
 import { FILTER_STATUSES } from "@nightwarden/shared";
 import type {
   FrontendEvent,
-  QueueState,
   SessionKind,
   SessionListPage,
   SessionListRow,
@@ -55,9 +54,6 @@ interface UseSessionsResult {
   // Answered by the server over every investigation, so a record's place in the
   // queue neither climbs as the user scrolls nor reads zero on a fresh page.
   investigationTotal: number;
-  // Null until the first page lands, so the band draws nothing rather than
-  // claiming an empty queue it has not been told about.
-  queue: QueueState | null;
   isLoading: boolean;
   hasMore: boolean;
   isLoadingMore: boolean;
@@ -107,7 +103,6 @@ export function useSessions(
     // because status is derived from a dispatcher SQL cannot see.
     sessions: dedupe(query.data?.pages.flatMap((page) => page.rows) ?? []),
     investigationTotal: first?.investigationTotal ?? 0,
-    queue: first?.queue ?? null,
     isLoading: query.isLoading,
     hasMore: query.hasNextPage,
     isLoadingMore: query.isFetchingNextPage,

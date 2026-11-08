@@ -5,8 +5,9 @@ import { getAuth } from "../auth/instance.js";
 import { getDb } from "../db.js";
 import { buildSessionMeta } from "../agent/loop/run-session.js";
 import { dispatcher } from "../dispatcher.js";
-import { enqueueAlerts } from "../session/alerts-store.js";
-import { createSession, openSessionForGroup } from "../session/store.js";
+import { admitDelivery } from "../session/alerts-store.js";
+import { releaseRun } from "../session/status-store.js";
+import { createSession } from "../session/store.js";
 
 // A sender that withheld nothing and described the group not at all: the shape
 // every test that is not about the envelope wants.
@@ -15,8 +16,8 @@ export const WHOLE_DELIVERY: DeliveryContext = {
   groupContext: null,
 };
 
-// By the only route production has: queued under a group key, then taken. A
-// direct insert would build a shape ingest cannot produce.
+// By the only route production has, unlimited because these tests are not about
+// the hourly limit, then released so the session reads as idle.
 export async function seedAlertSession(
   meta: SessionMeta,
   alerts: NormalizedAlert[],
@@ -26,8 +27,19 @@ export async function seedAlertSession(
     await createSession(meta, true);
     return;
   }
-  await enqueueAlerts(groupKey, alerts, WHOLE_DELIVERY);
-  await openSessionForGroup(meta, groupKey);
+  const admission = await admitDelivery(
+    meta,
+    groupKey,
+    alerts,
+    WHOLE_DELIVERY,
+    Infinity,
+  );
+  if (admission.kind !== "started") {
+    throw new Error(
+      `seedAlertSession opened nothing (${admission.kind}): an alert here is already held and still firing`,
+    );
+  }
+  await releaseRun(meta.sessionId);
 }
 
 // The row and its alerts exist before anything dispatches into it, so a test
@@ -37,14 +49,16 @@ export async function dispatchAlertSession(
   alerts: NormalizedAlert[],
   groupKey = `test-group-${randomUUID()}`,
 ): Promise<boolean> {
-  // Queued first, then the session takes them - the order promotion uses, and
-  // what makes an opening alert predate the session it opened.
-  await enqueueAlerts(groupKey, alerts, WHOLE_DELIVERY);
-  await openSessionForGroup(
+  const admission = await admitDelivery(
     buildSessionMeta(sessionId, alerts[0] ?? null, undefined),
     groupKey,
+    alerts,
+    WHOLE_DELIVERY,
+    Infinity,
   );
-  return await dispatcher.dispatch({ sessionId, alerts });
+  if (admission.kind !== "started") return false;
+  dispatcher.launch({ sessionId, alerts });
+  return true;
 }
 
 // A chat session's row, on the same terms: the route writes it before handing

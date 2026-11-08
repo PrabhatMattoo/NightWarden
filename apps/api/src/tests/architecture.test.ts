@@ -69,7 +69,7 @@ describe("layering", () => {
   it("leaves every root file accounted for as one kind or the other", () => {
     // A new root file is a decision, not a default: name it here or give it a
     // module, so the split above cannot quietly stop covering the root.
-    const composition = ["index.ts", "dispatcher.ts", "run-pool.ts"];
+    const composition = ["index.ts", "dispatcher.ts"];
     const roots = MODULES.map(([path]) => path).filter(
       (path) => moduleOf(path) === null,
     );

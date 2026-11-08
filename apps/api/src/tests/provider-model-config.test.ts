@@ -586,14 +586,14 @@ describe("provider/model config seam", () => {
         payload,
       });
 
-    const refused = await patch({ maxConcurrentInvestigations: 21 });
+    const refused = await patch({ maxInvestigationsPerHour: 101 });
     expect(refused.statusCode).toBe(400);
-    expect(refused.body).toContain("from 1 to 20");
+    expect(refused.body).toContain("from 1 to 100");
 
-    const accepted = await patch({ maxConcurrentInvestigations: 5 });
+    const accepted = await patch({ maxInvestigationsPerHour: 5 });
     expect(accepted.statusCode).toBe(200);
     expect(
-      (JSON.parse(accepted.body) as AgentConfig).maxConcurrentInvestigations,
+      (JSON.parse(accepted.body) as AgentConfig).maxInvestigationsPerHour,
     ).toBe(5);
   });
 

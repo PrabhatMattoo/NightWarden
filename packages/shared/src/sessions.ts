@@ -33,7 +33,9 @@ export type InvestigationStatus =
   | "resolved"
   | "stopped"
   | "failed"
-  | "completed";
+  | "completed"
+  // Held by the hourly limit until a person starts it.
+  | "not_started";
 
 // The Investigations page's views beside All: what is still in play, what
 // recovered, and what ended without the alert clearing.
@@ -50,7 +52,7 @@ export const FILTER_STATUSES: Record<
   StatusFilter,
   readonly InvestigationStatus[]
 > = {
-  active: ["action_required", "running"],
+  active: ["action_required", "running", "not_started"],
   resolved: ["resolved"],
   closed: ["completed", "stopped", "failed"],
 };
@@ -71,16 +73,6 @@ export interface SessionListRow extends SessionMeta {
   awaitingHumanInput: boolean;
 }
 
-// Alerts waiting for a seat and the pool they wait on, never sessions: nothing
-// has investigated them yet.
-export interface QueueState {
-  waiting: number;
-  running: number;
-  limit: number;
-  // ISO timestamp of the longest-waiting alert, null when nothing waits.
-  oldestArrivedAt: string | null;
-}
-
 // What GET /sessions answers. The rows are one page; the total is a claim about
 // every investigation, which a page cannot answer.
 export interface SessionListPage {
@@ -89,8 +81,6 @@ export interface SessionListPage {
   nextOffset: number | null;
   // Every investigation there is, so a record's place in the queue is true.
   investigationTotal: number;
-  // Seeded here rather than only pushed, or a reload draws no band at all.
-  queue: QueueState;
 }
 
 // Two pages over one table. Without it a page of results can be entirely the

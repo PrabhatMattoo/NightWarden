@@ -1,12 +1,8 @@
 import { Fragment, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { ListFilter, Telescope } from "lucide-react";
-import type {
-  QueueState,
-  SessionListRow,
-  StatusFilter,
-} from "@nightwarden/shared";
+import type { SessionListRow, StatusFilter } from "@nightwarden/shared";
 import { STATUS_FILTERS } from "@nightwarden/shared";
 
 import { Page } from "@/shared/ui/Page";
@@ -39,7 +35,9 @@ import {
   groupByStatus,
   STATUS_LABEL,
 } from "@/features/investigations/queue";
+import { apiFetch } from "@/shared/api/client";
 import { timeAgo } from "@/shared/lib/time";
+import { toast } from "@/shared/lib/toast";
 import { cn } from "@/shared/lib/utils";
 
 /* Colour answers one question per hue: is a person holding this up, did the
@@ -51,19 +49,55 @@ function statusLineTone(row: SessionListRow): string {
   return "text-ink-muted";
 }
 
+// What the hourly limit held runs only when a person says so.
+function StartButton({ sessionId }: { sessionId: string }): React.JSX.Element {
+  const queryClient = useQueryClient();
+  const start = useMutation({
+    mutationFn: () =>
+      apiFetch<void>(`/api/sessions/${sessionId}/start`, { method: "POST" }),
+    onSuccess: () =>
+      queryClient.invalidateQueries({
+        queryKey: sessionsQueryKey("investigation"),
+      }),
+    onError: (err) => {
+      toast.show({
+        title: "Could not start the investigation",
+        message: err instanceof Error ? err.message : "Try again.",
+        variant: "error",
+      });
+    },
+  });
+  return (
+    <Button
+      variant="secondary"
+      size="sm"
+      disabled={start.isPending}
+      onClick={() => start.mutate()}
+    >
+      Start
+    </Button>
+  );
+}
+
 // The severity word is the user's own and never matched against a list, so a
 // fleet labelling alerts P1 reads as one labelling them critical.
 function InvestigationRow({ row }: { row: SessionListRow }): React.JSX.Element {
   // Read from the row's own status, so it says a run is moving at this moment.
   const running = row.status === "running";
-  return (
-    <Item
-      render={<Link to="/investigations/$id" params={{ id: row.sessionId }} />}
-      className="no-underline"
-    >
+  // A held row carries a button, which a link cannot hold, so only its title links.
+  const held = row.status === "not_started";
+  const title = <span className="min-w-0 truncate">{row.title}</span>;
+  const body = (
+    <>
       <ItemContent>
         <ItemTitle>
-          <span className="min-w-0 truncate">{row.title}</span>
+          {held ? (
+            <Link to="/investigations/$id" params={{ id: row.sessionId }}>
+              {title}
+            </Link>
+          ) : (
+            title
+          )}
         </ItemTitle>
         {(row.statusLine !== null || running) && (
           <ItemDescription>
@@ -88,7 +122,18 @@ function InvestigationRow({ row }: { row: SessionListRow }): React.JSX.Element {
         <span className="w-9 text-right type-body tabular-nums text-ink-muted">
           {timeAgo(row.lastActivityAt)}
         </span>
+        {held && <StartButton sessionId={row.sessionId} />}
       </ItemActions>
+    </>
+  );
+  return held ? (
+    <Item>{body}</Item>
+  ) : (
+    <Item
+      render={<Link to="/investigations/$id" params={{ id: row.sessionId }} />}
+      className="no-underline"
+    >
+      {body}
     </Item>
   );
 }
@@ -109,28 +154,6 @@ function RowCard({ rows }: { rows: SessionListRow[] }): React.JSX.Element {
   );
 }
 
-// Waiting alerts are not sessions, so not rows. No colour either: nobody is
-// holding this up, the fleet is at a limit the reader can raise.
-function QueueBand({
-  queue,
-}: {
-  queue: QueueState | null;
-}): React.JSX.Element | null {
-  if (queue === null || queue.waiting === 0) return null;
-  const alerts = queue.waiting === 1 ? "1 alert" : `${queue.waiting} alerts`;
-  return (
-    <p className="mb-6 flex items-center gap-2 type-body">
-      <Rounds size="inline" />
-      <span className="emphasis">{alerts} waiting</span>
-      <span className="text-ink-muted">
-        {queue.running} of {queue.limit} investigations running
-        {queue.oldestArrivedAt !== null &&
-          ` · oldest waiting ${timeAgo(queue.oldestArrivedAt)}`}
-      </span>
-    </p>
-  );
-}
-
 type Shown = StatusFilter | "all";
 
 // Why the view is empty, said plainly; the filters each name what they would hold.
@@ -143,7 +166,7 @@ const NOTHING: Record<Shown, { title: string; description: string }> = {
   active: {
     title: "Nothing is active",
     description:
-      "No investigation is running or waiting on an approval or an answer.",
+      "No investigation is running, waiting on an approval or an answer, or waiting to be started.",
   },
   resolved: {
     title: "No resolved investigations",
@@ -195,27 +218,16 @@ const SHOWN: readonly Shown[] = ["all", ...STATUS_FILTERS];
 export function InvestigationsPage(): React.JSX.Element {
   const queryClient = useQueryClient();
   const [shown, setShown] = useState<Shown>("all");
-  const {
-    sessions,
-    isLoading,
-    hasMore,
-    isLoadingMore,
-    loadMore,
-    queue: fetched,
-  } = useSessions("investigation", shown === "all" ? {} : { status: shown });
-  // Null until an event lands, and the fetch stands in: a reload receives no
-  // event, so without it the band is blank while alerts wait.
-  const [pushed, setPushed] = useState<QueueState | null>(null);
-  const queue = pushed ?? fetched;
+  const { sessions, isLoading, hasMore, isLoadingMore, loadMore } = useSessions(
+    "investigation",
+    shown === "all" ? {} : { status: shown },
+  );
 
   useFrontendEvents((env) => {
-    if (env.type === "QUEUE_CHANGED") {
-      setPushed(env.payload);
-      return;
-    }
     // Status is server-derived, so anything that can change it refetches the
     // authoritative lists rather than being patched into the cache here.
     if (
+      env.type === "SESSION_OPENED" ||
       env.type === "REPORT_UPDATED" ||
       env.type === "RUN_FINISHED" ||
       env.type === "RUN_STOPPED" ||
@@ -257,7 +269,6 @@ export function InvestigationsPage(): React.JSX.Element {
         <Nothing shown={shown} onShowAll={() => setShown("all")} />
       ) : (
         <>
-          <QueueBand queue={queue} />
           {shown === "all" ? (
             // Space separates the groups; there is no rule and no column header.
             <div className="flex flex-col gap-6">

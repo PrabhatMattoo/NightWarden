@@ -111,7 +111,7 @@ describe("Sentry tools through the tool dispatch", () => {
     const sessionId = `sentry-tools-${sessionSeq}`;
     await seedAlertSession(
       { sessionId, title: "test", createdAt: new Date().toISOString() },
-      alert ? [alert] : [],
+      alert ? [{ ...alert, sourceAlertId: sessionId }] : [],
     );
     return {
       toolCallCeilingMs: 30_000,

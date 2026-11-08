@@ -23,9 +23,10 @@ import { mockCreateProvider } from "./llm-factory-mock.js";
 
 import { generateAlertSourceToken } from "../integrations/alert-sources.js";
 import { registerAlertRoutes } from "../alerts/ingest.js";
+import { registerSessionRoutes } from "../session/routes.js";
 import { dispatcher } from "../dispatcher.js";
 import { updateConfig } from "../config/store.js";
-import { markAlertCleared, queueDepth } from "../session/alerts-store.js";
+import { markAlertCleared } from "../session/alerts-store.js";
 import { recordRunFailure } from "../session/status-store.js";
 import {
   countInvestigations,
@@ -34,7 +35,6 @@ import {
 } from "../session/store.js";
 import { appendErrorMessage } from "../session/transcript-store.js";
 import { randomUUID } from "node:crypto";
-import { listSessionPage } from "../session/list.js";
 import { waitFor } from "./wait.js";
 import { seedAlertSession } from "./session-helper.js";
 import { reconcileRecovery } from "../verification/reconciler.js";
@@ -101,11 +101,12 @@ describe("POST /alerts/ingest: one delivery, one investigation", () => {
 
   beforeAll(async () => {
     nw = await harness({
-      routes: [registerAlertRoutes],
+      routes: [registerAlertRoutes, registerSessionRoutes],
       runners: [{ name: "host-web-01", services: ["web-01"] }],
       listen: false,
     });
     token = await generateAlertSourceToken("alertmanager");
+    await updateConfig({ maxInvestigationsPerHour: 100 });
   });
 
   afterAll(async () => {
@@ -114,17 +115,17 @@ describe("POST /alerts/ingest: one delivery, one investigation", () => {
   });
 
   afterEach(async () => {
-    // Drain parked runs so a later test never inherits a held seat. A released
+    // Drain parked runs so a later test never inherits a live one. A released
     // finish re-parks while the finish gate pushes back, so release repeatedly.
     await settle();
     gate.releaseAll();
     await new Promise<void>((resolve) => setImmediate(resolve));
-    await updateConfig({ maxConcurrentInvestigations: 10 });
+    await updateConfig({ maxInvestigationsPerHour: 100 });
   });
 
   function ingest(
     body: ReturnType<typeof delivery>,
-  ): Promise<{ enqueued: number; skipped: number }> {
+  ): Promise<{ stored: number; skipped: number }> {
     return nw.server
       .inject({
         method: "POST",
@@ -134,7 +135,7 @@ describe("POST /alerts/ingest: one delivery, one investigation", () => {
       })
       .then((res) => {
         expect(res.statusCode).toBe(200);
-        return JSON.parse(res.body) as { enqueued: number; skipped: number };
+        return JSON.parse(res.body) as { stored: number; skipped: number };
       });
   }
 
@@ -193,7 +194,7 @@ describe("POST /alerts/ingest: one delivery, one investigation", () => {
         { fingerprint: "c-3" },
       ]),
     );
-    expect(result).toMatchObject({ enqueued: 3, skipped: 0 });
+    expect(result).toMatchObject({ stored: 3, skipped: 0 });
 
     await waitFor(async () => (await countInvestigations()) === before + 1);
     const [sessionId] = await liveSessions();
@@ -254,7 +255,7 @@ describe("POST /alerts/ingest: one delivery, one investigation", () => {
     await waitFor(async () => (await liveSessions()).length === 0);
 
     const repeat = await ingest(delivery(groupKey, [spec]));
-    expect(repeat).toMatchObject({ enqueued: 0, skipped: 1 });
+    expect(repeat).toMatchObject({ stored: 0, skipped: 1 });
     expect(await countInvestigations()).toBe(before + 1);
   });
 
@@ -343,80 +344,91 @@ describe("POST /alerts/ingest: one delivery, one investigation", () => {
     });
   });
 
-  describe("when every seat is taken", () => {
-    it("queues the delivery rather than dropping what it already answered 200", async () => {
+  describe("the hourly limit", () => {
+    async function investigations() {
+      return (await listSessionFacts(500, 0, "investigation")).facts;
+    }
+
+    // The harm the limit exists for: a storm of concurrent deliveries, every one
+    // reading the hour's count at once, must not start more than it allows.
+    it("starts no more than the limit from concurrent deliveries, and none owns no alert", async () => {
       useGatedProvider();
-      await updateConfig({ maxConcurrentInvestigations: 1 });
-      const before = await countInvestigations();
+      const before = await investigations();
+      const started = before.filter((s) => s.status !== "not_started").length;
+      await updateConfig({ maxInvestigationsPerHour: started + 2 });
 
-      await ingest(
-        delivery('{}:{alertname="First"}', [{ fingerprint: "q-1" }]),
+      const storm = ["a", "b", "c", "d", "e", "f"];
+      const routed = await Promise.all(
+        storm.map((id) =>
+          ingest(
+            delivery(`{}:{alertname="Storm-${id}"}`, [
+              { fingerprint: `storm-${id}` },
+            ]),
+          ),
+        ),
       );
-      await waitFor(async () => (await countInvestigations()) === before + 1);
+      expect(routed.every((r) => r.stored === 1)).toBe(true);
 
-      const queued = await ingest(
-        delivery('{}:{alertname="Second"}', [{ fingerprint: "q-2" }]),
+      const known = new Set(before.map((s) => s.sessionId));
+      const opened = (await investigations()).filter(
+        (s) => !known.has(s.sessionId),
       );
-      // Accepted, not skipped: the sender was told 200 and has nobody to retry to.
-      expect(queued).toMatchObject({ enqueued: 1, skipped: 0 });
-      expect(await countInvestigations()).toBe(before + 1);
-      expect((await queueDepth()).waiting).toBe(1);
-
-      // A seat frees, and the alert that was waiting becomes an investigation of
-      // its own rather than joining the one that just ended.
-      await settle();
-      await waitFor(async () => (await countInvestigations()) === before + 2);
-      expect((await queueDepth()).waiting).toBe(0);
+      expect(opened).toHaveLength(storm.length);
+      expect(opened.every((s) => s.alerts.length === 1)).toBe(true);
+      const held = opened.filter((s) => s.status === "not_started");
+      expect(opened.length - held.length).toBe(2);
+      expect(held[0]?.heldReason).toContain("Settings → Limits");
     });
 
-    it("never investigates an alert that recovered while it waited", async () => {
+    it("stores an alert delivered twice at once only once", async () => {
+      expectDuplicateAlert();
       useGatedProvider();
-      await updateConfig({ maxConcurrentInvestigations: 1 });
-      const before = await countInvestigations();
+      const twice = delivery('{}:{alertname="Twice"}', [
+        { fingerprint: "tw-1" },
+      ]);
+      const routed = await Promise.all([ingest(twice), ingest(twice)]);
 
-      await ingest(
-        delivery('{}:{alertname="Holder"}', [{ fingerprint: "w-1" }]),
+      expect(routed.map((r) => r.stored).sort((a, b) => a - b)).toEqual([0, 1]);
+      const rows = (await investigations()).flatMap((s) =>
+        s.alerts.filter((entry) => entry.alert.sourceAlertId === "tw-1"),
       );
-      await waitFor(async () => (await countInvestigations()) === before + 1);
-      await ingest(
-        delivery('{}:{alertname="Waiter"}', [{ fingerprint: "w-2" }]),
-      );
-      expect((await queueDepth()).waiting).toBe(1);
+      expect(rows).toHaveLength(1);
+    });
 
-      // The resolved notification lands while it is still queued.
+    it("Start runs a held investigation, and a held one whose alert clears reads as resolved", async () => {
+      useGatedProvider();
+      await updateConfig({ maxInvestigationsPerHour: 1 });
+      // Whatever this one does, the hour now holds at least one started run.
+      await ingest(
+        delivery('{}:{alertname="Filler"}', [{ fingerprint: "fl-1" }]),
+      );
+      await ingest(delivery('{}:{alertname="Held"}', [{ fingerprint: "h-1" }]));
+      await ingest(
+        delivery('{}:{alertname="Cleared"}', [{ fingerprint: "h-2" }]),
+      );
+      const heldIn = async (id: string) =>
+        (await investigations()).find((s) =>
+          s.alerts.some((entry) => entry.alert.sourceAlertId === id),
+        );
+      const held = await heldIn("h-1");
+      expect(held?.status).toBe("not_started");
+
+      const start = () =>
+        nw.server.inject({
+          method: "POST",
+          url: `/api/sessions/${held!.sessionId}/start`,
+          headers: nw.headers,
+        });
+      expect((await start()).statusCode).toBe(202);
+      expect(await dispatcher.isSessionRunning(held!.sessionId)).toBe(true);
+      expect((await start()).statusCode).toBe(409);
+
       await markAlertCleared(
-        "w-2",
+        "h-2",
         "2026-07-07T03:00:00.000Z",
         new Date().toISOString(),
       );
-      expect((await queueDepth()).waiting).toBe(0);
-
-      await settle();
-      // No session was opened to report on a condition that was already over.
-      expect(await countInvestigations()).toBe(before + 1);
-    });
-
-    // No seat at all, so what waits cannot depend on an earlier run draining.
-    it("reports the queue on the session list, so a reload still draws it", async () => {
-      useImmediateProvider();
-      await updateConfig({ maxConcurrentInvestigations: 0 });
-      const before = await countInvestigations();
-
-      await ingest(
-        delivery('{}:{alertname="Waits"}', [{ fingerprint: "band-1" }]),
-      );
-      expect((await queueDepth()).waiting).toBe(1);
-      expect(await countInvestigations()).toBe(before);
-
-      const page = await listSessionPage(50, 0, "investigation");
-      expect(page.queue).toMatchObject({ waiting: 1, limit: 0 });
-      expect(page.queue.oldestArrivedAt).not.toBeNull();
-
-      await markAlertCleared(
-        "band-1",
-        "2026-07-07T03:00:00.000Z",
-        new Date().toISOString(),
-      );
+      expect((await heldIn("h-2"))?.status).toBe("resolved");
     });
   });
 });

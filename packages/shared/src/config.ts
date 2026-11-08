@@ -30,10 +30,10 @@ export interface SettingRange {
 /* What each numeric setting may hold, and the values the settings page offers.
    The API validates against the same bounds, so the page never offers a refusal. */
 export const SETTING_RANGES = {
-  maxConcurrentInvestigations: {
+  maxInvestigationsPerHour: {
     min: 1,
-    max: 20,
-    presets: [1, 2, 3, 5, 10, 15, 20],
+    max: 100,
+    presets: [1, 5, 10, 20, 50, 100],
   },
   checkInAfterMs: {
     min: 5 * MINUTE,
@@ -144,9 +144,8 @@ export interface AgentConfig {
   providerOptions: ProviderOption[];
   maxRetries: number;
   requestTimeoutMs: number;
-  // Counts the suspended ones too: starting another only queues a second write
-  // behind the same person.
-  maxConcurrentInvestigations: number;
+  // Over a rolling hour, since every run an alert starts spends the user's credits.
+  maxInvestigationsPerHour: number;
   // How long the agent works before finishing its current step and asking
   // whether to continue. The continue gate is what it reaches, not a kill.
   checkInAfterMs: number;

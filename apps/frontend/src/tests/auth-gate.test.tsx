@@ -19,7 +19,6 @@ const EMPTY_LIST = {
   rows: [],
   nextOffset: null,
   investigationTotal: 0,
-  queue: { waiting: 0, running: 0, limit: 10, oldestArrivedAt: null },
 };
 
 // The pages a signed-in load lands on, answered empty.

@@ -8,6 +8,7 @@ import type {
 // through the queue walks the list exactly as it was read.
 const STATUS_ORDER: InvestigationStatus[] = [
   "action_required",
+  "not_started",
   "running",
   "resolved",
   "completed",
@@ -19,6 +20,7 @@ const STATUS_ORDER: InvestigationStatus[] = [
 // holds machine vocabulary and the frontend supplies the human kind.
 export const STATUS_LABEL: Record<InvestigationStatus, string> = {
   action_required: "Action required",
+  not_started: "Not started",
   running: "Investigating",
   resolved: "Resolved",
   completed: "Completed",

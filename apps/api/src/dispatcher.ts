@@ -1,10 +1,5 @@
-import { randomUUID } from "node:crypto";
-import { buildSessionMeta, runSession } from "./agent/loop/run-session.js";
+import { runSession } from "./agent/loop/run-session.js";
 import type { RunSessionInput, RunOutcome } from "./agent/loop/run-session.js";
-import {
-  appendSessionAlert,
-  oldestQueuedGroup,
-} from "./session/alerts-store.js";
 import {
   claimRun,
   clearRunFailure,
@@ -12,39 +7,28 @@ import {
   recordRunFailure,
   releaseRun,
 } from "./session/status-store.js";
-import { openSessionForGroup, sessionExists } from "./session/store.js";
+import { sessionExists } from "./session/store.js";
 import { appendErrorMessage } from "./session/transcript-store.js";
 import { markStopped } from "./session/status-store.js";
-import { hasSeat } from "./run-pool.js";
 import { describeLLMError, isTransientLLMError } from "./llm/failures.js";
 import { logger } from "./logger.js";
 import {
-  publishQueueChanged,
   publishRunFailed,
   publishRunFinished,
   publishRunStopped,
 } from "./session/stream.js";
-import type { NormalizedAlert, TranscriptRow } from "@nightwarden/shared";
-import type { DeliveryContext } from "./alerts/delivery.js";
+import type { TranscriptRow } from "@nightwarden/shared";
 
-// Alert, chat, and resume all funnel through dispatch(). Concurrency is the run
-// pool; what an alert joins is Alertmanager's group key, never our timing.
+// Alert, chat, Start and resume all funnel through here; what an alert joins is
+// the sender's group key, decided where the alert is stored.
 interface Dispatcher {
   // Answers whether the run started. False means the session already holds a
   // run, which is a race the caller reports rather than a fault.
   dispatch(input: RunSessionInput): Promise<boolean>;
-  // Starts as many waiting alert groups as there are free seats. Called when a
-  // seat frees, when a delivery is queued, and once at boot.
-  promoteQueued(): Promise<void>;
+  // Runs a session its opening transaction already claimed as running.
+  launch(input: RunSessionInput): void;
   // guards the 409 on POST /sessions/:id/messages
   isSessionRunning(sessionId: string): Promise<boolean>;
-  injectAlert(
-    sessionId: string,
-    groupKey: string,
-    alert: NormalizedAlert,
-    delivery: DeliveryContext,
-  ): Promise<void>;
-  drainInbox(sessionId: string): NormalizedAlert[];
   // Aborts the in-flight LLM request for a running session. Returns false if
   // the session isn't currently running.
   stop(sessionId: string): boolean;
@@ -61,7 +45,6 @@ type RunEnding = RunOutcome | "failed";
 export function createDispatcher(opts: DispatcherOptions): Dispatcher {
   const { run } = opts;
 
-  const inbox = new Map<string, NormalizedAlert[]>();
   const controllers = new Map<string, AbortController>();
 
   /* Classified here or not at all: only the error object can say whether trying
@@ -112,12 +95,6 @@ export function createDispatcher(opts: DispatcherOptions): Dispatcher {
     }
   }
 
-  function drainInbox(sessionId: string): NormalizedAlert[] {
-    const arr = inbox.get(sessionId) ?? [];
-    inbox.delete(sessionId);
-    return arr;
-  }
-
   async function start(input: RunSessionInput): Promise<boolean> {
     // Claimed durably first, so a restart can tell a run that was alive from one
     // that concluded, and a second dispatch cannot start.
@@ -135,90 +112,43 @@ export function createDispatcher(opts: DispatcherOptions): Dispatcher {
       );
       return false;
     }
-
-    const controller = new AbortController();
-    controllers.set(input.sessionId, controller);
-
-    void supervise(input, controller);
+    launch(input);
     return true;
   }
 
-  // One run from its start to its seat freeing, so a failure anywhere is recorded as the run's.
+  function launch(input: RunSessionInput): void {
+    const controller = new AbortController();
+    controllers.set(input.sessionId, controller);
+    void supervise(input, controller);
+  }
+
+  // One run from its start to its release, so a failure anywhere is recorded as the run's.
   async function supervise(
     input: RunSessionInput,
     controller: AbortController,
   ): Promise<void> {
     try {
-      const outcome = await run({
-        ...input,
-        signal: controller.signal,
-        drainInbox,
-      });
+      const outcome = await run({ ...input, signal: controller.signal });
       await onRunEnded(input.sessionId, outcome);
     } catch (err: unknown) {
       await recordFailure(input.sessionId, err);
       await onRunEnded(input.sessionId, "failed");
     } finally {
-      // Conditional on 'running', so a run that suspended keeps the seat it is
-      // waiting on a human with.
+      // Conditional on 'running', so a run that suspended stays waiting on its human.
       await releaseRun(input.sessionId);
       controllers.delete(input.sessionId);
-      inbox.delete(input.sessionId);
-      await promoteQueued();
-    }
-  }
-
-  // Here rather than in the pool, because starting a run is this module's job
-  // and the pool only counts seats.
-  async function promoteQueued(): Promise<void> {
-    while (await hasSeat(true)) {
-      const group = await oldestQueuedGroup();
-      if (group === undefined) return;
-      const sessionId = randomUUID();
-      await openSessionForGroup(
-        buildSessionMeta(sessionId, group.alerts[0] ?? null, undefined),
-        group.groupKey,
-      );
-      logger.info(
-        {
-          sessionId,
-          groupKey: group.groupKey,
-          alertCount: group.alerts.length,
-        },
-        "queued alert group promoted to an investigation",
-      );
-      await publishQueueChanged();
-      // A promotion that cannot start would spin: the group is assigned, so the
-      // next pass would find a different head and never reach this one again.
-      if (!(await start({ sessionId, alerts: group.alerts }))) return;
     }
   }
 
   return {
     dispatch: start,
-    promoteQueued,
+    launch,
 
     // Read from the row, not from memory: a run that died with the process is
     // not running, and only the row survives to say so.
     async isSessionRunning(sessionId: string): Promise<boolean> {
       return await isRunning(sessionId);
     },
-
-    // Durable first: the sender was already answered 200, so a crash here must
-    // not lose the alert.
-    async injectAlert(
-      sessionId: string,
-      groupKey: string,
-      alert: NormalizedAlert,
-      delivery: DeliveryContext,
-    ): Promise<void> {
-      await appendSessionAlert(sessionId, groupKey, alert, delivery);
-      const arr = inbox.get(sessionId) ?? [];
-      arr.push(alert);
-      inbox.set(sessionId, arr);
-    },
-
-    drainInbox,
 
     stop(sessionId: string): boolean {
       const controller = controllers.get(sessionId);

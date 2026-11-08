@@ -1,7 +1,6 @@
 import {
   messagePartsToText,
   type MessagePart,
-  type NormalizedAlert,
   type ReminderKind,
   type ResolvedLLMConfig,
   type TranscriptRow,
@@ -148,7 +147,6 @@ export interface RunContext {
   readonly llm: ResolvedLLMConfig;
   readonly toolCallCeilingMs: number;
   readonly chat: ChatFn;
-  readonly drainInbox?: (sessionId: string) => NormalizedAlert[];
 }
 
 /* What one turn tells the driver to do next: loop again, break to the

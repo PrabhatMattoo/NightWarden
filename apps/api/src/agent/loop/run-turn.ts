@@ -31,6 +31,10 @@ import {
 } from "../prompts/report.js";
 import { appendErrorMessage } from "../../session/transcript-store.js";
 import {
+  markAlertsDelivered,
+  pendingAlerts,
+} from "../../session/alerts-store.js";
+import {
   publishInterrupt,
   publishTranscriptItem,
 } from "../../session/stream.js";
@@ -469,13 +473,11 @@ export async function runOneTurn(ctx: RunContext): Promise<TurnResult> {
   }
 
   if (gated !== null) {
-    // Suspended sessions take no injections, so the inbox is not drained here.
+    // Alerts joining a parked run stay on their rows until it resumes.
     await suspendOnGate(ctx, gated, toolResults);
     return { kind: "outcome", outcome: "suspended" };
   }
 
-  // Drained at the tool boundary, the earliest point the model can act on one,
-  // as their own turn after the results.
   state.stageResults(response.toolUses, toolResults);
   const barren = barrenEnding(progress, state.offered);
   if (barren !== null) {
@@ -490,13 +492,6 @@ export async function runOneTurn(ctx: RunContext): Promise<TurnResult> {
   // Read once after the tools ran: the frontier, the card, and the record debt
   // all reflect what this turn just settled.
   const recordAfter = await getRecord(sessionId);
-  // Already durable: the dispatcher wrote each one when it arrived. The inbox
-  // exists to tell the model, which is a separate concern from keeping it.
-  const injected = ctx.drainInbox?.(sessionId) ?? [];
-  if (injected.length > 0) {
-    state.sendSystemReminder("injected_alerts", formatInjectedAlerts(injected));
-  }
-
   emitFrontierIfChanged(ctx, recordBefore, recordAfter);
 
   /* The write-up landed, so the card that was spinning now names what it opens.
@@ -543,6 +538,16 @@ export async function runOneTurn(ctx: RunContext): Promise<TurnResult> {
     log.info({ turn }, "reads unaccounted for; asking");
     state.sendSystemReminder("record_check", ask);
   }
+  // Joined alerts reach the model at the tool boundary, the earliest it can act on one.
+  const joined = await pendingAlerts(sessionId);
+  if (joined.length > 0) {
+    state.sendSystemReminder(
+      "injected_alerts",
+      formatInjectedAlerts(joined.map((j) => j.alert)),
+    );
+  }
   await state.flush();
+  // After the flush, so a crash in between repeats the note rather than losing it.
+  await markAlertsDelivered(joined.map((j) => j.id));
   return { kind: "continue" };
 }

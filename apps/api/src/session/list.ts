@@ -7,7 +7,6 @@ import type {
   StatusFilter,
 } from "@nightwarden/shared";
 import { FILTER_STATUSES, principalFindings } from "@nightwarden/shared";
-import { queueState } from "../run-pool.js";
 import {
   countInvestigations,
   listSessionFacts,
@@ -73,6 +72,8 @@ function deriveStatusLine(
       return whatItLeft(facts.record);
     case "failed":
       return facts.lastContent;
+    case "not_started":
+      return facts.heldReason;
     default:
       return null;
   }
@@ -94,8 +95,7 @@ export async function listSessionPage(
   return {
     rows: facts.map((row) => {
       const { investigation } = row;
-      // A chat has no status to show, so the column it carries for seat
-      // counting is not passed on.
+      // A chat has no status to show, so the column it carries is not passed on.
       const status = investigation ? row.status : null;
       return {
         sessionId: row.sessionId,
@@ -111,6 +111,5 @@ export async function listSessionPage(
     }),
     nextOffset,
     investigationTotal: await countInvestigations(),
-    queue: await queueState(),
   };
 }

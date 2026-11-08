@@ -159,7 +159,7 @@ describe("POST /alerts/ingest auth", () => {
       headers: { "x-nightwarden-token": VALID_TOKEN },
       payload: ALERTMANAGER_BODY,
     });
-    // 200 = processed (enqueued or debounced); not 401
+    // 200 = processed (stored or skipped); not 401
     expect(res.statusCode).toBe(200);
     const body = JSON.parse(res.body) as { received: number };
     expect(body.received).toBe(1);
@@ -277,9 +277,7 @@ describe("POST /alerts/ingest with nwi_ fleet-wide credential", () => {
       payload: alertmanagerBody("nwi-prometheus-only"),
     });
     expect(promOnly.statusCode).toBe(200);
-    expect((JSON.parse(promOnly.body) as { enqueued: number }).enqueued).toBe(
-      1,
-    );
+    expect((JSON.parse(promOnly.body) as { stored: number }).stored).toBe(1);
     await deleteMetricsSource();
 
     // Loki alone is likewise sufficient - a logs-first, no-metrics fleet.
@@ -295,9 +293,7 @@ describe("POST /alerts/ingest with nwi_ fleet-wide credential", () => {
       payload: alertmanagerBody("nwi-loki-only"),
     });
     expect(lokiOnly.statusCode).toBe(200);
-    expect((JSON.parse(lokiOnly.body) as { enqueued: number }).enqueued).toBe(
-      1,
-    );
+    expect((JSON.parse(lokiOnly.body) as { stored: number }).stored).toBe(1);
     await deleteLokiIntegration();
   });
 
@@ -349,12 +345,12 @@ describe("POST /alerts/ingest with nwi_ fleet-wide credential", () => {
       payload: alertmanagerBody("nwi-multi-runner"),
     });
     expect(res.statusCode).toBe(200);
-    const body = JSON.parse(res.body) as { received: number; enqueued: number };
+    const body = JSON.parse(res.body) as { received: number; stored: number };
     expect(body.received).toBe(1);
-    expect(body.enqueued).toBe(1);
+    expect(body.stored).toBe(1);
   });
 
-  it("enqueues an alert whose identity no runner advertises - the agent triages it from the fleet map", async () => {
+  it("stores an alert whose identity no runner advertises - the agent triages it from the fleet map", async () => {
     connA = registerRunner({
       runnerId: "runner-a-token",
       platform: "docker",
@@ -373,13 +369,13 @@ describe("POST /alerts/ingest with nwi_ fleet-wide credential", () => {
     expect(res.statusCode).toBe(200);
     const body = JSON.parse(res.body) as {
       received: number;
-      enqueued: number;
+      stored: number;
     };
     expect(body.received).toBe(1);
-    expect(body.enqueued).toBe(1);
+    expect(body.stored).toBe(1);
   });
 
-  it("enqueues an alert whose identity two runners advertise - no ambiguity gate at ingest", async () => {
+  it("stores an alert whose identity two runners advertise - no ambiguity gate at ingest", async () => {
     connA = registerRunner({
       runnerId: "runner-a-token",
       platform: "docker",
@@ -406,10 +402,10 @@ describe("POST /alerts/ingest with nwi_ fleet-wide credential", () => {
     expect(res.statusCode).toBe(200);
     const body = JSON.parse(res.body) as {
       received: number;
-      enqueued: number;
+      stored: number;
     };
     expect(body.received).toBe(1);
-    expect(body.enqueued).toBe(1);
+    expect(body.stored).toBe(1);
   });
 
   it("returns 400 for an unrecognized payload body so a misconfigured sender learns its body was not understood", async () => {

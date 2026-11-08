@@ -1,18 +1,17 @@
 import { randomUUID } from "node:crypto";
-import { queueState } from "../run-pool.js";
 import { publishFrontendEvent } from "./bus.js";
 import type { StreamDelta } from "../llm/types.js";
 import type {
   FrontendInterrupt,
   FrontendInterruptResolved,
   FrontendMessage,
-  FrontendQueueChanged,
   FrontendReportUpdated,
   FrontendRunFinished,
   FrontendRunStopped,
   FrontendSandboxStatus,
   FrontendRunRetrying,
   FrontendRunFailed,
+  FrontendSessionOpened,
   FrontendSessionTitleUpdated,
   FrontendTextMessageContent,
   FrontendTranscriptItem,
@@ -162,13 +161,12 @@ export function publishReportUpdated(sessionId: string): void {
   publishFrontendEvent(env);
 }
 
-// Published from the dispatcher and the ingest path rather than computed by
-// the frontend, so the numbers are the ones the pool actually used.
-export async function publishQueueChanged(): Promise<void> {
-  const env: FrontendQueueChanged = {
+// A held session has no run to publish anything, so its arrival is announced.
+export function publishSessionOpened(sessionId: string): void {
+  const env: FrontendSessionOpened = {
     messageId: randomUUID(),
-    type: "QUEUE_CHANGED",
-    payload: await queueState(),
+    type: "SESSION_OPENED",
+    payload: { sessionId },
   };
   publishFrontendEvent(env);
 }

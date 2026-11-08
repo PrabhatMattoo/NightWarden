@@ -131,7 +131,7 @@ export async function appendRowsAndPark(
           .values(messages.map(rowValues))
           .execute();
       }
-      // Suspending is the gate, so the status keeping this session's seat is
+      // Suspending is the gate, so the status saying this session waits is
       // written with it: the two are columns on the same row.
       await trx
         .updateTable("sessions")

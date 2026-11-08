@@ -34,7 +34,7 @@ import { useTempDb } from "./temp-db.js";
 import { seedCompleteReport, seedRecommendation } from "./report-helper.js";
 import { dispatchAlertSession, WHOLE_DELIVERY } from "./session-helper.js";
 import { routeDelivery } from "../alerts/route-alert.js";
-import { sessionCoveringGroup } from "../session/alerts-store.js";
+import { pendingAlerts } from "../session/alerts-store.js";
 import { countInvestigations, listSessionFacts } from "../session/store.js";
 import { waitFor } from "./wait.js";
 import { dispatcher } from "../dispatcher.js";
@@ -42,7 +42,6 @@ import {
   getPendingHumanInputBySessionId,
   hasPendingHumanInput,
 } from "../session/gate-store.js";
-import { isDuplicate } from "../alerts/dedup.js";
 import { getSession } from "../session/store.js";
 import { findToolCall } from "../session/transcript-store.js";
 import { buildTranscript } from "../session/transcript.js";
@@ -216,15 +215,10 @@ describe("mid-run alert injection (loop seam)", () => {
     );
 
     // Inject while parked at turn 1's chat()
-    await dispatcher.injectAlert(
-      sessionId,
-      MIDRUN_GROUP,
-      alert("injected-mr"),
-      WHOLE_DELIVERY,
-    );
+    await routeDelivery(MIDRUN_GROUP, [alert("injected-mr")], WHOLE_DELIVERY);
 
     // Release turn 1 -> loop executes ListDockerServices, appends the results,
-    // drains the inbox and sends the alert as its own turn.
+    // reads the joined alert from its row and sends it as its own turn.
     await waitFor(() => gate.waiting() > 0);
     gate.releaseNext();
 
@@ -307,12 +301,7 @@ describe("mid-run alert injection (loop seam)", () => {
 
     const forged = alert("injected-marker");
     forged.labels = { container: `web-01${FORGED_MARKER}` };
-    await dispatcher.injectAlert(
-      sessionId,
-      MARKER_GROUP,
-      forged,
-      WHOLE_DELIVERY,
-    );
+    await routeDelivery(MARKER_GROUP, [forged], WHOLE_DELIVERY);
 
     await waitFor(() => gate.waiting() > 0);
     gate.releaseNext();
@@ -393,12 +382,6 @@ describe("mid-run alert injection (loop seam)", () => {
       reason: "test",
     });
 
-    // A run nobody is watching still owns its alert, so the same alert firing
-    // again must not open a second session for it.
-    expect(await isDuplicate(alert("primary-sus", firedAtOfSuspended))).toBe(
-      true,
-    );
-
     // Suspended is still covering: parked on a person, not finished. The alert
     // rides along rather than opening a second investigation of one group.
     const before = await countInvestigations();
@@ -408,8 +391,9 @@ describe("mid-run alert injection (loop seam)", () => {
       WHOLE_DELIVERY,
     );
     expect(await countInvestigations()).toBe(before);
+    // Kept on its row for the model until the parked run resumes.
     expect(
-      dispatcher.drainInbox(sessionId).map((a) => a.sourceAlertId),
+      (await pendingAlerts(sessionId)).map((p) => p.alert.sourceAlertId),
     ).toEqual(["same-group-while-suspended"]);
 
     // A different group is a different incident, whatever this session is doing.
@@ -495,10 +479,6 @@ describe("mid-run alert injection (loop seam)", () => {
     );
     await waitFor(async () => await dispatcher.isSessionRunning(sessionId));
 
-    // The resumed session is still the one covering this group, even though the
-    // resume dispatch carried no alerts of its own.
-    expect(await sessionCoveringGroup(RESUME_GROUP)).toBe(sessionId);
-
     const server = Fastify({ logger: false });
     await mountApi(server, registerAlertRoutes);
     await server.ready();
@@ -512,10 +492,12 @@ describe("mid-run alert injection (loop seam)", () => {
       payload: alertmanagerBody("correlated-resume", RESUME_GROUP),
     });
     expect(JSON.parse(correlated.body)).toMatchObject({
-      enqueued: 1,
+      stored: 1,
       skipped: 0,
     });
-    expect(dispatcher.drainInbox(sessionId)).toHaveLength(1);
+    expect(
+      (await pendingAlerts(sessionId)).map((p) => p.alert.sourceAlertId),
+    ).toEqual(["correlated-resume"]);
 
     // The same alert re-firing (same fingerprint + startsAt) while the
     // resumed run is active is deduped.
@@ -531,7 +513,7 @@ describe("mid-run alert injection (loop seam)", () => {
       ),
     });
     expect(JSON.parse(refire.body)).toMatchObject({
-      enqueued: 0,
+      stored: 0,
       skipped: 1,
     });
 

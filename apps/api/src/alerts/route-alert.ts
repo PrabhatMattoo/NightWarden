@@ -1,16 +1,15 @@
+import { randomUUID } from "node:crypto";
 import type { NormalizedAlert } from "@nightwarden/shared";
 import type { DeliveryContext } from "./delivery.js";
-import { isDuplicate } from "./dedup.js";
-import {
-  enqueueAlerts,
-  sessionCoveringGroup,
-} from "../session/alerts-store.js";
+import { buildSessionMeta } from "../agent/loop/run-session.js";
+import { loadConfig } from "../config/store.js";
+import { admitDelivery } from "../session/alerts-store.js";
 import { dispatcher } from "../dispatcher.js";
 import { logger } from "../logger.js";
-import { publishQueueChanged } from "../session/stream.js";
+import { publishSessionOpened } from "../session/stream.js";
 
 interface Routed {
-  enqueued: number;
+  stored: number;
   skipped: number;
 }
 
@@ -23,38 +22,32 @@ export async function routeDelivery(
   // investigation the group arrived whole and unexplained.
   delivery: DeliveryContext,
 ): Promise<Routed> {
-  const fresh: NormalizedAlert[] = [];
-  let skipped = 0;
-  for (const alert of firing) {
-    if (await isDuplicate(alert)) skipped++;
-    else fresh.push(alert);
-  }
+  const { maxInvestigationsPerHour } = await loadConfig();
+  const admission = await admitDelivery(
+    buildSessionMeta(randomUUID(), firing[0] ?? null, undefined),
+    groupKey,
+    firing,
+    delivery,
+    maxInvestigationsPerHour,
+  );
+  const stored = admission.kind === "none" ? 0 : admission.alerts.length;
+  const skipped = firing.length - stored;
   // Repeats are ordinary - Alertmanager re-sends on repeat_interval - but a
   // silent drop is what makes a reused fingerprint invisible in a test.
   if (skipped > 0)
     logger.info({ groupKey, skipped }, "duplicate alerts dropped");
-  if (fresh.length === 0) return { enqueued: 0, skipped };
+  if (admission.kind === "none") return { stored, skipped };
 
-  const sessionId = await sessionCoveringGroup(groupKey);
-  if (sessionId !== undefined) {
-    for (const alert of fresh) {
-      await dispatcher.injectAlert(sessionId, groupKey, alert, delivery);
-    }
-    logger.info(
-      { groupKey, sessionId, alertCount: fresh.length },
-      "alerts injected into the run already covering this group",
-    );
-    return { enqueued: fresh.length, skipped };
-  }
-
-  // Durable before any decision about capacity: the sender was answered 200, so
-  // a full pool must delay this delivery, never lose it.
-  await enqueueAlerts(groupKey, fresh, delivery);
+  const { kind, sessionId, alerts } = admission;
   logger.info(
-    { groupKey, alertCount: fresh.length },
-    "alerts queued for investigation",
+    { groupKey, sessionId, alertCount: stored },
+    kind === "joined"
+      ? "alerts joined the investigation already covering this group"
+      : kind === "started"
+        ? "alert group opened an investigation"
+        : "alert group held by the hourly limit for a person to start",
   );
-  await publishQueueChanged();
-  await dispatcher.promoteQueued();
-  return { enqueued: fresh.length, skipped };
+  if (kind !== "joined") publishSessionOpened(sessionId);
+  if (kind === "started") dispatcher.launch({ sessionId, alerts });
+  return { stored, skipped };
 }

@@ -14,9 +14,8 @@ export function retryDelaysMs(retries: number): number[] {
   return Array.from({ length: Math.max(0, retries) }, (_, i) => 5_000 * 3 ** i);
 }
 
-// Counts the suspended ones: freeing a seat held by an approval only starts
-// another run whose write needs the same person.
-export const DEFAULT_MAX_CONCURRENT_INVESTIGATIONS = 10;
+// Room for a real incident's several alert groups while a storm spends ten runs an hour.
+export const DEFAULT_MAX_INVESTIGATIONS_PER_HOUR = 10;
 
 // How long the agent works before finishing its current step and asking whether
 // to continue. Not a kill switch: the continue gate is what it reaches.

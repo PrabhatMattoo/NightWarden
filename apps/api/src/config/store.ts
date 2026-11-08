@@ -1,7 +1,7 @@
 import { getDb } from "../db.js";
 import {
   DEFAULT_CHECK_IN_AFTER_MS,
-  DEFAULT_MAX_CONCURRENT_INVESTIGATIONS,
+  DEFAULT_MAX_INVESTIGATIONS_PER_HOUR,
   DEFAULT_SANDBOX_ALLOWLIST_HOSTS,
   DEFAULT_SANDBOX_CPUS,
   DEFAULT_SANDBOX_IDLE_TIMEOUT_MS,
@@ -35,7 +35,7 @@ type ConfigRow = {
   activeProvider: string | null;
   maxRetries: number;
   requestTimeoutMs: number;
-  maxConcurrentInvestigations: number;
+  maxInvestigationsPerHour: number;
   checkInAfterMs: number;
   toolCallCeilingMs: number;
   sandboxIdleTimeoutMs: number;
@@ -63,7 +63,7 @@ function readConfigRow(): Promise<ConfigRow | undefined> {
       "active_provider as activeProvider",
       "max_retries as maxRetries",
       "request_timeout_ms as requestTimeoutMs",
-      "max_concurrent_investigations as maxConcurrentInvestigations",
+      "max_investigations_per_hour as maxInvestigationsPerHour",
       "check_in_after_ms as checkInAfterMs",
       "tool_call_ceiling_ms as toolCallCeilingMs",
       "sandbox_idle_timeout_ms as sandboxIdleTimeoutMs",
@@ -134,7 +134,7 @@ export async function loadConfig(): Promise<AgentConfig> {
       providerOptions: [...PROVIDER_OPTIONS],
       maxRetries: MAX_RETRIES,
       requestTimeoutMs: REQUEST_TIMEOUT_MS,
-      maxConcurrentInvestigations: DEFAULT_MAX_CONCURRENT_INVESTIGATIONS,
+      maxInvestigationsPerHour: DEFAULT_MAX_INVESTIGATIONS_PER_HOUR,
       checkInAfterMs: DEFAULT_CHECK_IN_AFTER_MS,
       toolCallCeilingMs: DEFAULT_TOOL_CALL_CEILING_MS,
       sandboxIdleTimeoutMs: DEFAULT_SANDBOX_IDLE_TIMEOUT_MS,
@@ -152,7 +152,7 @@ export async function loadConfig(): Promise<AgentConfig> {
     providerOptions: [...PROVIDER_OPTIONS],
     maxRetries: row.maxRetries,
     requestTimeoutMs: row.requestTimeoutMs,
-    maxConcurrentInvestigations: row.maxConcurrentInvestigations,
+    maxInvestigationsPerHour: row.maxInvestigationsPerHour,
     checkInAfterMs: row.checkInAfterMs,
     toolCallCeilingMs: row.toolCallCeilingMs,
     sandboxIdleTimeoutMs: row.sandboxIdleTimeoutMs,
@@ -184,7 +184,7 @@ export async function updateConfig(
     active_provider: next.provider,
     max_retries: next.maxRetries,
     request_timeout_ms: next.requestTimeoutMs,
-    max_concurrent_investigations: next.maxConcurrentInvestigations,
+    max_investigations_per_hour: next.maxInvestigationsPerHour,
     check_in_after_ms: next.checkInAfterMs,
     tool_call_ceiling_ms: next.toolCallCeilingMs,
     sandbox_idle_timeout_ms: next.sandboxIdleTimeoutMs,

@@ -28,8 +28,7 @@ import { buildSeed } from "./seed.js";
 import { teardown } from "../sandbox/workspace.js";
 import { HumanInputError, respondToPendingHumanInput } from "./human-input.js";
 import { dispatcher } from "../dispatcher.js";
-import { hasSeat, seatLimit } from "../run-pool.js";
-import { publishQueueChanged } from "./stream.js";
+import { deriveStatus } from "./status-store.js";
 import {
   checkLLMReadiness,
   notConfiguredMessage,
@@ -130,10 +129,6 @@ export async function registerSessionRoutes(
       // sweep would push work for a session the user asked to remove.
       await teardown(sessionId, "deleted");
       await deleteSession(sessionId);
-      // The one way a seat frees without a run ending, so nothing else would
-      // notice and a waiting alert would sit until the next delivery.
-      await publishQueueChanged();
-      await dispatcher.promoteQueued();
       return reply.code(204).send();
     },
   );
@@ -190,13 +185,6 @@ export async function registerSessionRoutes(
           .code(503)
           .send({ error: notConfiguredMessage(readiness.missing) });
       }
-      // Refused rather than queued, because someone is watching and would get
-      // a spinner with no end. A resume already holds its seat.
-      if (!(await hasSeat(false))) {
-        return reply.code(503).send({
-          error: `You've reached the limit of ${await seatLimit(false)} simultaneous conversations. Wait for one to finish before starting another.`,
-        });
-      }
       const sessionId = randomUUID();
       // The row exists before its id is handed out, so a 202 never names a
       // session the next request cannot fetch. The run's own call is idempotent.
@@ -249,6 +237,36 @@ export async function registerSessionRoutes(
           .send({ error: "session is busy: a run is already in flight" });
       }
       logger.info({ sessionId, seeded: seed.length }, "session resumed");
+      return reply.code(202).send({ sessionId });
+    },
+  );
+
+  // A person starting what the hourly limit held, on the alerts its session holds.
+  fastify.post<{ Params: { id: string } }>(
+    "/sessions/:id/start",
+    { preHandler: requireSession },
+    async (request, reply) => {
+      const sessionId = request.params.id;
+      if (!(await sessionExists(sessionId))) {
+        return reply.code(404).send({ error: "unknown session" });
+      }
+      if ((await deriveStatus(sessionId)) !== "not_started") {
+        return reply
+          .code(409)
+          .send({ error: "the investigation has already started" });
+      }
+      const readiness = await checkLLMReadiness();
+      if (!readiness.ready) {
+        return reply
+          .code(503)
+          .send({ error: notConfiguredMessage(readiness.missing) });
+      }
+      if (!(await dispatcher.dispatch({ sessionId }))) {
+        return reply
+          .code(409)
+          .send({ error: "session is busy: a run is already in flight" });
+      }
+      logger.info({ sessionId }, "held investigation started by a person");
       return reply.code(202).send({ sessionId });
     },
   );

@@ -8,7 +8,7 @@ import type {
 import { sql } from "kysely";
 import { getDb } from "../db.js";
 import { assembleRecord } from "./record-store.js";
-import { alertsFor, alertsForMany, isQueued } from "./alerts-store.js";
+import { alertsFor, alertsForMany } from "./alerts-store.js";
 import { isHumanInputKind, type PendingHumanInput } from "./gate-store.js";
 
 // The alerts are the durable source of severity-dependent behavior on resume, so
@@ -36,35 +36,6 @@ export async function createSession(
     })
     .onConflict((oc) => oc.column("session_id").doNothing())
     .execute();
-}
-
-/* One transaction, so a crash between the two cannot leave alerts pointing at a
-   session nothing wrote, or a session covering nothing. */
-export async function openSessionForGroup(
-  meta: SessionMeta,
-  groupKey: string,
-): Promise<void> {
-  await getDb()
-    .transaction()
-    .execute(async (trx) => {
-      await trx
-        .insertInto("sessions")
-        .values({
-          session_id: meta.sessionId,
-          title: meta.title,
-          investigation: 1,
-          created_at: meta.createdAt,
-          last_activity_at: meta.createdAt,
-        })
-        .onConflict((oc) => oc.column("session_id").doNothing())
-        .execute();
-      await trx
-        .updateTable("alerts")
-        .set({ session_id: meta.sessionId })
-        .where("group_key", "=", groupKey)
-        .where(isQueued)
-        .execute();
-    });
 }
 
 // Overwrites unconditionally: the refined title deliberately replaces the
@@ -102,6 +73,8 @@ export interface SessionListFacts {
   record: InvestigationRecord | null;
   // The tail's text, which is why a failed run failed when the status is failed.
   lastContent: string | null;
+  // Why the hourly limit left it for a person to start, null when it was not held.
+  heldReason: string | null;
   awaitingHumanInput: boolean;
   // What the session is waiting on, null when it waits on nothing.
   pendingKind: PendingHumanInput["kind"] | null;
@@ -126,6 +99,7 @@ interface SessionListRawRow {
   report: string | null;
   recordUpdatedAt: string | null;
   lastContent: string | null;
+  heldReason: string | null;
   awaitingHumanInput: number;
   pendingKind: string | null;
 }
@@ -151,6 +125,7 @@ function toFacts(
         updatedAt: r.recordUpdatedAt,
       }) ?? null,
     lastContent: r.lastContent,
+    heldReason: r.heldReason,
     awaitingHumanInput: r.awaitingHumanInput === 1,
     pendingKind:
       r.pendingKind !== null && isHumanInputKind(r.pendingKind)
@@ -198,6 +173,7 @@ export async function listSessionFacts(
         .orderBy("m.seq", "desc")
         .limit(1)
         .as("lastContent"),
+      "s.held_reason as heldReason",
       "s.last_activity_at as lastActivityAt",
       sql<number>`(s.awaiting_tool_use_id IS NOT NULL)`.as(
         "awaitingHumanInput",

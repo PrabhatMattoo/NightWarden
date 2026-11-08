@@ -56,7 +56,7 @@ function QueueStepper({
   const { sessions, investigationTotal } = useSessions("investigation");
   const queue = investigationQueue(sessions);
   const at = queue.findIndex((row) => row.sessionId === sessionId);
-  // A session the list has not placed yet - a promotion a moment ago - claims
+  // A session the list has not placed yet - one opened a moment ago - claims
   // no position rather than a wrong one.
   if (at === -1) return null;
 

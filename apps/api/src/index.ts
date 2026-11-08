@@ -8,7 +8,6 @@ import { registerTokenRoutes } from "./auth/token.js";
 import { registerWsRoutes } from "./fleet/server.js";
 import { registerFrontendEventRoutes } from "./session/events.js";
 import { registerAlertRoutes } from "./alerts/ingest.js";
-import { dispatcher } from "./dispatcher.js";
 import {
   RECONCILE_TICK_MS,
   reconcileRecovery,
@@ -136,9 +135,6 @@ const start = async (): Promise<void> => {
     if (recovered > 0) {
       fastify.log.info(`interrupted runs: ${recovered} marked failed`);
     }
-    /* Recovery above freed the seats these alerts were waiting for, and nothing
-       else would notice until the next delivery arrived. */
-    await dispatcher.promoteQueued();
     // An alert usually clears minutes after the run that fixed it ended, so
     // something has to keep asking. Unref'd: the server holds the loop open.
     setInterval(() => {

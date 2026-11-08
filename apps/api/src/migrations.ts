@@ -23,7 +23,7 @@ CREATE TABLE IF NOT EXISTS config (
   active_provider               TEXT,
   max_retries                   INTEGER  NOT NULL DEFAULT 3,
   request_timeout_ms            INTEGER  NOT NULL DEFAULT 120000,
-  max_concurrent_investigations INTEGER  NOT NULL DEFAULT 10,
+  max_investigations_per_hour   INTEGER  NOT NULL DEFAULT 10,
   check_in_after_ms             INTEGER  NOT NULL DEFAULT 1800000,
   tool_call_ceiling_ms          INTEGER  NOT NULL DEFAULT 600000,
   sandbox_idle_timeout_ms       INTEGER  NOT NULL DEFAULT 3600000,
@@ -68,7 +68,9 @@ CREATE TABLE IF NOT EXISTS sessions (
   investigation        INTEGER  NOT NULL DEFAULT 0,
   status               TEXT     NOT NULL DEFAULT 'completed'
                                 CHECK (status IN ('action_required', 'running',
-                                  'resolved', 'stopped', 'failed', 'completed')),
+                                  'resolved', 'stopped', 'failed', 'completed',
+                                  'not_started')),
+  held_reason          TEXT,
   failed_attempts      INTEGER  NOT NULL DEFAULT 0,
   failure_kind         TEXT     CHECK (failure_kind IN ('transient', 'permanent')),
   stopped_at           TEXT,
@@ -92,11 +94,9 @@ CREATE INDEX IF NOT EXISTS idx_sessions_list
               session_id ASC);
 DROP INDEX IF EXISTS idx_sessions_kind_activity;
 
-CREATE INDEX IF NOT EXISTS idx_sessions_seats ON sessions(investigation, status);
-
 CREATE TABLE IF NOT EXISTS alerts (
   id                 INTEGER  PRIMARY KEY,
-  session_id         TEXT     REFERENCES sessions(session_id) ON DELETE CASCADE,
+  session_id         TEXT     NOT NULL REFERENCES sessions(session_id) ON DELETE CASCADE,
   group_key          TEXT     NOT NULL,
   source_alert_id    TEXT     NOT NULL,
   labels             TEXT     NOT NULL DEFAULT '{}',
@@ -105,16 +105,16 @@ CREATE TABLE IF NOT EXISTS alerts (
   arrived_at         TEXT     NOT NULL,
   cleared_at         TEXT,
   injected           INTEGER  NOT NULL DEFAULT 0,
+  pending_delivery   INTEGER  NOT NULL DEFAULT 0,
   dropped_alerts     INTEGER  NOT NULL DEFAULT 0,
   group_context      TEXT,
   alert              TEXT     NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_alerts_session ON alerts(session_id, id);
-CREATE INDEX IF NOT EXISTS idx_alerts_source ON alerts(source_alert_id, fired_at);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_alerts_firing
+  ON alerts(source_alert_id, fired_at) WHERE cleared_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_alerts_open
   ON alerts(session_id) WHERE cleared_at IS NULL;
-CREATE INDEX IF NOT EXISTS idx_alerts_queued
-  ON alerts(arrived_at) WHERE session_id IS NULL;
 CREATE INDEX IF NOT EXISTS idx_alerts_group ON alerts(group_key);
 
 CREATE TABLE IF NOT EXISTS session_transcript (

@@ -43,7 +43,7 @@ async function alertSession(): Promise<string> {
   const sessionId = randomUUID();
   await seedAlertSession(
     { sessionId, title: "t", createdAt: new Date().toISOString() },
-    [alert],
+    [{ ...alert, sourceAlertId: sessionId }],
   );
   return sessionId;
 }

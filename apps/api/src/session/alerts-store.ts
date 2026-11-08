@@ -2,20 +2,21 @@ import type {
   AlertGroupContext,
   NormalizedAlert,
   SessionAlert,
+  SessionMeta,
 } from "@nightwarden/shared";
 import type { DeliveryContext } from "../alerts/delivery.js";
-import type { ExpressionBuilder } from "kysely";
-import { getDb } from "../db.js";
-import type { Database } from "../schema.js";
-import { refreshSessionStatus } from "./status-store.js";
+import { getDb, type Db } from "../db.js";
+import { claimRun, refreshSessionStatus } from "./status-store.js";
 
-// Every alert row: the queue before a session owns one, and the group coverage
-// that decides which investigation an arriving alert joins.
+// Every alert row, and the one transaction that decides which session an
+// arriving alert belongs to and whether that session starts.
 
-// Denormalised onto every alert the delivery carried: a row is durable before
-// any session owns it, so a queued alert has nowhere else to read them from.
+const HOUR_MS = 60 * 60_000;
+
+// Denormalised onto every alert the delivery carried, so each row reads whole
+// without the delivery beside it.
 function alertRow(
-  sessionId: string | null,
+  sessionId: string,
   groupKey: string,
   alert: NormalizedAlert,
   arrivedAt: string,
@@ -32,6 +33,7 @@ function alertRow(
     arrived_at: arrivedAt,
     cleared_at: null,
     injected: injected ? 1 : 0,
+    pending_delivery: injected ? 1 : 0,
     dropped_alerts: delivery.droppedAlerts,
     group_context:
       delivery.groupContext === null
@@ -41,50 +43,134 @@ function alertRow(
   };
 }
 
-// Durable the moment we answer 200, before anything decides whether a seat is
-// free. What makes them one investigation is the sender's group key.
-export async function enqueueAlerts(
+function parseAlert(raw: string): NormalizedAlert[] {
+  try {
+    return [JSON.parse(raw) as NormalizedAlert];
+  } catch {
+    return [];
+  }
+}
+
+/* The unique index skips an alert already held and still firing, which is what
+   recognises Alertmanager's repeats and the second copy from an HA pair. */
+async function insertAlerts(
+  db: Db,
+  sessionId: string,
   groupKey: string,
   alerts: NormalizedAlert[],
+  injected: boolean,
   delivery: DeliveryContext,
-): Promise<void> {
-  if (alerts.length === 0) return;
+): Promise<NormalizedAlert[]> {
   const arrivedAt = new Date().toISOString();
-  await getDb()
+  const rows = await db
     .insertInto("alerts")
     .values(
       alerts.map((alert) =>
-        alertRow(null, groupKey, alert, arrivedAt, false, delivery),
+        alertRow(sessionId, groupKey, alert, arrivedAt, injected, delivery),
       ),
     )
+    .onConflict((oc) => oc.doNothing())
+    .returning("alert")
     .execute();
+  return rows.flatMap((r) => parseAlert(r.alert));
 }
 
-// An alert that arrived while the run was already working. `arrivedAt` is what
-// later places it in the transcript, at the turn it interrupted.
-export async function appendSessionAlert(
-  sessionId: string,
+/* What a delivery came to. `none` stored nothing new, `joined` added to its
+   group's open session, and `started` and `held` opened one. */
+export type Admission =
+  | { kind: "none" }
+  | {
+      kind: "joined" | "started" | "held";
+      sessionId: string;
+      alerts: NormalizedAlert[];
+    };
+
+/* One transaction over SQLite's one connection, so no two deliveries both read
+   the hour's count under the limit, and no session opens owning no alert. */
+export async function admitDelivery(
+  meta: SessionMeta,
   groupKey: string,
-  alert: NormalizedAlert,
+  alerts: NormalizedAlert[],
   delivery: DeliveryContext,
-): Promise<void> {
-  await getDb()
-    .insertInto("alerts")
-    .values(
-      alertRow(
+  perHour: number,
+): Promise<Admission> {
+  if (alerts.length === 0) return { kind: "none" };
+  return await getDb()
+    .transaction()
+    .execute(async (trx): Promise<Admission> => {
+      // The sender's group key decides what joins, never a relationship we infer.
+      const open = await trx
+        .selectFrom("alerts as a")
+        .innerJoin("sessions as s", "s.session_id", "a.session_id")
+        .select(["a.session_id as sessionId", "s.status"])
+        .where("a.group_key", "=", groupKey)
+        .where("s.status", "in", ["running", "action_required", "not_started"])
+        .executeTakeFirst();
+      if (open !== undefined) {
+        // A session nobody has started opens on all its alerts, so none is news.
+        const joined = await insertAlerts(
+          trx,
+          open.sessionId,
+          groupKey,
+          alerts,
+          open.status !== "not_started",
+          delivery,
+        );
+        return joined.length === 0
+          ? { kind: "none" }
+          : { kind: "joined", sessionId: open.sessionId, alerts: joined };
+      }
+
+      const window = await trx
+        .selectFrom("sessions")
+        .select((eb) => eb.fn.countAll<number>().as("started"))
+        .where("investigation", "=", 1)
+        .where("held_reason", "is", null)
+        .where("created_at", ">=", new Date(Date.now() - HOUR_MS).toISOString())
+        .executeTakeFirst();
+      const started = window?.started ?? 0;
+      const heldReason =
+        started >= perHour
+          ? `${started} investigations started on their own in the past hour, the most Settings → Limits allows.`
+          : null;
+      const { sessionId } = meta;
+      await trx
+        .insertInto("sessions")
+        .values({
+          session_id: sessionId,
+          title: meta.title,
+          investigation: 1,
+          held_reason: heldReason,
+          created_at: meta.createdAt,
+          last_activity_at: meta.createdAt,
+        })
+        .execute();
+      const opened = await insertAlerts(
+        trx,
         sessionId,
         groupKey,
-        alert,
-        new Date().toISOString(),
-        true,
+        alerts,
+        false,
         delivery,
-      ),
-    )
-    .execute();
+      );
+      if (opened.length === 0) {
+        await trx
+          .deleteFrom("sessions")
+          .where("session_id", "=", sessionId)
+          .execute();
+        return { kind: "none" };
+      }
+      if (heldReason !== null) {
+        await refreshSessionStatus(sessionId, trx);
+        return { kind: "held", sessionId, alerts: opened };
+      }
+      await claimRun(sessionId, trx);
+      return { kind: "started", sessionId, alerts: opened };
+    });
 }
 
-/* Keyed the way dedup keys, so a recovery clears the firing it names rather than
-   an older one sharing the fingerprint. Queued rows are included. */
+/* Keyed the way the unique index keys, so a recovery clears the firing it names
+   rather than an older one sharing the fingerprint. */
 export async function markAlertCleared(
   sourceAlertId: string,
   firedAt: string,
@@ -98,117 +184,39 @@ export async function markAlertCleared(
     .where("cleared_at", "is", null)
     .returning("session_id as sessionId")
     .execute();
-  // A queued row has no session to publish against. One session can also cover
-  // the same alert twice; the caller wants sessions.
-  const sessionIds = [
-    ...new Set(
-      rows.map((r) => r.sessionId).filter((id): id is string => id !== null),
-    ),
-  ];
   // The last alert clearing is what makes a session read as resolved.
+  const sessionIds = [...new Set(rows.map((r) => r.sessionId))];
   for (const sessionId of sessionIds) await refreshSessionStatus(sessionId);
   return sessionIds;
 }
 
-// Scoped to uncleared rows rather than live runs: Alertmanager repeats a firing
-// alert, so a narrower rule reopens the same one every few minutes.
-export async function isAlertCovered(
-  sourceAlertId: string,
-  firedAt: string,
-): Promise<boolean> {
-  const row = await getDb()
+// The alerts that joined a run and that its model has not yet been told of.
+export async function pendingAlerts(
+  sessionId: string,
+): Promise<{ id: number; alert: NormalizedAlert }[]> {
+  const rows = await getDb()
     .selectFrom("alerts")
-    .select("id")
-    .where("source_alert_id", "=", sourceAlertId)
-    .where("fired_at", "=", firedAt)
-    .where("cleared_at", "is", null)
-    .executeTakeFirst();
-  return row !== undefined;
-}
-
-// Alertmanager grouped these under the user's own `group_by`, so this is their
-// decision arriving as data, never a relationship we inferred.
-
-export async function sessionCoveringGroup(
-  groupKey: string,
-): Promise<string | undefined> {
-  const row = await getDb()
-    .selectFrom("alerts as a")
-    .innerJoin("sessions as s", "s.session_id", "a.session_id")
-    .select("a.session_id as sessionId")
-    .where("a.group_key", "=", groupKey)
-    .where("s.status", "in", ["running", "action_required"])
-    .executeTakeFirst();
-  return row?.sessionId ?? undefined;
-}
-
-// One group of alerts waiting for a seat, ready to become a session.
-export interface QueuedGroup {
-  groupKey: string;
-  alerts: NormalizedAlert[];
-}
-
-function parseAlert(raw: string): NormalizedAlert[] {
-  try {
-    return [JSON.parse(raw) as NormalizedAlert];
-  } catch {
-    return [];
-  }
-}
-
-// A row nothing has taken yet. Shared with session/store.ts, which assigns a
-// group to the session that takes it.
-export function isQueued(eb: ExpressionBuilder<Database, "alerts">) {
-  return eb.and([eb("session_id", "is", null), eb("cleared_at", "is", null)]);
-}
-
-// Cleared rows are skipped rather than promoted: opening an investigation into a
-// condition that is already over is worse than silence.
-export async function oldestQueuedGroup(): Promise<QueuedGroup | undefined> {
-  const db = getDb();
-  const head = await db
-    .selectFrom("alerts")
-    .select("group_key as groupKey")
-    .where(isQueued)
-    .orderBy("arrived_at", "asc")
-    .orderBy("id", "asc")
-    .executeTakeFirst();
-  if (head === undefined) return undefined;
-
-  const rows = await db
-    .selectFrom("alerts")
-    .select("alert")
-    .where("group_key", "=", head.groupKey)
-    .where(isQueued)
+    .select(["id", "alert"])
+    .where("session_id", "=", sessionId)
+    .where("pending_delivery", "=", 1)
     .orderBy("id", "asc")
     .execute();
-  const alerts = rows.flatMap((r) => parseAlert(r.alert));
-  return alerts.length === 0 ? undefined : { groupKey: head.groupKey, alerts };
+  return rows.flatMap((r) =>
+    parseAlert(r.alert).map((alert) => ({ id: r.id, alert })),
+  );
 }
 
-// What the frontend's queue band reports: how many alerts are waiting, and how
-// long the one at the front has been waiting.
-export async function queueDepth(): Promise<{
-  waiting: number;
-  oldestArrivedAt: string | null;
-}> {
-  const row = await getDb()
-    .selectFrom("alerts")
-    .select((eb) => [
-      eb.fn.countAll<number>().as("waiting"),
-      eb.fn.min<string | null>("arrived_at").as("oldestArrivedAt"),
-    ])
-    .where(isQueued)
-    .executeTakeFirst();
-  return {
-    waiting: row?.waiting ?? 0,
-    oldestArrivedAt: row?.oldestArrivedAt ?? null,
-  };
+export async function markAlertsDelivered(ids: number[]): Promise<void> {
+  if (ids.length === 0) return;
+  await getDb()
+    .updateTable("alerts")
+    .set({ pending_delivery: 0 })
+    .where("id", "in", ids)
+    .execute();
 }
 
 interface AlertRow {
-  // Null on a row still waiting for a seat, which no session owns yet.
-  sessionId: string | null;
+  sessionId: string;
   arrivedAt: string;
   clearedAt: string | null;
   injected: number;
@@ -275,7 +283,6 @@ export async function alertsForMany(
     .orderBy("id", "asc")
     .execute();
   for (const row of rows) {
-    if (row.sessionId === null) continue;
     const entries = byId.get(row.sessionId) ?? [];
     entries.push(...toSessionAlert(row));
     byId.set(row.sessionId, entries);
@@ -283,16 +290,14 @@ export async function alertsForMany(
   return byId;
 }
 
-// What the reconciler works through. Queued alerts are excluded: nothing has
-// investigated them, so there is no recovery to verify.
+// What the reconciler works through: every session with an alert still firing.
 export async function sessionIdsWithOpenAlerts(): Promise<string[]> {
   const rows = await getDb()
     .selectFrom("alerts")
     .select("session_id as sessionId")
     .distinct()
     .where("cleared_at", "is", null)
-    .where("session_id", "is not", null)
     .orderBy("session_id")
     .execute();
-  return rows.flatMap((r) => (r.sessionId === null ? [] : [r.sessionId]));
+  return rows.map((r) => r.sessionId);
 }

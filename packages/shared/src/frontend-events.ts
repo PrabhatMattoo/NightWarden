@@ -1,4 +1,4 @@
-import type { QueueState, TranscriptRow } from "./sessions.js";
+import type { TranscriptRow } from "./sessions.js";
 import type { TranscriptItem } from "./transcript.js";
 
 // Common envelope for the API→frontend event stream (SSE). messageId is a per-event UUID
@@ -141,11 +141,12 @@ export interface FrontendReportUpdated extends FrontendEnvelope {
   };
 }
 
-// Not a session event: a queued alert has no session id to name. The limit
-// rides along because raising it is what the reader can act on.
-export interface FrontendQueueChanged extends FrontendEnvelope {
-  type: "QUEUE_CHANGED";
-  payload: QueueState;
+// An alert group opened a session, running or held, which no other event announces.
+export interface FrontendSessionOpened extends FrontendEnvelope {
+  type: "SESSION_OPENED";
+  payload: {
+    sessionId: string;
+  };
 }
 
 // Discriminated union of all events on the API→frontend SSE stream.
@@ -163,4 +164,4 @@ export type FrontendEvent =
   | FrontendRunFailed
   | FrontendSessionTitleUpdated
   | FrontendReportUpdated
-  | FrontendQueueChanged;
+  | FrontendSessionOpened;

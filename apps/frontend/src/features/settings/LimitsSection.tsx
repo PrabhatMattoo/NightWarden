@@ -17,13 +17,13 @@ export function LimitsSection({
     <div className="flex flex-col gap-8">
       <SettingsGroup title="Investigations">
         <PresetRow
-          id="settings-max-concurrent"
-          setting="maxConcurrentInvestigations"
-          title="Investigations at once"
-          description="Alerts beyond this wait their turn. One waiting on your approval still counts."
-          value={config.maxConcurrentInvestigations}
+          id="settings-max-per-hour"
+          setting="maxInvestigationsPerHour"
+          title="Automatic investigations per hour"
+          description="Alerts beyond this open an investigation you start yourself."
+          value={config.maxInvestigationsPerHour}
           format={String}
-          onCommit={(n) => save({ maxConcurrentInvestigations: n })}
+          onCommit={(n) => save({ maxInvestigationsPerHour: n })}
         />
         <PresetRow
           id="settings-check-in"

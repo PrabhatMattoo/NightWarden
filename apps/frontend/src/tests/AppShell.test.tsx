@@ -2,11 +2,7 @@ import { screen, waitFor, act, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, afterEach } from "vitest";
 
-import type {
-  QueueState,
-  SessionAlert,
-  SessionListRow,
-} from "@nightwarden/shared";
+import type { SessionAlert, SessionListRow } from "@nightwarden/shared";
 
 import { renderApp } from "./renderWithProviders.js";
 import { json } from "./stubApi.js";
@@ -73,6 +69,12 @@ const INVESTIGATIONS = [
     status: "completed",
     statusLine: "Raise the pod memory limit",
   }),
+  // Held by the hourly limit, so it waits for a person to start it.
+  investigationRow("inv-held", "Queue depth high on ingest", {
+    status: "not_started",
+    statusLine:
+      "10 investigations started on their own in the past hour, the most Settings → Limits allows.",
+  }),
 ];
 
 function alertOn(alertType: string, clearedAt: string | null): SessionAlert {
@@ -94,19 +96,9 @@ function alertOn(alertType: string, clearedAt: string | null): SessionAlert {
   };
 }
 
-const NO_QUEUE: QueueState = {
-  waiting: 0,
-  running: 0,
-  limit: 10,
-  oldestArrivedAt: null,
-};
-
 // The real route tree, not a copy of it: the redirect, the two session route
 // families and the pages they land on are exactly what ships.
-function setup({
-  path = "/agent",
-  queue = NO_QUEUE,
-}: { path?: string; queue?: QueueState } = {}) {
+function setup({ path = "/agent" }: { path?: string } = {}) {
   MockEventSource.reset();
   vi.stubGlobal("EventSource", MockEventSource);
   vi.stubGlobal("innerWidth", 1280);
@@ -224,7 +216,6 @@ function setup({
             rows,
             nextOffset: null,
             investigationTotal: INVESTIGATIONS.length,
-            queue,
           }),
       });
     }
@@ -318,76 +309,6 @@ describe("Shell", () => {
       expect(
         await screen.findByRole("heading", { name: "Investigations" }),
       ).toBeInTheDocument();
-    });
-  });
-
-  // Not sessions, so not rows: a row promises a transcript and something to open.
-  // The band names the limit, because raising it is what the reader can do.
-  describe("the alert queue band", () => {
-    // A reload receives no event, so the band has to come from the list fetch.
-    it("draws itself from the list fetch, before any event arrives", async () => {
-      setup({
-        path: "/investigations",
-        queue: {
-          waiting: 2,
-          running: 10,
-          limit: 10,
-          oldestArrivedAt: new Date(Date.now() - 90_000).toISOString(),
-        },
-      });
-
-      expect(await screen.findByText("2 alerts waiting")).toBeInTheDocument();
-      expect(
-        screen.getByText(/10 of 10 investigations running/),
-      ).toBeInTheDocument();
-    });
-
-    it("says nothing while nothing is waiting", async () => {
-      setup({ path: "/investigations" });
-      await waitFor(() => expect(MockEventSource.latest).not.toBeNull());
-
-      expect(screen.queryByText(/alerts? waiting/i)).not.toBeInTheDocument();
-    });
-
-    it("appears when alerts are held up, naming the count and the limit", async () => {
-      setup({ path: "/investigations" });
-      await waitFor(() => expect(MockEventSource.latest).not.toBeNull());
-
-      act(() => {
-        MockEventSource.broadcast({
-          messageId: "q1",
-          type: "QUEUE_CHANGED",
-          payload: {
-            waiting: 3,
-            running: 10,
-            limit: 10,
-            oldestArrivedAt: new Date(Date.now() - 4 * 60_000).toISOString(),
-          },
-        });
-      });
-
-      expect(await screen.findByText("3 alerts waiting")).toBeInTheDocument();
-      expect(
-        screen.getByText(/10 of 10 investigations running/),
-      ).toBeInTheDocument();
-
-      // It clears itself the moment the last one starts, rather than lingering
-      // as a stale claim that work is held up.
-      act(() => {
-        MockEventSource.broadcast({
-          messageId: "q2",
-          type: "QUEUE_CHANGED",
-          payload: {
-            waiting: 0,
-            running: 10,
-            limit: 10,
-            oldestArrivedAt: null,
-          },
-        });
-      });
-      await waitFor(() =>
-        expect(screen.queryByText(/alerts? waiting/i)).not.toBeInTheDocument(),
-      );
     });
   });
 
@@ -649,6 +570,7 @@ describe("Shell", () => {
       const action = await screen.findByRole("region", {
         name: "Action required",
       });
+      const held = screen.getByRole("region", { name: "Not started" });
       const investigating = screen.getByRole("region", {
         name: "Investigating",
       });
@@ -663,7 +585,8 @@ describe("Shell", () => {
       expect(within(investigating).getAllByRole("link")).toHaveLength(1);
       expect(within(resolved).getAllByRole("link")).toHaveLength(1);
       expect(within(completed).getAllByRole("link")).toHaveLength(1);
-      expect(precedes(action, investigating)).toBe(true);
+      expect(precedes(action, held)).toBe(true);
+      expect(precedes(held, investigating)).toBe(true);
       expect(precedes(investigating, resolved)).toBe(true);
       // A finished run with a recommendation sorts below a recovered one and
       // out of the group meaning "somebody is being asked something".
@@ -751,6 +674,25 @@ describe("Shell", () => {
       expect(active).toHaveAttribute("aria-pressed", "true");
     });
 
+    it("starts a held investigation from its row", async () => {
+      const user = userEvent.setup();
+      const { fetchMock } = setup({ path: "/investigations" });
+
+      const held = await screen.findByRole("region", { name: "Not started" });
+      expect(held).toHaveTextContent("Settings → Limits");
+      await user.click(within(held).getByRole("button", { name: "Start" }));
+
+      await waitFor(() =>
+        expect(
+          fetchMock.mock.calls.some(
+            ([url, init]) =>
+              String(url).endsWith("/api/sessions/inv-held/start") &&
+              init?.method === "POST",
+          ),
+        ).toBe(true),
+      );
+    });
+
     it("opens a row at its own record", async () => {
       const user = userEvent.setup();
       const { router } = setup({ path: "/investigations" });
@@ -783,7 +725,7 @@ describe("Shell", () => {
       const { router } = setup({ path: "/investigations/inv-p1" });
 
       // First of four: the group's order is the order the API sent it in.
-      expect(await screen.findByText("1 / 5")).toBeInTheDocument();
+      expect(await screen.findByText("1 / 6")).toBeInTheDocument();
 
       await user.click(
         screen.getByRole("button", { name: "Next investigation" }),
@@ -792,7 +734,7 @@ describe("Shell", () => {
       await waitFor(() => {
         expect(router.state.location.pathname).toBe("/investigations/inv-crit");
       });
-      expect(await screen.findByText("2 / 5")).toBeInTheDocument();
+      expect(await screen.findByText("2 / 6")).toBeInTheDocument();
       // Nothing navigated back to the list to get there.
       expect(
         screen.queryByRole("region", { name: "Action required" }),

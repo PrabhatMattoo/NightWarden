@@ -83,7 +83,7 @@ export async function registerAlertRoutes(
       }
     }
 
-    const { enqueued, skipped } = await routeDelivery(
+    const { stored, skipped } = await routeDelivery(
       parsed.groupKey,
       parsed.firing,
       parsed.delivery,
@@ -91,7 +91,7 @@ export async function registerAlertRoutes(
 
     return reply
       .code(200)
-      .send({ received: parsed.firing.length, enqueued, skipped });
+      .send({ received: parsed.firing.length, stored, skipped });
   });
 }
 

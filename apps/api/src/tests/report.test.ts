@@ -1897,12 +1897,6 @@ describe("the investigation record", () => {
         );
         await releasedWrite(sessionId, 0);
 
-        await seedAlertSession(
-          buildSessionMeta(sessionId, null, undefined),
-
-          [alert("acted-firing")],
-        );
-
         await runSession({ sessionId, alerts: [alert("acted-firing")] });
 
         const request = reportRequests()[0]!;
@@ -1922,12 +1916,6 @@ describe("the investigation record", () => {
           [alert("acted-no-recommendation")],
         );
         await releasedWrite(sessionId, 0);
-
-        await seedAlertSession(
-          buildSessionMeta(sessionId, null, undefined),
-
-          [alert("acted-no-recommendation")],
-        );
 
         await runSession({
           sessionId,

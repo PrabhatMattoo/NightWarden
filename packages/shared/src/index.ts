@@ -109,7 +109,7 @@ export type {
   FrontendRunRetrying,
   FrontendRunFailed,
   FrontendSessionTitleUpdated,
-  FrontendQueueChanged,
+  FrontendSessionOpened,
   FrontendReportUpdated,
   FrontendEvent,
 } from "./frontend-events.js";
@@ -142,7 +142,6 @@ export type {
   InvestigationStatus,
   SessionListRow,
   SessionListPage,
-  QueueState,
   SessionKind,
   StatusFilter,
 } from "./sessions.js";

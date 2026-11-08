@@ -21,10 +21,8 @@ import {
   metricsSourceRow,
 } from "../integrations/metrics/store.js";
 
-import {
-  appendSessionAlert,
-  markAlertCleared,
-} from "../session/alerts-store.js";
+import { admitDelivery, markAlertCleared } from "../session/alerts-store.js";
+import { releaseRun } from "../session/status-store.js";
 import {
   createSession,
   deleteSession,
@@ -87,6 +85,11 @@ const alert: NormalizedAlert = {
   values: {},
 };
 
+// Its own identity each time: the store holds one row per alert still firing.
+function firing(): NormalizedAlert {
+  return { ...alert, sourceAlertId: randomUUID() };
+}
+
 describe("API-local session store", () => {
   let cleanupDb: () => void;
 
@@ -101,7 +104,8 @@ describe("API-local session store", () => {
 
   it("round-trips a session with the alert that opened it", async () => {
     const m = meta();
-    await seedAlertSession(m, [alert]);
+    const opening = firing();
+    await seedAlertSession(m, [opening]);
 
     const stored = await getSession(m.sessionId);
     expect(stored).toBeDefined();
@@ -110,7 +114,7 @@ describe("API-local session store", () => {
     // which is recorded rather than worked out from when it arrived.
     expect(stored?.alerts).toEqual([
       {
-        alert,
+        alert: opening,
         arrivedAt: expect.any(String) as string,
         clearedAt: null,
         injected: false,
@@ -129,16 +133,15 @@ describe("API-local session store", () => {
 
   it("keeps an alert that arrived after the session was already running", async () => {
     const m = meta();
-    const later = {
-      ...alert,
-      sourceAlertId: "later",
-      alertType: "HighLatency",
-    };
-    await seedAlertSession(m, [alert], "grp-arrival");
-    await appendSessionAlert(m.sessionId, "grp-arrival", later, WHOLE_DELIVERY);
+    const opening = firing();
+    const later = { ...firing(), alertType: "HighLatency" };
+    // Opened running, so the second delivery of its group joins it mid-run.
+    await admitDelivery(m, "grp-arrival", [opening], WHOLE_DELIVERY, Infinity);
+    await admitDelivery(m, "grp-arrival", [later], WHOLE_DELIVERY, Infinity);
+    await releaseRun(m.sessionId);
 
     const stored = (await getSession(m.sessionId))!.alerts;
-    expect(stored.map((entry) => entry.alert)).toEqual([alert, later]);
+    expect(stored.map((entry) => entry.alert)).toEqual([opening, later]);
     // Recorded, not deduced: both carry an arrival stamp and can land in the
     // same millisecond, so comparing them would read a race.
     expect(stored.map((entry) => entry.injected)).toEqual([false, true]);
@@ -147,17 +150,18 @@ describe("API-local session store", () => {
 
   it("createSession is idempotent and never clobbers the first title", async () => {
     const m = meta({ title: "first" });
-    await seedAlertSession(m, [alert]);
+    const opening = firing();
+    await seedAlertSession(m, [opening]);
     await createSession({ ...m, title: "second" });
 
     const stored = await getSession(m.sessionId);
     expect(stored?.title).toBe("first");
-    expect(stored?.alerts.map((entry) => entry.alert)).toEqual([alert]);
+    expect(stored?.alerts.map((entry) => entry.alert)).toEqual([opening]);
   });
 
   it("persists and reads back a transcript ordered by seq", async () => {
     const m = meta();
-    await seedAlertSession(m, [alert]);
+    await seedAlertSession(m, [firing()]);
     // Insert out of order to prove ordering is by seq, not insertion.
     await appendTranscriptRows([msg(m.sessionId, 1), msg(m.sessionId, 0)]);
     await appendTranscriptRows([msg(m.sessionId, 2)]);
@@ -171,7 +175,7 @@ describe("API-local session store", () => {
 
   it("stamps each turn item with the timestamp of the row it came from", async () => {
     const m = meta();
-    await seedAlertSession(m, [alert]);
+    await seedAlertSession(m, [firing()]);
     const asked = "2026-06-13T00:05:00.000Z";
     const answered = "2026-06-13T00:06:30.000Z";
     await appendTranscriptRows([
@@ -194,7 +198,7 @@ describe("API-local session store", () => {
     // The user did not write it, so it must not read as theirs, and a resume
     // that dropped it would leave the model's answer replying to nothing.
     const m = meta();
-    await seedAlertSession(m, [alert]);
+    await seedAlertSession(m, [firing()]);
     await appendTranscriptRows([
       msg(m.sessionId, 0),
       msg(m.sessionId, 1),
@@ -229,7 +233,7 @@ describe("API-local session store", () => {
     // Recorded on the part, because no wire format carries it. Without it a
     // reload cannot tell a call that failed from one that answered.
     const m = meta();
-    await seedAlertSession(m, [alert]);
+    await seedAlertSession(m, [firing()]);
     await appendTranscriptRows([
       {
         ...msg(m.sessionId, 0, { kind: "assistant" }),
@@ -258,7 +262,7 @@ describe("API-local session store", () => {
 
   it("rejects a duplicate (session_id, seq) so a hole can never be re-filled", async () => {
     const m = meta();
-    await seedAlertSession(m, [alert]);
+    await seedAlertSession(m, [firing()]);
     await appendTranscriptRows([msg(m.sessionId, 0)]);
 
     await expect(appendTranscriptRows([msg(m.sessionId, 0)])).rejects.toThrow();
@@ -266,7 +270,7 @@ describe("API-local session store", () => {
 
   it("appends a batch atomically: a duplicate in the batch rolls back the whole turn", async () => {
     const m = meta();
-    await seedAlertSession(m, [alert]);
+    await seedAlertSession(m, [firing()]);
     await appendTranscriptRows([msg(m.sessionId, 0)]);
 
     // seq 1 is new, seq 0 collides; the batch must be all-or-nothing.
@@ -288,9 +292,9 @@ describe("API-local session store", () => {
       createdAt: "2026-02-01T00:00:00.000Z",
     });
     const other = meta({ title: "other" });
-    await seedAlertSession(older, [alert]);
-    await seedAlertSession(newer, [alert]);
-    await seedAlertSession(other, [alert]);
+    await seedAlertSession(older, [firing()]);
+    await seedAlertSession(newer, [firing()]);
+    await seedAlertSession(other, [firing()]);
 
     const list = (await listSessionFacts(100, 0, "investigation")).facts.filter(
       (session) =>
@@ -311,7 +315,7 @@ describe("API-local session store", () => {
             title: `${prefix}-${i}`,
             createdAt: `2026-03-01T00:00:${String(i).padStart(2, "0")}.000Z`,
           }),
-          [alert],
+          [firing()],
         );
       }
     }
@@ -344,7 +348,7 @@ describe("API-local session store", () => {
         title: "waiting",
         createdAt: "2026-01-01T00:00:00.000Z",
       });
-      await seedAlertSession(waiting, [alert]);
+      await seedAlertSession(waiting, [firing()]);
       await appendRowsAndPark([msg(waiting.sessionId, 0)], {
         sessionId: waiting.sessionId,
         toolCallId: "tu-float",
@@ -352,7 +356,7 @@ describe("API-local session store", () => {
         completedResults: [],
         claimedAt: null,
       });
-      await seedAlertSession(meta({ title: "newer than waiting" }), [alert]);
+      await seedAlertSession(meta({ title: "newer than waiting" }), [firing()]);
 
       const first = await listSessionFacts(1, 0, "investigation");
       expect(first.facts[0].sessionId).toBe(waiting.sessionId);
@@ -367,7 +371,7 @@ describe("API-local session store", () => {
 
   it("deleteSession removes the session, its messages, and any pending interrupt", async () => {
     const m = meta();
-    await seedAlertSession(m, [alert]);
+    await seedAlertSession(m, [firing()]);
     await appendRowsAndPark([msg(m.sessionId, 0)], {
       sessionId: m.sessionId,
       toolCallId: "tu-del-1",
@@ -389,7 +393,7 @@ describe("API-local session store", () => {
 
   it("deleteSession removes the report (it has no reason to outlive the session)", async () => {
     const m = meta();
-    await seedAlertSession(m, [alert]);
+    await seedAlertSession(m, [firing()]);
     await seedCompleteReport(m.sessionId);
     expect(await getRecord(m.sessionId)).toBeDefined();
 
