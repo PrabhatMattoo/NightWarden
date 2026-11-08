@@ -452,9 +452,6 @@ export const REPO_TOOLS: Tool[] = [
     policy: "auto",
     citable: true,
     renderAs: "change",
-    // One PR per session branch, created or updated by branch identity, so a
-    // second call after a crash refreshes the proposal rather than opening one.
-    idempotent: true,
     timeoutMs: 600_000,
     execute: async (input: z.infer<typeof OPEN_PULL_REQUEST_INPUT>, ctx) => {
       const { title } = input;

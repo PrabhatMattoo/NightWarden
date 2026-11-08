@@ -13,7 +13,8 @@ import {
   REQUEST_TIMEOUT_MS,
 } from "../llm/config.js";
 import { PROVIDER_OPTIONS } from "../llm/catalog.js";
-import { decrypt, encrypt, maskKey } from "../secrets.js";
+import { decrypt, encrypt, generateSecretKey, maskKey } from "../secrets.js";
+import { secretKeyPath } from "../paths.js";
 import { logger } from "../logger.js";
 import type {
   AgentConfig,
@@ -101,13 +102,7 @@ function splitHosts(text: string): string[] {
 }
 
 function maskStored(apiKeyEncrypted: string | null): string | null {
-  if (!apiKeyEncrypted) return null;
-  try {
-    return maskKey(decrypt(apiKeyEncrypted));
-  } catch {
-    // Decryption failure (e.g. rotated NIGHTWARDEN_SECRET_KEY) - treat as unset.
-    return null;
-  }
+  return apiKeyEncrypted ? maskKey(decrypt(apiKeyEncrypted)) : null;
 }
 
 function toSettings(row: ProviderRow | undefined): ProviderSettings {
@@ -174,12 +169,7 @@ export async function loadApiKey(
   provider: LLMProviderName,
 ): Promise<string | undefined> {
   const row = await readProviderRow(provider);
-  if (!row?.apiKeyEncrypted) return undefined;
-  try {
-    return decrypt(row.apiKeyEncrypted);
-  } catch {
-    return undefined;
-  }
+  return row?.apiKeyEncrypted ? decrypt(row.apiKeyEncrypted) : undefined;
 }
 
 // Global settings only; the per-provider blocks are written by updateProvider so
@@ -317,4 +307,41 @@ async function seedProviderFromEnv(provider: LLMProviderName): Promise<void> {
     ...(baseUrl !== undefined && baseUrl !== "" && { baseUrl }),
   });
   logger.info({ provider, model }, "seeded provider settings from environment");
+}
+
+const KEY_CHECK = "nightwarden";
+
+/* Written on first boot and decrypted on every boot after, so a database restored
+   without its key refuses to start rather than reading each credential as unset. */
+export async function checkSecretKey(): Promise<void> {
+  const row = await getDb()
+    .selectFrom("config")
+    .select("key_check as keyCheck")
+    .where("id", "=", CONFIG_ID)
+    .executeTakeFirst();
+  if (row?.keyCheck == null) {
+    generateSecretKey();
+    const values = { key_check: encrypt(KEY_CHECK) };
+    await getDb()
+      .insertInto("config")
+      .values({
+        id: CONFIG_ID,
+        ...values,
+        updated_at: new Date().toISOString(),
+      })
+      .onConflict((oc) => oc.column("id").doUpdateSet(values))
+      .execute();
+    return;
+  }
+  let matches = false;
+  try {
+    matches = decrypt(row.keyCheck) === KEY_CHECK;
+  } catch {
+    // A missing key throws as well as a wrong one, and both are the same refusal.
+  }
+  if (!matches) {
+    throw new Error(
+      `the secret key does not decrypt this database's credentials: restore ${secretKeyPath()} from the same backup as the database, or set NIGHTWARDEN_SECRET_KEY to the key it held`,
+    );
+  }
 }

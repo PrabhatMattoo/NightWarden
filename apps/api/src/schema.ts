@@ -45,6 +45,7 @@ interface ConfigTable {
   sandbox_network: Generated<string>;
   // Newline-joined, which is the Settings textarea's own shape.
   sandbox_allowlist_hosts: Generated<string>;
+  key_check: string | null;
   updated_at: string;
 }
 

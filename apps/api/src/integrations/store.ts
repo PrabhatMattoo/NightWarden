@@ -36,8 +36,8 @@ const COLUMNS = [
   "created_at",
 ] as const;
 
-// A row written by an older shape, or a rotated NIGHTWARDEN_SECRET_KEY, reads as empty
-// rather than crashing every caller that touches the table.
+// A row written by an older shape reads as empty rather than crashing every
+// caller that touches the table.
 function parseJson(text: string | null): Record<string, string> {
   if (text === null) return {};
   try {
@@ -51,12 +51,7 @@ function parseJson(text: string | null): Record<string, string> {
 }
 
 function decryptSecrets(encrypted: string | null): Record<string, string> {
-  if (encrypted === null) return {};
-  try {
-    return parseJson(decrypt(encrypted));
-  } catch {
-    return {};
-  }
+  return encrypted === null ? {} : parseJson(decrypt(encrypted));
 }
 
 function toRow(raw: RawRow): IntegrationRow {

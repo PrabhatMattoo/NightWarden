@@ -20,8 +20,16 @@ let auth: string | null = null;
 // Publishing the key through process.env made the ordering an undeclared
 // contract: import before boot and the failure named the env var, not why.
 export function initSecrets(): void {
-  encryption = resolveSecretKey();
-  auth = resolveAuthSecret();
+  encryption = readKey("NIGHTWARDEN_SECRET_KEY", secretKeyPath());
+  auth =
+    readKey("NIGHTWARDEN_AUTH_SECRET", authSecretPath()) ??
+    writeKey(authSecretPath());
+}
+
+// First boot only: over a database that already holds encrypted data a missing
+// key is refused, since a new one would read every credential as unset.
+export function generateSecretKey(): void {
+  encryption ??= writeKey(secretKeyPath());
 }
 
 function activeSecret(): string {
@@ -97,23 +105,19 @@ export function maskKey(plaintext: string): string {
   return `sk-...${suffix}`;
 }
 
-// Env wins, else a 0600 file is reused or generated. Losing the file is the
-// same as rotating the variable.
-function resolveKey(envVar: string, path: string): string {
+// Env wins, else a 0600 file. An empty file (crash mid-write, full disk) holds
+// no recoverable key, so it reads as absent rather than as "".
+function readKey(envVar: string, path: string): string | null {
   const fromEnv = process.env[envVar];
   if (fromEnv) return fromEnv;
+  if (!existsSync(path)) return null;
+  const persisted = readFileSync(path, "utf8").trim();
+  if (!persisted) return null;
+  logger.info({ path }, `loaded persisted ${envVar} file`);
+  return persisted;
+}
 
-  if (existsSync(path)) {
-    const persisted = readFileSync(path, "utf8").trim();
-    if (persisted) {
-      logger.info({ path }, `loaded persisted ${envVar} file`);
-      return persisted;
-    }
-    /* An empty file (crash mid-write, full disk, tampering) holds no recoverable
-       key, so it is treated as absent rather than returned as "". */
-    logger.warn({ path }, `${envVar} file is empty, generating a new one`);
-  }
-
+function writeKey(path: string): string {
   const generated = randomBytes(32).toString("hex");
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, generated, { mode: 0o600 });
@@ -124,14 +128,6 @@ function resolveKey(envVar: string, path: string): string {
       stdio: "ignore",
     });
   }
-  logger.info({ path }, `generated new ${envVar} file`);
+  logger.info({ path }, "generated new key file");
   return generated;
-}
-
-export function resolveSecretKey(): string {
-  return resolveKey("NIGHTWARDEN_SECRET_KEY", secretKeyPath());
-}
-
-export function resolveAuthSecret(): string {
-  return resolveKey("NIGHTWARDEN_AUTH_SECRET", authSecretPath());
 }

@@ -51,7 +51,6 @@ type ApiToolSpec<T extends z.ZodObject> = Citability & {
   input: T;
   effect: "read" | "write";
   policy: ToolPolicy;
-  idempotent?: true;
   timeoutMs?: number;
   // A property for the reason the registry's is: shorthand would not check it.
   execute: (

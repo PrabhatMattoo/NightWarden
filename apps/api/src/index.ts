@@ -14,7 +14,7 @@ import {
   reconcileRecovery,
 } from "./verification/reconciler.js";
 import { registerConfigRoutes } from "./config/routes.js";
-import { seedConfigFromEnv } from "./config/store.js";
+import { checkSecretKey, seedConfigFromEnv } from "./config/store.js";
 import { seedIntegrationsFromEnv } from "./integrations/seed.js";
 import { registerSessionRoutes } from "./session/routes.js";
 import { recoverDeadRuns } from "./session/recover.js";
@@ -94,6 +94,8 @@ const start = async (): Promise<void> => {
   try {
     initDb();
     fastify.log.info("SQLite ready");
+    // Before the seeds below, which encrypt with the key this decides on.
+    await checkSecretKey();
     // Env is a first-boot seed only: this writes the config row on an install
     // that has none, and never again. After that the database is the sole source.
     await seedConfigFromEnv();
@@ -129,13 +131,10 @@ const start = async (): Promise<void> => {
         `workspace salvage: ${salvaged.pushed} pushed, ${salvaged.kept} kept for manual recovery`,
       );
     }
-    // Before listen(), so nothing can dispatch into a session this is still
-    // deciding about. A run still flagged running was killed with the process.
+    // Before listen(), so no dispatch can claim a session this is still failing.
     const recovered = await recoverDeadRuns();
-    if (recovered.failed > 0 || recovered.resumed > 0) {
-      fastify.log.info(
-        `interrupted runs: ${recovered.failed} marked failed, ${recovered.resumed} resumed`,
-      );
+    if (recovered > 0) {
+      fastify.log.info(`interrupted runs: ${recovered} marked failed`);
     }
     /* Recovery above freed the seats these alerts were waiting for, and nothing
        else would notice until the next delivery arrived. */

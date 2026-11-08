@@ -34,6 +34,7 @@ CREATE TABLE IF NOT EXISTS config (
   sandbox_allowlist_hosts       TEXT     NOT NULL DEFAULT 'registry.npmjs.org
 registry.yarnpkg.com
 repo.yarnpkg.com',
+  key_check                     TEXT,
   updated_at                    TEXT     NOT NULL
 );
 

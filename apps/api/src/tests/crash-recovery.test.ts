@@ -11,7 +11,13 @@ import { createScriptRunner } from "./contract-fake-provider.js";
 const scriptRunner = createScriptRunner();
 mockCreateProvider.mockImplementation(() => scriptRunner.create());
 
-import { claimRun, isRunning } from "../session/status-store.js";
+import { getDb } from "../db.js";
+import {
+  claimRun,
+  deriveStatus,
+  isRunning,
+  runFailure,
+} from "../session/status-store.js";
 import {
   appendRowsAndPark,
   appendTranscriptRows,
@@ -19,6 +25,7 @@ import {
 } from "../session/transcript-store.js";
 import { recoverDeadRuns } from "../session/recover.js";
 import { buildSeed } from "../session/seed.js";
+import { reconcileRecovery } from "../verification/reconciler.js";
 import { useTempDb } from "./temp-db.js";
 import { waitFor } from "./wait.js";
 
@@ -32,36 +39,13 @@ const alert: NormalizedAlert = {
   values: {},
 };
 
-// A session that was mid-run when the process died: its row still says running,
-// because nothing got the chance to clear it.
-async function killedRun(
-  rows: TranscriptRow[] = [],
-  at = new Date(),
-): Promise<string> {
+async function alertSession(): Promise<string> {
   const sessionId = randomUUID();
   await seedAlertSession(
-    { sessionId, title: "t", createdAt: at.toISOString() },
+    { sessionId, title: "t", createdAt: new Date().toISOString() },
     [alert],
   );
-  if (rows.length > 0) await appendTranscriptRows(rows);
-  await claimRun(sessionId);
   return sessionId;
-}
-
-function turn(
-  sessionId: string,
-  seq: number,
-  overrides: Partial<TranscriptRow> = {},
-): TranscriptRow {
-  return {
-    sessionId,
-    seq,
-    kind: "assistant",
-    content: "working",
-    parts: [{ type: "text", text: "working" }],
-    timestamp: new Date().toISOString(),
-    ...overrides,
-  };
 }
 
 function callTurn(
@@ -69,12 +53,28 @@ function callTurn(
   seq: number,
   toolCallId: string,
   name: string,
-  input: Record<string, unknown>,
 ): TranscriptRow {
-  return turn(sessionId, seq, {
+  return {
+    sessionId,
+    seq,
+    kind: "assistant",
     content: `[tool: ${name}]`,
-    parts: [{ type: "tool_call", toolCallId, name, input }],
-  });
+    parts: [{ type: "tool_call", toolCallId, name, input: {} }],
+    timestamp: new Date().toISOString(),
+  };
+}
+
+async function parkOnApproval(sessionId: string): Promise<void> {
+  await appendRowsAndPark(
+    [callTurn(sessionId, 0, "tu-gated", "RestartDockerService")],
+    {
+      sessionId,
+      toolCallId: "tu-gated",
+      kind: "approval",
+      completedResults: [],
+      claimedAt: null,
+    },
+  );
 }
 
 describe("recovering runs a restart interrupted", () => {
@@ -86,118 +86,86 @@ describe("recovering runs a restart interrupted", () => {
 
   afterAll(() => {
     cleanupDb();
-    vi.unstubAllGlobals();
-    vi.unstubAllEnvs();
   });
 
-  it("clears the flag and says it was interrupted, rather than leaving it to read as a run that concluded nothing", async () => {
-    // Old enough that nothing picks it up, so the record is all that happens.
-    const old = new Date(Date.now() - 60 * 60_000);
-    const sessionId = await killedRun([], old);
+  it("fails a run killed mid-turn as transient, answers its call as interrupted, and the reconciler retries it", async () => {
+    scriptRunner.setScript([{ text: "Done.", toolUses: [] }]);
+    const sessionId = await alertSession();
+    await appendTranscriptRows([callTurn(sessionId, 0, "tu-edit", "Edit")]);
+    await claimRun(sessionId);
 
-    const result = await recoverDeadRuns();
+    expect(await recoverDeadRuns()).toBe(1);
 
-    expect(result.failed).toBe(1);
-    expect(result.resumed).toBe(0);
-    expect(await isRunning(sessionId)).toBe(false);
-    const note = (await getTranscriptRows(sessionId)).find(
-      (m) => m.kind === "error",
+    expect(await deriveStatus(sessionId)).toBe("failed");
+    expect(await runFailure(sessionId)).toEqual({
+      kind: "transient",
+      attempts: 1,
+    });
+    const answer = (await getTranscriptRows(sessionId))
+      .flatMap((row) => row.parts)
+      .find((p) => p.type === "tool_result" && p.toolCallId === "tu-edit");
+    expect(answer).toMatchObject({ isError: true });
+    expect(answer).not.toHaveProperty("evidenceId");
+    expect(answer?.type === "tool_result" && answer.output).toContain(
+      "result unknown",
     );
-    expect(note?.content).toContain("interrupted");
+
+    const pass = await reconcileRecovery();
+    expect(pass.retried).toBe(1);
+    await waitFor(async () => !(await isRunning(sessionId)));
   });
 
   it("leaves a session waiting on a human alone: it suspended, it did not die", async () => {
-    const sessionId = randomUUID();
-    await seedAlertSession(
-      { sessionId, title: "t", createdAt: new Date().toISOString() },
-      [alert],
-    );
-    // All three are written in one transaction, so this means the run parked
-    // itself rather than being killed, and it keeps its seat while it waits.
-    await appendRowsAndPark(
-      [callTurn(sessionId, 0, "tu-gated", "RestartDockerService", {})],
-      {
-        sessionId,
-        toolCallId: "tu-gated",
-        kind: "approval",
-        completedResults: [],
-        claimedAt: null,
-      },
-    );
+    const sessionId = await alertSession();
+    await parkOnApproval(sessionId);
 
-    const result = await recoverDeadRuns();
+    await recoverDeadRuns();
 
-    expect(result.failed).toBe(0);
-    expect(await isRunning(sessionId)).toBe(false);
+    expect(await deriveStatus(sessionId)).toBe("action_required");
     expect(
       (await getTranscriptRows(sessionId)).some((m) => m.kind === "error"),
     ).toBe(false);
   });
 
-  it("answers a read the crash left hanging instead of discarding the turn", async () => {
-    scriptRunner.setScript([{ text: "Done.", toolUses: [] }]);
-    const sessionId = await killedRun();
-    // ListRecentGitChanges is a read, so running it again is running it again.
-    await appendTranscriptRows([
-      callTurn(sessionId, 0, "tu-read", "ListRecentGitChanges", {}),
-    ]);
+  it("tells the person to check the target when an approved write ran and its result was lost", async () => {
+    const sessionId = await alertSession();
+    await parkOnApproval(sessionId);
+    // Approval clears the gate before the resume claims the run; this is that gap.
+    await getDb()
+      .updateTable("sessions")
+      .set({ awaiting_tool_use_id: null, awaiting_kind: null })
+      .where("session_id", "=", sessionId)
+      .execute();
 
     await recoverDeadRuns();
 
-    // The replay runs in a different process, so how it went has to ride the row
-    // it writes. No GitHub integration here, so the call answers with a class.
-    const answering = (await getTranscriptRows(sessionId))
-      .flatMap((row) => row.parts)
-      .find((p) => p.type === "tool_result" && p.toolCallId === "tu-read");
-    expect(answering).toBeDefined();
-    expect(answering).toHaveProperty("isError");
-    // Answered, so the seed keeps the exchange rather than unwinding past it.
-    expect((await buildSeed(sessionId)).length).toBeGreaterThan(0);
-    await waitFor(async () => !(await isRunning(sessionId)));
-  });
-
-  it("unwinds past a sandbox write it cannot know ran", async () => {
-    const sessionId = await killedRun();
-    await appendTranscriptRows([
-      turn(sessionId, 0, {
-        kind: "user",
-        content: "fix it",
-        parts: [{ type: "text", text: "fix it" }],
-      }),
-      callTurn(sessionId, 1, "tu-edit", "Edit", {
-        path: "a.ts",
-        old_string: "x",
-        new_string: "y",
-      }),
-    ]);
-
-    await recoverDeadRuns();
-
-    const answered = (await getTranscriptRows(sessionId)).some((row) =>
-      row.parts.some(
-        (p) => p.type === "tool_result" && p.toolCallId === "tu-edit",
-      ),
+    expect(await deriveStatus(sessionId)).toBe("failed");
+    const note = (await getTranscriptRows(sessionId)).find(
+      (m) => m.kind === "error",
     );
-    expect(answered).toBe(false);
-    // The dead exchange is gone from what the model is handed, and the user turn
-    // before it survives, so the resume has the request that started this.
-    const seeded = await buildSeed(sessionId);
-    expect(seeded).toHaveLength(1);
-    expect(seeded[0]?.content).toBe("fix it");
-    await waitFor(async () => !(await isRunning(sessionId)));
+    expect(note?.content).toContain(
+      "check the target before approving it again",
+    );
   });
 
   // A gated call is unanswered until a human decides, so unwinding past it hands
   // the model results for a call it can no longer see it made.
   it("keeps a gated turn once its answer is on the record", async () => {
-    const sessionId = await killedRun();
+    const sessionId = await alertSession();
+    const at = new Date().toISOString();
     await appendTranscriptRows([
-      turn(sessionId, 0, {
+      {
+        sessionId,
+        seq: 0,
         kind: "user",
         content: "restart it",
         parts: [{ type: "text", text: "restart it" }],
-      }),
-      turn(sessionId, 1, {
+        timestamp: at,
+      },
+      {
+        sessionId,
+        seq: 1,
+        kind: "assistant",
         content: "[tool: RestartDockerService]",
         parts: [
           {
@@ -213,23 +181,27 @@ describe("recovering runs a restart interrupted", () => {
             input: { target: "prod-1/web/api" },
           },
         ],
-      }),
+        timestamp: at,
+      },
     ]);
 
-    // Nobody has answered, so the turn is dropped: this is the crash case.
+    // Nobody has answered, so the turn is dropped: what a stop mid-turn leaves.
     expect(await buildSeed(sessionId)).toHaveLength(1);
 
     // Resolving a gate writes the whole turn's results before it clears, so the
     // seed finds the exchange answered on the transcript.
     await appendTranscriptRows([
-      turn(sessionId, 2, {
+      {
+        sessionId,
+        seq: 2,
         kind: "user",
         content: "results",
         parts: [
           { type: "tool_result", toolCallId: "tu-read", output: "ok" },
           { type: "tool_result", toolCallId: "tu-gate", output: "restarted" },
         ],
-      }),
+        timestamp: at,
+      },
     ]);
 
     const resumed = await buildSeed(sessionId);
