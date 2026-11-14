@@ -8,6 +8,7 @@ import { mockCreateProvider } from "./llm-factory-mock.js";
 import {
   createContractFakeProvider,
   createGateController,
+  messagesSentTo,
 } from "./contract-fake-provider.js";
 
 mockCreateProvider.mockImplementation(() =>
@@ -27,6 +28,20 @@ import { dispatcher } from "../dispatcher.js";
 import { hasPendingHumanInput } from "../session/gate-store.js";
 import { deleteMetricsSource } from "../integrations/metrics/store.js";
 import { listSessionPage } from "../session/list.js";
+import { getTranscriptRows } from "../session/transcript-store.js";
+import type { MessagePart, TranscriptRow } from "@nightwarden/shared";
+
+function resultFor(
+  rows: readonly TranscriptRow[],
+  toolCallId: string,
+): Extract<MessagePart, { type: "tool_result" }> | undefined {
+  return rows
+    .flatMap((row) => row.parts)
+    .find(
+      (part): part is Extract<MessagePart, { type: "tool_result" }> =>
+        part.type === "tool_result" && part.toolCallId === toolCallId,
+    );
+}
 
 describe("POST /sessions/:id/stop", () => {
   let nw: Harness;
@@ -130,16 +145,27 @@ describe("POST /sessions/:id/stop", () => {
         const url = String(input instanceof Request ? input.url : input);
         if (!url.startsWith("http://prom.test")) return realFetch(input, init);
         readStarted = true;
-        return reading.then(
-          () =>
-            new Response(
-              JSON.stringify({
-                status: "success",
-                data: { resultType: "vector", result: [] },
-              }),
-              { status: 200, headers: { "content-type": "application/json" } },
+        // A real connection is dropped when its signal aborts, as Stop's does.
+        const signal = input instanceof Request ? input.signal : init?.signal;
+        return new Promise<Response>((resolve, reject) => {
+          signal?.addEventListener("abort", () => reject(signal.reason), {
+            once: true,
+          });
+          void reading.then(() =>
+            resolve(
+              new Response(
+                JSON.stringify({
+                  status: "success",
+                  data: { resultType: "vector", result: [] },
+                }),
+                {
+                  status: 200,
+                  headers: { "content-type": "application/json" },
+                },
+              ),
             ),
-        );
+          );
+        });
       }),
     );
 
@@ -189,6 +215,32 @@ describe("POST /sessions/:id/stop", () => {
       (r) => r.sessionId === sessionId,
     );
     expect(row?.status).toBe("stopped");
+
+    // Both calls are answered: the read as stopped, not as a source that is down.
+    const rows = await getTranscriptRows(sessionId);
+    const read = resultFor(rows, "tu-read");
+    expect(read?.isError).toBe(true);
+    expect(read?.output).toMatch(/stopped before it answered/);
+    expect(resultFor(rows, "tu-ask")?.isError).toBe(true);
+
+    // An unanswered call would make the contract fake refuse the resumed run.
+    const resumed = createContractFakeProvider([{ toolUses: [], text: "Ok." }]);
+    mockCreateProvider.mockImplementationOnce(() => resumed);
+    const sent = await fetch(
+      `http://127.0.0.1:${port}/api/sessions/${sessionId}/messages`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Cookie: `${SESSION}` },
+        body: messageBody("Carry on."),
+      },
+    );
+    expect(sent.status).toBe(202);
+    await waitFor(() => resumed.chat.mock.calls.length > 0);
+    await waitFor(async () => !(await dispatcher.isSessionRunning(sessionId)));
+    const history = messagesSentTo(resumed).flatMap((m) => m.parts);
+    expect(history).toContainEqual(
+      expect.objectContaining({ type: "tool_call", toolCallId: "tu-read" }),
+    );
 
     frontend.close();
     vi.unstubAllGlobals();

@@ -26,6 +26,7 @@ import {
 import { recoverDeadRuns } from "../session/recover.js";
 import { buildSeed } from "../session/seed.js";
 import { reconcileRecovery } from "../verification/reconciler.js";
+import { updateConfig } from "../config/store.js";
 import { useTempDb } from "./temp-db.js";
 import { waitFor } from "./wait.js";
 
@@ -115,6 +116,19 @@ describe("recovering runs a restart interrupted", () => {
     await waitFor(async () => !(await isRunning(sessionId)));
   });
 
+  it("stops retrying a run once it has failed as often as Settings allows", async () => {
+    await updateConfig({ maxRetries: 1 });
+    const sessionId = await alertSession();
+    await claimRun(sessionId);
+    await recoverDeadRuns();
+
+    const pass = await reconcileRecovery();
+    await updateConfig({ maxRetries: 3 });
+
+    expect(await runFailure(sessionId)).toMatchObject({ attempts: 1 });
+    expect(pass.retried).toBe(0);
+  });
+
   it("leaves a session waiting on a human alone: it suspended, it did not die", async () => {
     const sessionId = await alertSession();
     await parkOnApproval(sessionId);
@@ -185,7 +199,7 @@ describe("recovering runs a restart interrupted", () => {
       },
     ]);
 
-    // Nobody has answered, so the turn is dropped: what a stop mid-turn leaves.
+    // Nobody has answered, so the turn is dropped: no conversation may end on it.
     expect(await buildSeed(sessionId)).toHaveLength(1);
 
     // Resolving a gate writes the whole turn's results before it clears, so the
@@ -210,5 +224,46 @@ describe("recovering runs a restart interrupted", () => {
       "tool_call",
       "tool_call",
     ]);
+  });
+
+  // Only a trailing exchange is cut, so later turns survive an earlier unanswered call.
+  it("never erases the turns after an unanswered call", async () => {
+    const sessionId = await alertSession();
+    const at = new Date().toISOString();
+    await appendTranscriptRows([
+      {
+        sessionId,
+        seq: 0,
+        kind: "assistant",
+        content: "[tool: ListDockerServices]",
+        parts: [
+          {
+            type: "tool_call",
+            toolCallId: "tu-lost",
+            name: "ListDockerServices",
+            input: {},
+          },
+        ],
+        timestamp: at,
+      },
+      {
+        sessionId,
+        seq: 1,
+        kind: "user",
+        content: "carry on",
+        parts: [{ type: "text", text: "carry on" }],
+        timestamp: at,
+      },
+      {
+        sessionId,
+        seq: 2,
+        kind: "assistant",
+        content: "Carrying on.",
+        parts: [{ type: "text", text: "Carrying on." }],
+        timestamp: at,
+      },
+    ]);
+
+    expect(await buildSeed(sessionId)).toHaveLength(3);
   });
 });

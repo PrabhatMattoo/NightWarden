@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { fetchRead } from "./http.js";
 import { describeNetworkFailure } from "./reachability.js";
 import type { SentryErrorCode } from "@nightwarden/shared";
 
@@ -7,8 +8,9 @@ export class SentryApiError extends Error {
     readonly code: SentryErrorCode,
     readonly status: number,
     message: string,
+    options?: ErrorOptions,
   ) {
-    super(message);
+    super(message, options);
     this.name = "SentryApiError";
   }
 }
@@ -58,7 +60,7 @@ async function sentryFetch(
   const qs = params.toString();
   const url = `${joinUrl(conn.baseUrl, path)}${qs === "" ? "" : `?${qs}`}`;
   try {
-    return await fetch(url, {
+    return await fetchRead(url, {
       signal,
       headers: {
         "User-Agent": "nightwarden",
@@ -70,6 +72,7 @@ async function sentryFetch(
       "network",
       0,
       describeNetworkFailure(err, "Sentry"),
+      { cause: err },
     );
   }
 }

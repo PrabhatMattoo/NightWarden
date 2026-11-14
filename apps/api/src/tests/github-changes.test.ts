@@ -5,6 +5,7 @@ import { useTempDb } from "./temp-db.js";
 import { saveGitHubIntegration } from "../integrations/store.js";
 import { executeTool, findTool } from "../agent/tools/toolset.js";
 import { parsedContent } from "./tool-result.js";
+import { requestUrl } from "./wire-helper.js";
 import type { ListRecentGitChangesResult } from "../agent/tools/github.js";
 import type { Tool, ToolDispatchContext } from "../agent/tools/types.js";
 
@@ -55,8 +56,8 @@ function json(body: unknown, status = 200): Response {
 function installFetchMock(mock: GitHubMock): void {
   vi.stubGlobal(
     "fetch",
-    vi.fn(async (input: unknown): Promise<Response> => {
-      const url = String(input);
+    vi.fn(async (input: string | URL | Request): Promise<Response> => {
+      const url = requestUrl(input);
       mock.requests.push(url);
       const filesMatch = url.match(/\/pulls\/(\d+)\/files/);
       if (filesMatch !== null) {

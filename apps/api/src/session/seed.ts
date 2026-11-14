@@ -6,8 +6,8 @@ function hasToolCall(message: TranscriptRow): boolean {
   return message.parts.some((p) => p.type === "tool_call");
 }
 
-// Every provider rejects a conversation ending on an unanswered tool_use. A
-// resolved gate writes its answer before it clears, so nothing is passed in.
+/* Providers refuse a conversation ending on an unanswered call, so only that tail goes;
+   stops, resolved gates and restarts answer theirs. */
 function throughLastAnsweredExchange(rows: TranscriptRow[]): TranscriptRow[] {
   const answered = new Set<string>();
   for (const row of rows) {
@@ -15,14 +15,11 @@ function throughLastAnsweredExchange(rows: TranscriptRow[]): TranscriptRow[] {
       if (part.type === "tool_result") answered.add(part.toolCallId);
     }
   }
-  for (let i = 0; i < rows.length; i++) {
-    for (const part of rows[i]!.parts) {
-      if (part.type === "tool_call" && !answered.has(part.toolCallId)) {
-        return rows.slice(0, i);
-      }
-    }
-  }
-  return rows;
+  const last = rows.map((row) => row.kind).lastIndexOf("assistant");
+  const unanswered = rows[last]?.parts.some(
+    (part) => part.type === "tool_call" && !answered.has(part.toolCallId),
+  );
+  return unanswered === true ? rows.slice(0, last) : rows;
 }
 
 // Maps our four kinds onto the provider's two roles.

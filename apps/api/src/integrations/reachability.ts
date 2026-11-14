@@ -6,12 +6,16 @@ export function probeSignal(): AbortSignal {
   return AbortSignal.timeout(PROBE_TIMEOUT_MS);
 }
 
-// Read from the error's own code, never guessed from the URL: loopback, a
+// The deepest code in the cause chain, never guessed from the URL: loopback, a
 // container name and a private address are all legitimate and alike by shape.
-function failureCode(err: unknown): string | null {
-  const cause = (err as { cause?: unknown })?.cause ?? err;
-  const code = (cause as { code?: unknown })?.code;
-  return typeof code === "string" ? code : null;
+export function failureCode(err: unknown): string | null {
+  let found: string | null = null;
+  for (let link = err; typeof link === "object" && link !== null;) {
+    const { code, cause } = link as { code?: unknown; cause?: unknown };
+    if (typeof code === "string") found = code;
+    link = cause;
+  }
+  return found;
 }
 
 // Phrased for the user configuring it: what went wrong, and where the attempt
@@ -33,6 +37,7 @@ export function describeNetworkFailure(err: unknown, service: string): string {
     case "ENETUNREACH":
       return `No response before the timeout, which usually means a firewall or an unroutable address. ${from}.`;
     case "ECONNRESET":
+    case "UND_ERR_SOCKET":
       return `The connection was closed mid-request. ${from}.`;
     case "DEPTH_ZERO_SELF_SIGNED_CERT":
     case "SELF_SIGNED_CERT_IN_CHAIN":

@@ -1,20 +1,18 @@
 // Two unrelated identities, not two arms of one union. A Docker runner can only
 // ever hold the first and a Kubernetes runner only the second, so nothing narrows.
 
-export interface DockerServiceIdentity {
-  project: string;
-  service: string;
-}
+import type { z } from "zod";
+import type {
+  dockerServiceIdentitySchema,
+  k8sWorkloadKindSchema,
+  kubernetesWorkloadIdentitySchema,
+} from "./schemas/service-identity.js";
 
-export interface KubernetesWorkloadIdentity {
-  namespace: string;
-  workload: string;
-  // Excluded from the key, so calls differing only by container address the
-  // same workload. Set by the agent, never from an alert.
-  container?: string;
-}
-
-export type K8sWorkloadKind = "Deployment" | "StatefulSet" | "DaemonSet";
+export type DockerServiceIdentity = z.infer<typeof dockerServiceIdentitySchema>;
+export type KubernetesWorkloadIdentity = z.infer<
+  typeof kubernetesWorkloadIdentitySchema
+>;
+export type K8sWorkloadKind = z.infer<typeof k8sWorkloadKindSchema>;
 
 // Docker sets the dotted form, and cAdvisor and Prometheus each re-render the
 // same two labels their own way, so all three spellings are read.

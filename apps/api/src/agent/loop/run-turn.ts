@@ -371,6 +371,7 @@ export async function runOneTurn(ctx: RunContext): Promise<TurnResult> {
   }
   if (ctx.signal?.aborted) {
     log.info({ turn }, "run stopped by user");
+    state.stageStopped(response.toolUses, []);
     await state.flush();
     return { kind: "outcome", outcome: "stopped" };
   }
@@ -453,6 +454,7 @@ export async function runOneTurn(ctx: RunContext): Promise<TurnResult> {
       Math.min(ctx.toolCallCeilingMs, ctx.deadline - Date.now()),
     ),
     sessionId,
+    ...(ctx.signal !== undefined && { stop: ctx.signal }),
   };
 
   const { toolResults, gated } = await processToolUses({
@@ -468,6 +470,7 @@ export async function runOneTurn(ctx: RunContext): Promise<TurnResult> {
   // reached already aborted; suspending here parks an interrupt on a dead run.
   if (ctx.signal?.aborted) {
     log.info({ turn }, "run stopped by user before the gate");
+    state.stageStopped(response.toolUses, toolResults);
     await state.flush();
     return { kind: "outcome", outcome: "stopped" };
   }

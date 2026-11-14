@@ -16,6 +16,7 @@ import {
   type MetricsSource,
 } from "../../integrations/metrics/sources.js";
 import { withStoredCredential } from "../../integrations/credential-health.js";
+import { isTransient } from "../../integrations/http.js";
 import { alertAnchorFor } from "./alert-anchor.js";
 import { apiTool, optionalText } from "./schema.js";
 import type { Tool, ToolExecuteResult } from "./types.js";
@@ -143,6 +144,12 @@ function isSource(
 
 function corrective(err: unknown): ToolExecuteResult {
   if (err instanceof MetricsApiError) {
+    if (isTransient(err)) {
+      return {
+        content: `The metrics source is temporarily unavailable: ${err.message}. Nothing was read. Try the same call again, or continue with other evidence.`,
+        isError: true,
+      };
+    }
     if (err.code === "bad_query") {
       return {
         content: `The source rejected the query: ${err.message}. Fix the PromQL and retry.`,

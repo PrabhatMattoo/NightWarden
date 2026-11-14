@@ -3,13 +3,16 @@ import { randomUUID } from "node:crypto";
 import type {
   RunnerManifest,
   RunnerCommandMessage,
-  RunnerIdentityMessage,
   RunnerManifestMessage,
   RunnerResultMessage,
-  HideContainerMessage,
 } from "@nightwarden/shared";
+import { parseRunnerMessage } from "@nightwarden/shared/schemas";
 
-export type CommandHandler = (input: unknown) => Promise<unknown>;
+// The signal aborts at the command's deadline; a handler holding a stream closes it.
+export type CommandHandler = (
+  input: unknown,
+  signal: AbortSignal,
+) => Promise<unknown>;
 
 // Structural, so a pino logger satisfies it without this package depending on pino.
 export interface TransportLogger {
@@ -160,44 +163,45 @@ export function startWebSocketClient(options: TransportOptions): () => void {
     socket: WebSocket,
     msg: RunnerCommandMessage,
   ): Promise<void> {
-    const { commandName, commandInput, correlationId } = msg.payload;
+    const { commandName, commandInput, correlationId, timeoutMs } = msg.payload;
     const handler = dispatch.get(commandName);
+    const deadline = AbortSignal.timeout(timeoutMs);
 
-    let resultMsg: RunnerResultMessage;
-    if (!handler) {
-      resultMsg = {
-        messageId: randomUUID(),
-        type: "result",
-        payload: {
+    async function answer(): Promise<RunnerResultMessage["payload"]> {
+      if (!handler) {
+        return {
           correlationId,
           success: false,
           result: null,
           error: `Unknown command: ${commandName}`,
-        },
-      };
-    } else {
-      try {
-        const result = await handler(commandInput);
-        resultMsg = {
-          messageId: randomUUID(),
-          type: "result",
-          payload: { correlationId, success: true, result },
         };
+      }
+      try {
+        const result = await handler(commandInput, deadline);
+        return { correlationId, success: true, result };
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        resultMsg = {
-          messageId: randomUUID(),
-          type: "result",
-          payload: {
-            correlationId,
-            success: false,
-            result: null,
-            error: message,
-          },
-        };
+        return { correlationId, success: false, result: null, error: message };
       }
     }
 
+    const abandoned = new Promise<null>((resolve) => {
+      deadline.addEventListener("abort", () => resolve(null), { once: true });
+    });
+    const payload = await Promise.race([answer(), abandoned]);
+    // The API's own timer has already answered the agent, so a late reply would only be discarded.
+    if (payload === null) {
+      logger.warn(
+        { commandName, timeoutMs },
+        "command abandoned at its deadline",
+      );
+      return;
+    }
+    const resultMsg: RunnerResultMessage = {
+      messageId: randomUUID(),
+      type: "result",
+      payload,
+    };
     socket.send(JSON.stringify(resultMsg));
   }
 
@@ -225,19 +229,18 @@ export function startWebSocketClient(options: TransportOptions): () => void {
     });
 
     ws.on("message", (data) => {
-      let parsed: Record<string, unknown>;
-      try {
-        parsed = JSON.parse(
-          new TextDecoder().decode(
-            Array.isArray(data) ? Buffer.concat(data) : data,
-          ),
-        ) as Record<string, unknown>;
-      } catch {
+      const parsed = parseRunnerMessage(
+        new TextDecoder().decode(
+          Array.isArray(data) ? Buffer.concat(data) : data,
+        ),
+      );
+      if (!parsed.ok) {
+        logger.warn({ reason: parsed.reason }, "malformed API message dropped");
         return;
       }
+      const msg = parsed.message;
 
-      if (parsed["type"] === "identity") {
-        const msg = parsed as unknown as RunnerIdentityMessage;
+      if (msg.type === "identity") {
         clearIdentityWatchdog();
         onIdentity(msg.payload.serverName);
         logger.info(
@@ -248,12 +251,11 @@ export function startWebSocketClient(options: TransportOptions): () => void {
           logger.error({ err }, "manifest send failed"),
         );
         startManifestRefresh(ws!);
-      } else if (parsed["type"] === "command") {
-        handleCommand(ws!, parsed as unknown as RunnerCommandMessage).catch(
-          (err: unknown) => logger.error({ err }, "command handler error"),
+      } else if (msg.type === "command") {
+        handleCommand(ws!, msg).catch((err: unknown) =>
+          logger.error({ err }, "command handler error"),
         );
-      } else if (parsed["type"] === "hide_container" && onHideContainer) {
-        const msg = parsed as unknown as HideContainerMessage;
+      } else if (msg.type === "hide_container" && onHideContainer) {
         onHideContainer(msg.payload.containerId);
       }
     });

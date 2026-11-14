@@ -7,7 +7,7 @@ import {
 } from "@nightwarden/shared";
 import { resultParts } from "../evidence-id.js";
 import { asSystemReminder, stripSystemReminder } from "../system-reminder.js";
-import type { OfferedToolset } from "../tools/toolset.js";
+import { notRunResult, type OfferedToolset } from "../tools/toolset.js";
 import { toProviderMessage } from "../../session/seed.js";
 import {
   appendRowsAndPark,
@@ -115,6 +115,16 @@ export class RunState {
     const stamped = resultParts(results, citableIds(uses), this.nextEvidence);
     this.nextEvidence = stamped.next;
     this.enqueue("user", stamped.parts);
+  }
+
+  // A stopped turn answers every call it made, so none is left without a result.
+  stageStopped(uses: readonly ToolUse[], results: readonly ToolResult[]): void {
+    if (uses.length === 0) return;
+    const answered = new Map(results.map((r) => [r.toolCallId, r]));
+    this.stageResults(
+      uses,
+      uses.map((use) => answered.get(use.toolCallId) ?? notRunResult(use)),
+    );
   }
 
   // The one emitter of the tag, so also the door untrusted text arrives at:

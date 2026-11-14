@@ -4,6 +4,7 @@ import type {
   GitHubRepoPage,
   GitHubRepoSummary,
 } from "@nightwarden/shared";
+import { fetchRead, fetchWrite } from "./http.js";
 
 const GITHUB_API = "https://api.github.com";
 
@@ -12,8 +13,9 @@ export class GitHubApiError extends Error {
     readonly code: GitHubErrorCode,
     readonly status: number,
     message: string,
+    options?: ErrorOptions,
   ) {
-    super(message);
+    super(message, options);
     this.name = "GitHubApiError";
   }
 }
@@ -112,19 +114,25 @@ async function githubFetch(
 ): Promise<Response> {
   let res: Response;
   try {
-    res = await fetch(`${GITHUB_API}${path}`, {
-      signal,
-      headers:
-        init === undefined
-          ? baseHeaders(token)
-          : { ...baseHeaders(token), "Content-Type": "application/json" },
-      ...(init !== undefined && {
-        method: init.method,
-        body: JSON.stringify(init.body),
-      }),
+    res =
+      init === undefined
+        ? await fetchRead(`${GITHUB_API}${path}`, {
+            signal,
+            headers: baseHeaders(token),
+          })
+        : await fetchWrite(`${GITHUB_API}${path}`, {
+            signal,
+            headers: {
+              ...baseHeaders(token),
+              "Content-Type": "application/json",
+            },
+            method: init.method,
+            body: JSON.stringify(init.body),
+          });
+  } catch (err) {
+    throw new GitHubApiError("network", 0, "Could not reach GitHub", {
+      cause: err,
     });
-  } catch {
-    throw new GitHubApiError("network", 0, "Could not reach GitHub");
   }
   if (res.status === 401) {
     throw new GitHubApiError(
@@ -220,7 +228,7 @@ export async function ownerIsOrganization(
   signal: AbortSignal,
 ): Promise<boolean> {
   try {
-    const res = await fetch(`${GITHUB_API}/users/${owner}`, {
+    const res = await fetchRead(`${GITHUB_API}/users/${owner}`, {
       signal,
       headers: {
         Accept: "application/vnd.github+json",

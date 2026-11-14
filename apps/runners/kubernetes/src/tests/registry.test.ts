@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { DOCKER_TOOL_NAMES, KUBERNETES_TOOL_NAMES } from "@nightwarden/shared";
 import { createDispatchRegistry } from "../commands/registry.js";
 
+const NO_DEADLINE = new AbortController().signal;
+
 describe("createDispatchRegistry", () => {
   const registry = createDispatchRegistry();
 
@@ -27,9 +29,9 @@ describe("createDispatchRegistry", () => {
   it("refuses a command input that is not shaped like its schema", async () => {
     const logs = registry.get("GetK8sLogs")!;
     // Path-qualified, so a nested miss says which field of which object.
-    await expect(logs({ service: { namespace: "shop" } })).rejects.toThrow(
-      /"service\.workload"/,
-    );
+    await expect(
+      logs({ service: { namespace: "shop" } }, NO_DEADLINE),
+    ).rejects.toThrow(/"service\.workload"/);
   });
 
   // Nothing splits an executable on spaces, so a command line here would name a
@@ -37,11 +39,14 @@ describe("createDispatchRegistry", () => {
   it("refuses an executable holding arguments and names args instead", async () => {
     const exec = registry.get("K8sExec")!;
     await expect(
-      exec({
-        service: { namespace: "shop", workload: "api" },
-        executable: "redis-cli info memory",
-        reason: "read the memory stats",
-      }),
+      exec(
+        {
+          service: { namespace: "shop", workload: "api" },
+          executable: "redis-cli info memory",
+          reason: "read the memory stats",
+        },
+        NO_DEADLINE,
+      ),
     ).rejects.toThrow(/"args"/);
   });
 });

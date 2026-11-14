@@ -7,6 +7,7 @@ import type {
   ReasoningDescriptor,
 } from "@nightwarden/shared";
 import { REASONING_LEVELS } from "@nightwarden/shared";
+import { fetchRead } from "../integrations/http.js";
 import {
   capabilitiesFor,
   type ModelCapabilities,
@@ -199,7 +200,7 @@ export async function fetchCatalog(
 ): Promise<ProviderCatalog> {
   const url = `${baseUrl ?? PROVIDER_OPTIONS.find((p) => p.name === provider)?.defaultBaseUrl ?? ""}${MODELS_PATH}`;
   try {
-    const res = await fetch(url, {
+    const res = await fetchRead(url, {
       signal: AbortSignal.timeout(CATALOG_TIMEOUT_MS),
       headers: authHeaders(provider, apiKey),
     });

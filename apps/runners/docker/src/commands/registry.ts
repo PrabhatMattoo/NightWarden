@@ -64,7 +64,8 @@ export function createDispatchRegistry(): Map<string, CommandHandler> {
     ],
     [
       "DockerExec",
-      async (input) => execCommand(decode(dockerExecInputSchema, input)),
+      async (input, signal) =>
+        execCommand(decode(dockerExecInputSchema, input), signal),
     ],
     ["GetHostMemory", async () => getHostMemory()],
     ["GetHostCPU", async () => getHostCpu()],

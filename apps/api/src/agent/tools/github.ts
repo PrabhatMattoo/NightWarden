@@ -10,6 +10,7 @@ import {
   GitHubApiError,
 } from "../../integrations/github.js";
 import { withStoredCredential } from "../../integrations/credential-health.js";
+import { isTransient } from "../../integrations/http.js";
 import { apiTool } from "./schema.js";
 import type { Tool, ToolExecuteResult } from "./types.js";
 
@@ -80,6 +81,9 @@ export function gitHubErrorDetail(err: GitHubApiError): string {
     case "repo_not_found":
       return `GitHub has no such repository, or this token cannot see it. ${err.message}`;
     case "network":
+      if (isTransient(err)) {
+        return `GitHub is temporarily unavailable. ${err.message} Try the same call again.`;
+      }
       if (err.status === 403 || err.status === 404) {
         return `GitHub would not serve this. ${err.message} The token authenticated, so this is its repository permissions rather than the credential.`;
       }

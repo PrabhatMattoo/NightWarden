@@ -32,14 +32,16 @@ interface ToolCallIdentity {
 // being the user's ceiling already clamped by what remains of the run.
 export interface ToolDispatchContext extends ToolCallIdentity {
   toolCallCeilingMs: number;
+  // The run's Stop. Absent where no run is waiting, as on an approval.
+  stop?: AbortSignal;
 }
 
 // What a tool is handed: the limit resolved for this one call. Distinct from
 // the ceiling above so neither can be mistaken for the other.
 export interface ToolExecuteContext extends ToolCallIdentity {
   toolTimeoutMs: number;
-  // The same limit as a signal, for a call that reaches the network. Required,
-  // so a client that forgets to bound its request will not compile.
+  // The same limit as a signal, joined with Stop. Required, so a client that
+  // forgets to bound its request will not compile.
   signal: AbortSignal;
 }
 

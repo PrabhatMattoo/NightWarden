@@ -2,11 +2,8 @@ import type { AddressInfo } from "node:net";
 import Fastify from "fastify";
 import FastifyWebSocket from "@fastify/websocket";
 import type { FastifyInstance } from "fastify";
-import {
-  dockerServiceKey,
-  type Platform,
-  type RunnerCommandMessage,
-} from "@nightwarden/shared";
+import { dockerServiceKey, type Platform } from "@nightwarden/shared";
+import { parseRunnerMessage } from "@nightwarden/shared/schemas";
 import { generateRunnerToken } from "../fleet/runners-store.js";
 import {
   registerRunner,
@@ -44,6 +41,8 @@ export interface RunnerSpec {
   services?: string[];
   // What the fake socket sends back. Omitted answers every command with [].
   answer?: (command: Command) => unknown;
+  // Records each command and never answers, as a runner that hung would.
+  silent?: boolean;
 }
 
 export interface HarnessRunner {
@@ -123,7 +122,11 @@ export async function harness(options: HarnessOptions = {}): Promise<Harness> {
         platform,
         serverName: name,
         send: (raw: string) => {
-          const msg = JSON.parse(raw) as RunnerCommandMessage;
+          // Parsed as the runner parses it, so a command the API built wrongly fails the test.
+          const parsed = parseRunnerMessage(raw);
+          if (!parsed.ok)
+            throw new Error(`malformed runner message: ${parsed.reason}`);
+          const msg = parsed.message;
           if (msg.type !== "command") return;
           const { payload } = msg;
           const command = {
@@ -131,6 +134,7 @@ export async function harness(options: HarnessOptions = {}): Promise<Harness> {
             commandInput: payload.commandInput,
           };
           commands.push(command);
+          if (spec.silent === true) return;
           resolveCommand({
             correlationId: payload.correlationId,
             success: true,

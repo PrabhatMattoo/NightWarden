@@ -13,10 +13,8 @@ import {
   rejectPendingForConnection,
   resolveCommand,
 } from "../fleet/transport.js";
-import type {
-  RunnerManifestMessage,
-  RunnerResultMessage,
-} from "@nightwarden/shared";
+import type { RunnerConnectedMessage } from "@nightwarden/shared";
+import { parseRunnerMessage } from "@nightwarden/shared/schemas";
 
 const PING_INTERVAL_MS = 30_000;
 
@@ -82,21 +80,21 @@ export async function registerWsRoutes(
       const onMessage = async (
         raw: Buffer | ArrayBuffer | Buffer[],
       ): Promise<void> => {
-        let parsed: Record<string, unknown>;
-        try {
-          parsed = JSON.parse(
-            new TextDecoder().decode(
-              Array.isArray(raw) ? Buffer.concat(raw) : raw,
-            ),
-          ) as Record<string, unknown>;
-        } catch {
+        const parsed = parseRunnerMessage(
+          new TextDecoder().decode(
+            Array.isArray(raw) ? Buffer.concat(raw) : raw,
+          ),
+        );
+        if (!parsed.ok) {
+          fastify.log.warn(
+            { runnerId: runnerId.slice(0, 8), reason: parsed.reason },
+            "malformed runner message dropped",
+          );
           return;
         }
+        const msg = parsed.message;
 
-        const type = parsed["type"];
-
-        if (type === "manifest") {
-          const msg = parsed as unknown as RunnerManifestMessage;
+        if (msg.type === "manifest") {
           // The row decided the platform at onboarding and the manifest says which
           // binary connected, so a disagreement is refused rather than served.
           if (msg.payload.platform !== tokenRecord.platform) {
@@ -120,8 +118,7 @@ export async function registerWsRoutes(
             { runnerId: runnerId.slice(0, 8) },
             "manifest stored",
           );
-        } else if (type === "result") {
-          const msg = parsed as unknown as RunnerResultMessage;
+        } else if (msg.type === "result") {
           resolveCommand(msg.payload);
         }
       };
@@ -159,13 +156,12 @@ export async function registerWsRoutes(
         );
       });
 
-      socket.send(
-        JSON.stringify({
-          messageId: randomUUID(),
-          type: "connected",
-          payload: {},
-        }),
-      );
+      const connected: RunnerConnectedMessage = {
+        messageId: randomUUID(),
+        type: "connected",
+        payload: {},
+      };
+      socket.send(JSON.stringify(connected));
     },
   );
 }

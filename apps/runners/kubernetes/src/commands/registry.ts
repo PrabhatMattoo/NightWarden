@@ -49,8 +49,8 @@ export function createDispatchRegistry(): Map<string, CommandHandler> {
     ],
     [
       "GetK8sProcesses",
-      async (input) =>
-        getWorkloadProcesses(decode(k8sProcessesInputSchema, input)),
+      async (input, signal) =>
+        getWorkloadProcesses(decode(k8sProcessesInputSchema, input), signal),
     ],
     [
       "RestartK8sWorkload",
@@ -58,7 +58,8 @@ export function createDispatchRegistry(): Map<string, CommandHandler> {
     ],
     [
       "K8sExec",
-      async (input) => execInWorkload(decode(k8sExecInputSchema, input)),
+      async (input, signal) =>
+        execInWorkload(decode(k8sExecInputSchema, input), signal),
     ],
     [
       "GetK8sRolloutStatus",

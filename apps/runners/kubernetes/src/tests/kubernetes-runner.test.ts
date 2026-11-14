@@ -895,10 +895,13 @@ describe("Kubernetes runner command handlers", () => {
       });
 
       const events = createDispatchRegistry().get("GetK8sEvents")!;
-      const result = (await events({
-        service: { namespace: "shop", workload: "api" },
-        warningsOnly: false,
-      })) as { events: unknown[]; warningsOnly: boolean };
+      const result = (await events(
+        {
+          service: { namespace: "shop", workload: "api" },
+          warningsOnly: false,
+        },
+        new AbortController().signal,
+      )) as { events: unknown[]; warningsOnly: boolean };
 
       expect(result.warningsOnly).toBe(false);
       expect(result.events).toHaveLength(2);

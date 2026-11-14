@@ -13,6 +13,7 @@ import { harness, type Harness } from "./harness.js";
 import { registerConfigRoutes } from "../config/routes.js";
 import { clearTestLLM, configureTestLLM } from "./temp-db.js";
 import { forgetCapabilities } from "../llm/model-capabilities.js";
+import { requestHeaders, requestUrl } from "./wire-helper.js";
 import {
   fetchCatalog,
   forgetCatalog,
@@ -31,23 +32,16 @@ import type {
   ProviderOption,
 } from "@nightwarden/shared";
 
-// Builds a mock Response-like object for stubbing global fetch.
-function mockResponse(
-  status: number,
-  body: unknown,
-  ok = status >= 200 && status < 300,
-) {
-  return {
-    ok,
-    status,
-    json: () => Promise.resolve(body),
-  };
+function mockResponse(status: number, body: unknown): Response {
+  return new Response(JSON.stringify(body), { status });
 }
 
-function stubFetch(impl: (url: string) => ReturnType<typeof mockResponse>) {
+function stubFetch(impl: (url: string) => Response) {
   vi.stubGlobal(
     "fetch",
-    vi.fn().mockImplementation((url: string) => Promise.resolve(impl(url))),
+    vi.fn((input: string | URL | Request) =>
+      Promise.resolve(impl(requestUrl(input))),
+    ),
   );
 }
 
@@ -201,15 +195,12 @@ describe("provider/model config seam", () => {
     let sawAuth = "";
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      vi.fn((input: string | URL | Request, init?: RequestInit) => {
+        const url = requestUrl(input);
         // The capability snapshot is fetched beside the list; this reads the list.
         if (!url.startsWith("https://models.dev")) {
           requestedUrl = url;
-          sawAuth = String(
-            (init?.headers as Record<string, string> | undefined)?.[
-              "Authorization"
-            ],
-          );
+          sawAuth = String(requestHeaders(input, init).get("Authorization"));
         }
         return Promise.resolve(
           mockResponse(200, { data: [{ id: "some/model" }] }),
@@ -242,10 +233,8 @@ describe("provider/model config seam", () => {
     let sawAuth = "";
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockImplementation((_url: string, init?: RequestInit) => {
-        sawAuth = String(
-          (init?.headers as Record<string, string> | undefined)?.["x-api-key"],
-        );
+      vi.fn((input: string | URL | Request, init?: RequestInit) => {
+        sawAuth = String(requestHeaders(input, init).get("x-api-key"));
         return Promise.resolve(mockResponse(200, { data: [{ id: "m" }] }));
       }),
     );

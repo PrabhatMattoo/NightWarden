@@ -17,6 +17,7 @@ import {
   sendCommand,
   sendFleetCommand,
 } from "../fleet/transport.js";
+import { within } from "./dispatch-helper.js";
 import { dockerService, kubernetesWorkload, svc } from "./manifest-helper.js";
 
 // The flat key dockerService(server, name) advertises: <server>/<project>/<service>.
@@ -130,7 +131,11 @@ describe("router", () => {
       const a = connect("web-01", ["nginx"]);
       const b = connect("db-02", ["postgres"]);
 
-      await sendCommand("GetDockerLogs", { target: key("db-02", "postgres") });
+      await sendCommand(
+        "GetDockerLogs",
+        { target: key("db-02", "postgres") },
+        within(),
+      );
 
       expect(b.commands).toHaveLength(1);
       expect(a.commands).toHaveLength(0);
@@ -139,10 +144,14 @@ describe("router", () => {
     it("strips the target, leaving the server the structured identity", async () => {
       const a = connect("web-01", ["nginx"]);
 
-      await sendCommand("GetDockerLogs", {
-        target: key("web-01", "nginx"),
-        tailLines: 50,
-      });
+      await sendCommand(
+        "GetDockerLogs",
+        {
+          target: key("web-01", "nginx"),
+          tailLines: 50,
+        },
+        within(),
+      );
 
       expect(a.commands[0]?.commandInput).toEqual({
         service: svc("nginx"),
@@ -154,16 +163,20 @@ describe("router", () => {
       connect("web-01", ["nginx"]);
 
       await expect(
-        sendCommand("GetDockerLogs", {
-          target: key("web-01", "ghost"),
-        }),
+        sendCommand(
+          "GetDockerLogs",
+          {
+            target: key("web-01", "ghost"),
+          },
+          within(),
+        ),
       ).rejects.toThrow(/No server advertises target/);
     });
 
     it("rejects a service-routed command that carries no target", async () => {
       connect("web-01", ["nginx"]);
 
-      await expect(sendCommand("GetDockerLogs", {})).rejects.toThrow(
+      await expect(sendCommand("GetDockerLogs", {}, within())).rejects.toThrow(
         /requires a 'target' key/,
       );
     });
@@ -175,11 +188,19 @@ describe("router", () => {
         const a = connect("web-01", ["nginx"]);
         const b = connect("web-02", ["nginx"]);
 
-        await sendCommand("GetDockerLogs", { target: key("web-01", "nginx") });
+        await sendCommand(
+          "GetDockerLogs",
+          { target: key("web-01", "nginx") },
+          within(),
+        );
         expect(a.commands).toHaveLength(1);
         expect(b.commands).toHaveLength(0);
 
-        await sendCommand("GetDockerStats", { target: key("web-02", "nginx") });
+        await sendCommand(
+          "GetDockerStats",
+          { target: key("web-02", "nginx") },
+          within(),
+        );
         expect(b.commands).toHaveLength(1);
         expect(a.commands).toHaveLength(1);
       });
@@ -189,9 +210,13 @@ describe("router", () => {
         connect("web-02", ["nginx"]);
 
         await expect(
-          sendCommand("GetDockerLogs", {
-            target: key("web-99", "nginx"),
-          }),
+          sendCommand(
+            "GetDockerLogs",
+            {
+              target: key("web-99", "nginx"),
+            },
+            within(),
+          ),
         ).rejects.toThrow(/web-01\/nginx\/nginx.*web-02\/nginx\/nginx/);
       });
     });
@@ -206,6 +231,7 @@ describe("router", () => {
         "GetHostDisk",
         { server: ["web-01", "db-02"] },
         "docker",
+        within(),
       );
 
       expect(a.commands).toHaveLength(1);
@@ -222,7 +248,12 @@ describe("router", () => {
       const named = connect("web-01", ["nginx"]);
       const other = connect("db-02", ["postgres"]);
 
-      await sendFleetCommand("GetHostDisk", { server: ["web-01"] }, "docker");
+      await sendFleetCommand(
+        "GetHostDisk",
+        { server: ["web-01"] },
+        "docker",
+        within(),
+      );
 
       expect(named.commands).toHaveLength(1);
       expect(other.commands).toHaveLength(0);
@@ -235,6 +266,7 @@ describe("router", () => {
         "GetHostDisk",
         { server: ["web-01"] },
         "docker",
+        within(),
       );
 
       expect(envelope.byServer).toEqual([
@@ -249,6 +281,7 @@ describe("router", () => {
         "GetHostDisk",
         { server: "web-01" },
         "docker",
+        within(),
       );
 
       expect(a.commands).toHaveLength(1);
@@ -261,7 +294,7 @@ describe("router", () => {
       connect("web-01", ["nginx"]);
 
       await expect(
-        sendFleetCommand("GetHostDisk", { server: [] }, "docker"),
+        sendFleetCommand("GetHostDisk", { server: [] }, "docker", within()),
       ).rejects.toThrow(/No docker server requested/);
     });
 
@@ -269,7 +302,12 @@ describe("router", () => {
       const dockerHost = connect("web-01", ["nginx"]);
       const cluster = connect("k8s-01", ["api"], { platform: "kubernetes" });
 
-      await sendFleetCommand("GetHostDisk", { server: ["web-01"] }, "docker");
+      await sendFleetCommand(
+        "GetHostDisk",
+        { server: ["web-01"] },
+        "docker",
+        within(),
+      );
 
       expect(dockerHost.commands).toHaveLength(1);
       expect(cluster.commands).toHaveLength(0);
@@ -279,7 +317,12 @@ describe("router", () => {
       connect("k8s-01", ["api"], { platform: "kubernetes" });
 
       await expect(
-        sendFleetCommand("GetHostDisk", { server: ["web-01"] }, "docker"),
+        sendFleetCommand(
+          "GetHostDisk",
+          { server: ["web-01"] },
+          "docker",
+          within(),
+        ),
       ).rejects.toThrow(/No connected server runs docker/);
     });
 
@@ -290,6 +333,7 @@ describe("router", () => {
         "GetHostDmesg",
         { server: ["web-01"], tailLines: 20 },
         "docker",
+        within(),
       );
 
       expect(a.commands[0]?.commandInput).toEqual({ tailLines: 20 });
@@ -299,7 +343,12 @@ describe("router", () => {
       connect("web-01", ["nginx"]);
 
       await expect(
-        sendFleetCommand("GetHostDisk", { server: ["ghost-99"] }, "docker"),
+        sendFleetCommand(
+          "GetHostDisk",
+          { server: ["ghost-99"] },
+          "docker",
+          within(),
+        ),
       ).rejects.toThrow(/No docker server named 'ghost-99'/);
     });
 
@@ -307,7 +356,12 @@ describe("router", () => {
       // Two boxes could both self-report "ubuntu"; only assigned names are unique.
       const a = connect("prod-1", ["nginx"]);
 
-      await sendFleetCommand("GetHostDisk", { server: ["prod-1"] }, "docker");
+      await sendFleetCommand(
+        "GetHostDisk",
+        { server: ["prod-1"] },
+        "docker",
+        within(),
+      );
       expect(a.commands).toHaveLength(1);
 
       await expect(
@@ -315,6 +369,7 @@ describe("router", () => {
           "GetHostDisk",
           { server: [hostnameOf("prod-1")] },
           "docker",
+          within(),
         ),
       ).rejects.toThrow(/No docker server named/);
     });
@@ -332,14 +387,14 @@ describe("router", () => {
           "GetHostDisk",
           { server: ["prod-1", "prod-2"] },
           "docker",
-          20,
+          within(20),
         );
 
         expect(ok.commands).toHaveLength(1);
         expect(succeeded).toBe(1);
         expect(failedCount).toBe(1);
         const failed = envelope.byServer.find((e) => e.server === "prod-2");
-        expect(failed?.result).toMatch(/timed out/);
+        expect(failed?.result).toMatch(/no answer within/);
       });
 
       it("reports the call as failed only when no server succeeded", async () => {
@@ -350,7 +405,7 @@ describe("router", () => {
           "GetHostDisk",
           { server: ["prod-1", "prod-2"] },
           "docker",
-          20,
+          within(20),
         );
 
         expect(succeeded).toBe(0);

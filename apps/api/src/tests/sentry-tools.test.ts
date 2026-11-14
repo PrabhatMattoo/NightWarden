@@ -5,6 +5,7 @@ import { useTempDb } from "./temp-db.js";
 import { saveSentryIntegration } from "../integrations/store.js";
 import { executeTool, findTool } from "../agent/tools/toolset.js";
 import { parsedContent } from "./tool-result.js";
+import { requestHeaders, requestUrl } from "./wire-helper.js";
 import { relativeToAlert } from "../agent/tools/sentry.js";
 import type {
   SentryEventResult,
@@ -58,39 +59,44 @@ function makeMock(): SentryMock {
 function installSentryMock(mock: SentryMock): void {
   vi.stubGlobal(
     "fetch",
-    vi.fn(async (input: unknown, init?: RequestInit): Promise<Response> => {
-      const parsed = new URL(String(input));
-      const headers = (init?.headers ?? {}) as Record<string, string>;
-      mock.requests.push({
-        path: parsed.pathname,
-        params: parsed.searchParams,
-        authorization: headers["Authorization"],
-      });
+    vi.fn(
+      async (
+        input: string | URL | Request,
+        init?: RequestInit,
+      ): Promise<Response> => {
+        const parsed = new URL(requestUrl(input));
+        const headers = requestHeaders(input, init);
+        mock.requests.push({
+          path: parsed.pathname,
+          params: parsed.searchParams,
+          authorization: headers.get("Authorization") ?? undefined,
+        });
 
-      if (mock.status !== 200) {
-        return new Response("nope", { status: mock.status });
-      }
-      const body =
-        mock.body !== undefined
-          ? mock.body
-          : parsed.pathname.endsWith("/commits/")
-            ? mock.commits
-            : parsed.pathname.includes("/releases/")
-              ? mock.releases
-              : parsed.pathname.endsWith("/values/")
-                ? mock.tagValues
-                : parsed.pathname.includes("/events/latest/")
-                  ? mock.event
-                  : mock.issues;
+        if (mock.status !== 200) {
+          return new Response("nope", { status: mock.status });
+        }
+        const body =
+          mock.body !== undefined
+            ? mock.body
+            : parsed.pathname.endsWith("/commits/")
+              ? mock.commits
+              : parsed.pathname.includes("/releases/")
+                ? mock.releases
+                : parsed.pathname.endsWith("/values/")
+                  ? mock.tagValues
+                  : parsed.pathname.includes("/events/latest/")
+                    ? mock.event
+                    : mock.issues;
 
-      return new Response(JSON.stringify(body), {
-        status: 200,
-        headers: {
-          "Content-Type": "application/json",
-          ...(mock.link !== null && { Link: mock.link }),
-        },
-      });
-    }),
+        return new Response(JSON.stringify(body), {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+            ...(mock.link !== null && { Link: mock.link }),
+          },
+        });
+      },
+    ),
   );
 }
 

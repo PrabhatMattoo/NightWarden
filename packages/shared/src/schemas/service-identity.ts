@@ -10,5 +10,13 @@ export const dockerServiceIdentitySchema = z.object({
 export const kubernetesWorkloadIdentitySchema = z.object({
   namespace: z.string().min(1),
   workload: z.string().min(1),
+  // Excluded from the key, so calls differing only by container address the
+  // same workload. Set by the agent, never from an alert.
   container: z.string().min(1).optional(),
 });
+
+export const k8sWorkloadKindSchema = z.enum([
+  "Deployment",
+  "StatefulSet",
+  "DaemonSet",
+]);

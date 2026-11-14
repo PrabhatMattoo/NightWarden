@@ -370,8 +370,10 @@ async function waitForSettledStatus(
   }
 }
 
+// Docker has no call to kill a running exec, so the deadline can only close the stream.
 export async function execCommand(
   input: DockerExecInput,
+  signal?: AbortSignal,
 ): Promise<DockerExecResult | NotFoundResult> {
   const executedAt = new Date().toISOString();
   const docker = getDocker();
@@ -387,11 +389,20 @@ export async function execCommand(
 
   const stream = await exec.start({});
   const chunks: Buffer[] = [];
-  await new Promise<void>((resolve, reject) => {
-    stream.on("data", (chunk: Buffer) => chunks.push(chunk));
-    stream.on("end", resolve);
-    stream.on("error", reject);
-  });
+  const abandon = (): void => {
+    stream.destroy(new Error("exec passed its deadline"));
+  };
+  try {
+    await new Promise<void>((resolve, reject) => {
+      stream.on("data", (chunk: Buffer) => chunks.push(chunk));
+      stream.on("end", resolve);
+      stream.on("error", reject);
+      if (signal?.aborted === true) abandon();
+      else signal?.addEventListener("abort", abandon, { once: true });
+    });
+  } finally {
+    signal?.removeEventListener("abort", abandon);
+  }
 
   const raw = parseDockerMux(Buffer.concat(chunks));
   const info = await exec.inspect();

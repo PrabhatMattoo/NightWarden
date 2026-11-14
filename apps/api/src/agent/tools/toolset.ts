@@ -24,7 +24,7 @@ import type {
   ToolExecuteContext,
   ToolPolicy,
 } from "./types.js";
-import type { ToolSchema } from "../../llm/types.js";
+import type { ToolResult, ToolSchema, ToolUse } from "../../llm/types.js";
 import type { Platform } from "@nightwarden/shared";
 
 // A runner tool's schema.name IS the wire command, addressed by its declared
@@ -48,6 +48,23 @@ function tooLarge(name: string, chars: number): string {
   return `${name} produced ${chars} characters. A single result may be at most ${MAX_TOOL_RESULT_CHARS}, so none of this one was read. Narrow the call - a tighter filter, a shorter window, a smaller limit - and run it again.`;
 }
 
+// Stop ends a call whatever its client says, so this states only what is known.
+function stoppedWhileRunning(tool: Tool): string {
+  const name = tool.schema.name;
+  return tool.effect === "write"
+    ? `${name} was stopped while it ran, so whether it took effect is unknown. Read the target's state before calling ${name} again.`
+    : `${name} was stopped before it answered, so nothing was read. Call it again if you still need it.`;
+}
+
+// Every call needs an answer, even one the stop reached before it started.
+export function notRunResult(use: ToolUse): ToolResult {
+  return {
+    toolCallId: use.toolCallId,
+    content: `${use.name} did not run, because the run was stopped first. Nothing was read or changed; call it again if you still need it.`,
+    isError: true,
+  };
+}
+
 // Stripped here rather than per tool: a log line or a file is the outside
 // world speaking, and this is the one door all of it comes through.
 function rendered(content: unknown, indent?: number): string {
@@ -65,15 +82,16 @@ export async function executeTool(
   input: Record<string, unknown>,
   ctx: ToolDispatchContext,
 ): Promise<DispatchedToolResult> {
-  const { toolCallCeilingMs, ...identity } = ctx;
+  const { toolCallCeilingMs, stop, ...identity } = ctx;
   const toolTimeoutMs = Math.min(
     tool.timeoutMs ?? DEFAULT_TOOL_TIMEOUT_MS,
     toolCallCeilingMs,
   );
+  const timeout = AbortSignal.timeout(toolTimeoutMs);
   const effectiveCtx: ToolExecuteContext = {
     ...identity,
     toolTimeoutMs,
-    signal: AbortSignal.timeout(toolTimeoutMs),
+    signal: stop === undefined ? timeout : AbortSignal.any([timeout, stop]),
   };
   /* Parsed once here rather than in each handler, so a tool declares its shape
      and receives it: the arguments reaching a runner are checked too. */
@@ -83,6 +101,9 @@ export async function executeTool(
     tool.on === "api"
       ? await tool.execute(parsed.data, effectiveCtx)
       : await executeRunnerTool(tool, parsed.data, effectiveCtx);
+  if (result.isError === true && stop?.aborted === true) {
+    return { content: stoppedWhileRunning(tool), isError: true };
+  }
 
   const content = rendered(result.content);
   if (content.length <= MAX_TOOL_RESULT_CHARS) {

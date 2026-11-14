@@ -14,7 +14,7 @@ import type {
   LogLabelsResult,
 } from "../agent/tools/loki.js";
 import type { Tool, ToolDispatchContext } from "../agent/tools/types.js";
-import { requestBody, requestUrl } from "./wire-helper.js";
+import { requestBody, requestHeaders, requestUrl } from "./wire-helper.js";
 
 const FIRED_AT = "2026-07-16T12:00:00.000Z";
 
@@ -77,10 +77,10 @@ function installLokiMock(mock: LokiMock): void {
       ): Promise<Response> => {
         const url = requestUrl(input);
         const parsed = new URL(url);
-        const headers = new Headers(init?.headers);
-        const params = init?.body
-          ? new URLSearchParams(requestBody(init))
-          : parsed.searchParams;
+        const headers = requestHeaders(input, init);
+        const body = await requestBody(input, init);
+        const params =
+          body === "" ? parsed.searchParams : new URLSearchParams(body);
         mock.requests.push({
           path: parsed.pathname,
           params,

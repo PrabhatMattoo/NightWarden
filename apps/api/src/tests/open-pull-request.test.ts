@@ -17,7 +17,7 @@ import { executeTool, findTool } from "../agent/tools/toolset.js";
 import { releaseContainers } from "../sandbox/workspace.js";
 import type { DispatchedToolResult } from "../agent/tools/types.js";
 import { parsedContent } from "./tool-result.js";
-import { requestBody } from "./wire-helper.js";
+import { requestBody, requestMethod, requestUrl } from "./wire-helper.js";
 
 const SESSION_ID = "ccccdddd-0000-4000-8000-000000000001";
 
@@ -141,6 +141,8 @@ function installDockerMock(): void {
 interface PrState {
   open: Array<{ number: number; html_url: string; draft: boolean }>;
   rejectDraft: boolean;
+  // A status GitHub answers every create with, such as a gateway error.
+  createStatus?: number;
   createPayloads: Array<Record<string, unknown>>;
   patchPayloads: Array<Record<string, unknown>>;
 }
@@ -154,9 +156,9 @@ const prState: PrState = {
 function installGitHubMock(): void {
   vi.stubGlobal(
     "fetch",
-    vi.fn(async (input: unknown, init?: RequestInit) => {
-      const url = String(input);
-      const method = init?.method ?? "GET";
+    vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = requestUrl(input);
+      const method = requestMethod(input, init);
       const json = (body: unknown, status = 200): Response =>
         new Response(JSON.stringify(body), {
           status,
@@ -166,16 +168,19 @@ function installGitHubMock(): void {
       if (url.includes("/pulls?state=open")) return json(prState.open);
       if (url.includes("/pulls/") && method === "PATCH") {
         prState.patchPayloads.push(
-          JSON.parse(requestBody(init)) as Record<string, unknown>,
+          JSON.parse(await requestBody(input, init)) as Record<string, unknown>,
         );
         return json({});
       }
       if (url.endsWith("/pulls") && method === "POST") {
-        const payload = JSON.parse(requestBody(init)) as Record<
+        const payload = JSON.parse(await requestBody(input, init)) as Record<
           string,
           unknown
         >;
         prState.createPayloads.push(payload);
+        if (prState.createStatus !== undefined) {
+          return json({ message: "Bad Gateway" }, prState.createStatus);
+        }
         if (payload["draft"] === true && prState.rejectDraft) {
           return json(
             {
@@ -371,5 +376,18 @@ describe("OpenPullRequest", () => {
 
     expect(parsedContent<{ action: string }>(result).action).toBe("updated");
     expect(prState.createPayloads).toHaveLength(before);
+  });
+
+  // A 502 can arrive after GitHub opened the PR, so a second create could duplicate it.
+  it("sends a create once when GitHub answers it with a gateway error", async () => {
+    prState.createStatus = 502;
+    gitState.dirty = true;
+    const before = prState.createPayloads.length;
+
+    const result = await runOpr({ title: "Fix it" }, SESSION_ID, "opr-502");
+    prState.createStatus = undefined;
+
+    expect(result.isError).toBe(true);
+    expect(prState.createPayloads).toHaveLength(before + 1);
   });
 });

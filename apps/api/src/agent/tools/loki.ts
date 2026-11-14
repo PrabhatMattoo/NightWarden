@@ -12,6 +12,7 @@ import {
   type LokiMetricSeries,
 } from "../../integrations/loki.js";
 import { withStoredCredential } from "../../integrations/credential-health.js";
+import { isTransient } from "../../integrations/http.js";
 import { alertAnchorFor } from "./alert-anchor.js";
 import { apiTool, optionalText } from "./schema.js";
 import type { Tool, ToolExecuteResult } from "./types.js";
@@ -222,6 +223,12 @@ function notConfigured(): ToolExecuteResult {
 
 function corrective(err: unknown): ToolExecuteResult {
   if (err instanceof LokiApiError) {
+    if (isTransient(err)) {
+      return {
+        content: `Loki is temporarily unavailable: ${err.message}. Nothing was read. Try the same call again, or continue with other evidence.`,
+        isError: true,
+      };
+    }
     if (err.code === "bad_query") {
       return {
         content: `Loki rejected the query: ${err.message}. Fix the LogQL and retry.`,

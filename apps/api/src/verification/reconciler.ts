@@ -3,6 +3,7 @@ import { runFailure } from "../session/status-store.js";
 import { getSession } from "../session/store.js";
 import { dispatcher } from "../dispatcher.js";
 import { buildSeed } from "../session/seed.js";
+import { loadConfig } from "../config/store.js";
 import { logger } from "../logger.js";
 import { type ConditionCache, verifyRecovery } from "./recovery.js";
 
@@ -26,10 +27,6 @@ const SCHEDULE: readonly Step[] = [
 ];
 
 export const RECONCILE_TICK_MS = MINUTE;
-
-// Mirrors the provider retry count: three attempts is what rides out a blip, and
-// past that the thing is not a blip.
-const MAX_RUN_RETRIES = 3;
 
 // In memory on purpose: a restart costs one extra round of questions, and the
 // alternative is a column that exists only to describe a schedule.
@@ -90,7 +87,9 @@ async function retryFailedRun(sessionId: string): Promise<boolean> {
   const failure = await runFailure(sessionId);
   if (failure === undefined) return false;
   if (failure.kind !== "transient") return false;
-  if (failure.attempts >= MAX_RUN_RETRIES) return false;
+  // The provider retry count under Settings: past that the thing is not a blip.
+  const { maxRetries } = await loadConfig();
+  if (failure.attempts >= maxRetries) return false;
 
   const started = await dispatcher.dispatch({
     sessionId,
@@ -98,7 +97,7 @@ async function retryFailedRun(sessionId: string): Promise<boolean> {
   });
   if (started) {
     logger.info(
-      { sessionId, attempt: failure.attempts + 1, of: MAX_RUN_RETRIES },
+      { sessionId, attempt: failure.attempts + 1, of: maxRetries },
       "retrying a run that failed on a transient error",
     );
   }

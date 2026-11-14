@@ -183,6 +183,7 @@ describe("runner WS client", () => {
               commandName: "GetK8sLogs",
               commandInput: {},
               correlationId: "c1",
+              timeoutMs: 5_000,
             },
           }),
         );
@@ -199,6 +200,104 @@ describe("runner WS client", () => {
           success: false,
           error: "Unknown command: GetK8sLogs",
         });
+      } finally {
+        stop();
+        wss.close();
+      }
+    });
+
+    // A command missing its deadline would run unbounded, so it never reaches a handler.
+    it("refuses a command the protocol does not describe", async () => {
+      const { wss, port } = await listen();
+      const connected = nextConnection(wss);
+      const handled: unknown[] = [];
+      const stop = startWebSocketClient(
+        options(port, {
+          dispatch: new Map([
+            [
+              "GetDockerLogs",
+              async (input: unknown) => {
+                handled.push(input);
+                return [];
+              },
+            ],
+          ]),
+        }),
+      );
+      try {
+        const serverSocket = await connected;
+        const replies: string[] = [];
+        serverSocket.on("message", (raw) => replies.push(frameText(raw)));
+        const command = (payload: Record<string, unknown>): string =>
+          JSON.stringify({ messageId: "m1", type: "command", payload });
+        serverSocket.send(
+          command({
+            commandName: "GetDockerLogs",
+            commandInput: {},
+            correlationId: "c-bad",
+          }),
+        );
+        serverSocket.send(
+          command({
+            commandName: "GetDockerLogs",
+            commandInput: {},
+            correlationId: "c-good",
+            timeoutMs: 5_000,
+          }),
+        );
+
+        await vi.waitFor(() => expect(replies).toHaveLength(1));
+        expect(JSON.parse(replies[0]!)).toMatchObject({
+          payload: { correlationId: "c-good" },
+        });
+        expect(handled).toHaveLength(1);
+      } finally {
+        stop();
+        wss.close();
+      }
+    });
+
+    // The API stopped waiting at the same deadline, so a late answer would land nowhere.
+    it("aborts the handler at the command's deadline and sends nothing", async () => {
+      const { wss, port } = await listen();
+      const connected = nextConnection(wss);
+      let aborted = false;
+      const stop = startWebSocketClient(
+        options(port, {
+          dispatch: new Map([
+            [
+              "DockerExec",
+              (_input: unknown, signal: AbortSignal) =>
+                new Promise((resolve) => {
+                  signal.addEventListener("abort", () => {
+                    aborted = true;
+                    resolve("too late");
+                  });
+                }),
+            ],
+          ]),
+        }),
+      );
+      try {
+        const serverSocket = await connected;
+        const replies: string[] = [];
+        serverSocket.on("message", (raw) => replies.push(frameText(raw)));
+        serverSocket.send(
+          JSON.stringify({
+            messageId: "m1",
+            type: "command",
+            payload: {
+              commandName: "DockerExec",
+              commandInput: {},
+              correlationId: "c-slow",
+              timeoutMs: 50,
+            },
+          }),
+        );
+
+        await vi.waitFor(() => expect(aborted).toBe(true));
+        await flushIo();
+        expect(replies).toEqual([]);
       } finally {
         stop();
         wss.close();

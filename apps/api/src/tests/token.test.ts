@@ -5,6 +5,7 @@ import WebSocket from "ws";
 
 import { registerTokenRoutes } from "../auth/token.js";
 import { registerWsRoutes } from "../fleet/server.js";
+import { getFleetView } from "../fleet/connections.js";
 import { getDb } from "../db.js";
 import { generateRunnerToken, touchLastUsed } from "../fleet/runners-store.js";
 import { createSession } from "../session/store.js";
@@ -377,6 +378,41 @@ describe("Runner token lifecycle (issue 038)", () => {
       expect(code).toBe(4004);
       expect(reason).toMatch(/docker/);
       expect(reason).toMatch(/kubernetes/);
+    });
+
+    // Its platform says kubernetes, so acting on it would close the socket as a mismatch.
+    it("drops a manifest the protocol does not describe, and acts on none of it", async () => {
+      const issued = await nw.server.inject({
+        method: "POST",
+        url: "/api/tokens",
+        payload: { platform: "docker", serverName: "malformed-host" },
+        headers: { cookie: `${SESSION}` },
+      });
+      const { token } = JSON.parse(issued.body) as { token: string };
+      const ws = new WebSocket(`ws://127.0.0.1:${port}/api/clients/connect`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      await new Promise((resolve) => ws.on("open", resolve));
+
+      const manifest = (payload: Record<string, unknown>): string =>
+        JSON.stringify({ messageId: "m1", type: "manifest", payload });
+      ws.send(manifest({ platform: "kubernetes", hostname: "half-written" }));
+      ws.send(
+        manifest({
+          platform: "docker",
+          hostname: "whole",
+          runnerVersion: "3.0.0",
+          services: [],
+        }),
+      );
+
+      await expect
+        .poll(() =>
+          getFleetView().find((r) => r.serverName === "malformed-host"),
+        )
+        .toMatchObject({ hostname: "whole" });
+      expect(ws.readyState).toBe(WebSocket.OPEN);
+      ws.close();
     });
 
     it("closes with 4003 for an unknown token", async () => {

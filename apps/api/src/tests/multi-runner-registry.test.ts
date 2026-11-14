@@ -16,6 +16,7 @@ import { waitFor } from "./wait.js";
 import { registerWsRoutes } from "../fleet/server.js";
 import { registerRunnerRoutes } from "../fleet/routes.js";
 import { resolveCommand, sendCommand } from "../fleet/transport.js";
+import { within } from "./dispatch-helper.js";
 import { logger } from "../logger.js";
 import { mountApi } from "./api-server.js";
 import { dockerService, manifest } from "./manifest-helper.js";
@@ -307,16 +308,23 @@ describe("flat runner registry", () => {
         if (msg.type === "command") correlationId = msg.payload?.correlationId;
       });
 
-      const settled = sendCommand("GetDockerLogs", {
-        target: "inflight/inflight-svc/inflight-svc",
-      }).catch((err: unknown) => err);
+      const settled = sendCommand(
+        "GetDockerLogs",
+        {
+          target: "inflight/inflight-svc/inflight-svc",
+        },
+        within(),
+      ).catch((err: unknown) => err);
 
       await waitFor(() => (correlationId ? true : undefined));
       ws.close();
 
       const err = await settled;
       expect(err).toBeInstanceOf(Error);
-      expect((err as Error).message).toMatch(/disconnected before responding/);
+      expect(err).toMatchObject({
+        name: "CommandUnansweredError",
+        reason: "disconnect",
+      });
 
       // A result arriving after the rejection has nowhere to go: it must be
       // logged and dropped, never throw.
@@ -358,9 +366,13 @@ describe("flat runner registry", () => {
         if (msg.type === "command") sawCommand = true;
       });
 
-      const settled = sendCommand("GetDockerLogs", {
-        target: "inflight-displace/displace-svc/displace-svc",
-      }).catch((err: unknown) => err);
+      const settled = sendCommand(
+        "GetDockerLogs",
+        {
+          target: "inflight-displace/displace-svc/displace-svc",
+        },
+        within(),
+      ).catch((err: unknown) => err);
       await waitFor(() => (sawCommand ? true : undefined));
 
       const aClosed = new Promise<void>((resolve) => {
@@ -377,7 +389,10 @@ describe("flat runner registry", () => {
 
       const err = await settled;
       expect(err).toBeInstanceOf(Error);
-      expect((err as Error).message).toMatch(/disconnected before responding/);
+      expect(err).toMatchObject({
+        name: "CommandUnansweredError",
+        reason: "disconnect",
+      });
 
       // The replacement connection is unaffected by A's close and rejection.
       await waitFor(async () => {

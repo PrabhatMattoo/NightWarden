@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { AmpCredential, MetricsErrorCode } from "@nightwarden/shared";
+import { fetchRead } from "../http.js";
 import { describeNetworkFailure } from "../reachability.js";
 import { signedRequest } from "./sigv4.js";
 
@@ -11,8 +12,9 @@ export class MetricsApiError extends Error {
     readonly code: MetricsErrorCode,
     readonly status: number,
     message: string,
+    options?: ErrorOptions,
   ) {
-    super(message);
+    super(message, options);
     this.name = "MetricsApiError";
   }
 }
@@ -133,8 +135,8 @@ async function metricsFetch(
     // itself, so the bound is given where fetch reads it.
     res =
       endpoint.sigv4 === undefined
-        ? await fetch(url, init)
-        : await fetch(await signedRequest(endpoint.sigv4, url, init), {
+        ? await fetchRead(url, { ...init, signal })
+        : await fetchRead(await signedRequest(endpoint.sigv4, url, init), {
             signal,
           });
   } catch (err) {
@@ -142,6 +144,7 @@ async function metricsFetch(
       "network",
       0,
       describeNetworkFailure(err, endpoint.name),
+      { cause: err },
     );
   }
   if (res.status === 401 || res.status === 403) {

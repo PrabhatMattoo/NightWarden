@@ -423,6 +423,7 @@ export async function getWorkloadEvents(
 
 export async function getWorkloadProcesses(
   input: K8sProcessesInput,
+  signal?: AbortSignal,
 ): Promise<K8sProcessesResult | NotFoundResult> {
   const service = input.service;
   const coreApi = getCoreV1Api();
@@ -442,6 +443,7 @@ export async function getWorkloadProcesses(
     resolved.podName,
     resolved.containerName ?? "",
     ["ps", "-eo", "pid,ppid,user,pcpu,pmem,comm", "--no-headers"],
+    signal,
   );
 
   const processes: K8sProcess[] = stdout
@@ -514,6 +516,7 @@ export async function restartWorkload(
 
 export async function execInWorkload(
   input: K8sExecInput,
+  signal?: AbortSignal,
 ): Promise<K8sExecResult | NotFoundResult> {
   const service = input.service;
   const coreApi = getCoreV1Api();
@@ -534,6 +537,7 @@ export async function execInWorkload(
     resolved.podName,
     resolved.containerName ?? "",
     [input.executable, ...(input.args ?? [])],
+    signal,
   );
 
   return {
@@ -1058,6 +1062,7 @@ async function execInPod(
   podName: string,
   containerName: string,
   command: string[],
+  signal?: AbortSignal,
 ): Promise<ExecResult> {
   const stdoutChunks: Buffer[] = [];
   const stderrChunks: Buffer[] = [];
@@ -1066,7 +1071,15 @@ async function execInPod(
   stdout.on("data", (d: Buffer) => stdoutChunks.push(d));
   stderr.on("data", (d: Buffer) => stderrChunks.push(d));
 
+  signal?.throwIfAborted();
+  let socket: { close: () => void } | undefined;
+  let abandon = (): void => {};
   const exitCode = await new Promise<number>((resolve, reject) => {
+    abandon = () => {
+      socket?.close();
+      reject(new Error("exec passed its deadline"));
+    };
+    signal?.addEventListener("abort", abandon, { once: true });
     getExec()
       .exec(
         namespace,
@@ -1098,8 +1111,13 @@ async function execInPod(
           resolve(code);
         },
       )
+      .then((ws) => {
+        socket = ws;
+        // The deadline may fall while the exec socket is still opening.
+        if (signal?.aborted === true) ws.close();
+      })
       .catch(reject);
-  });
+  }).finally(() => signal?.removeEventListener("abort", abandon));
 
   return {
     stdout: Buffer.concat(stdoutChunks).toString("utf8"),

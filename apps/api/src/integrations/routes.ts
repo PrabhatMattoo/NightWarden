@@ -188,7 +188,7 @@ export async function registerIntegrationRoutes(
   fastify.post(
     "/integrations/github/preflight",
     { preHandler: requireSession },
-    async () => await preflight(),
+    async (request) => await preflight(request.log),
   );
 
   // During onboarding the token rides the body; afterwards the stored

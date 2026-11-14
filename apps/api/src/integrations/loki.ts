@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { fetchRead } from "./http.js";
 import { describeNetworkFailure } from "./reachability.js";
 export type LokiErrorCode =
   "network" | "unauthorized" | "bad_query" | "bad_response";
@@ -8,8 +9,9 @@ export class LokiApiError extends Error {
     readonly code: LokiErrorCode,
     readonly status: number,
     message: string,
+    options?: ErrorOptions,
   ) {
-    super(message);
+    super(message, options);
     this.name = "LokiApiError";
   }
 }
@@ -62,7 +64,7 @@ async function lokiFetch(
   if (orgId !== null) headers["X-Scope-OrgID"] = orgId;
   let res: Response;
   try {
-    res = await fetch(joinUrl(baseUrl, path), {
+    res = await fetchRead(joinUrl(baseUrl, path), {
       signal,
       // Queries POST as form bodies: LogQL can exceed URL limits, and label
       // values stay out of access logs (same posture as Prometheus).
@@ -76,7 +78,9 @@ async function lokiFetch(
       }),
     });
   } catch (err) {
-    throw new LokiApiError("network", 0, describeNetworkFailure(err, "Loki"));
+    throw new LokiApiError("network", 0, describeNetworkFailure(err, "Loki"), {
+      cause: err,
+    });
   }
   if (res.status === 401 || res.status === 403) {
     throw new LokiApiError(

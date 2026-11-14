@@ -23,7 +23,7 @@ import { issueTestSession } from "./session-helper.js";
 import { getDb } from "../db.js";
 import { decrypt } from "../secrets.js";
 import { mountApi } from "./api-server.js";
-import { requestUrl, urlsCalled } from "./wire-helper.js";
+import { requestHeaders, requestUrl, urlsCalled } from "./wire-helper.js";
 
 const TOKEN = "github_pat_test_plaintext";
 
@@ -58,10 +58,10 @@ function jsonResponse(
 type FetchMock = ReturnType<typeof vi.fn<typeof fetch>>;
 
 function stubFetch(
-  impl: (url: string, init?: RequestInit) => Response | Promise<Response>,
+  impl: (url: string, headers: Headers) => Response | Promise<Response>,
 ): FetchMock {
   const mock = vi.fn<typeof fetch>(async (input, init) =>
-    impl(requestUrl(input), init),
+    impl(requestUrl(input), requestHeaders(input, init)),
   );
   vi.stubGlobal("fetch", mock);
   return mock;
@@ -189,7 +189,7 @@ describe("GitHub integration routes", () => {
       });
 
       expect(urlsCalled(mock)[0]).toContain("/user/repos?per_page=100&page=1");
-      const headers = new Headers(mock.mock.calls[0]?.[1]?.headers);
+      const headers = requestHeaders(...mock.mock.calls[0]!);
       expect(headers.get("Authorization")).toBe(`Bearer ${TOKEN}`);
     });
 
@@ -287,9 +287,8 @@ describe("GitHub integration routes", () => {
         payload: {},
       });
       expect(res.statusCode).toBe(200);
-      const [, calledInit] = mock.mock.calls[0] ?? [];
-      const headers = (calledInit?.headers ?? {}) as Record<string, string>;
-      expect(headers["Authorization"]).toBe(`Bearer ${TOKEN}`);
+      const headers = requestHeaders(...mock.mock.calls[0]!);
+      expect(headers.get("Authorization")).toBe(`Bearer ${TOKEN}`);
     });
 
     it("adds the org-approval link on 404 when the owner is an organization", async () => {
@@ -361,9 +360,8 @@ describe("GitHub integration routes", () => {
         repo: "acme/other",
       });
 
-      const [, calledInit] = mock.mock.calls[0] ?? [];
-      const headers = (calledInit?.headers ?? {}) as Record<string, string>;
-      expect(headers["Authorization"]).toBe(`Bearer ${TOKEN}`);
+      const headers = requestHeaders(...mock.mock.calls[0]!);
+      expect(headers.get("Authorization")).toBe(`Bearer ${TOKEN}`);
 
       expect(await storedSecret("github", "token")).toBe(TOKEN);
     });
@@ -503,8 +501,8 @@ describe("metrics source routes", () => {
      blob, so the pair is encoded here into the one credential others read. */
   it("encodes a basic pair into one Authorization header and never stores the parts", async () => {
     let sawAuth: string | undefined;
-    stubFetch((_url, init) => {
-      sawAuth = new Headers(init?.headers).get("Authorization") ?? undefined;
+    stubFetch((_url, headers) => {
+      sawAuth = headers.get("Authorization") ?? undefined;
       return jsonResponse(PROM_OK);
     });
 
@@ -871,11 +869,10 @@ describe("Loki integration routes", () => {
   });
 
   it("connects after a labels probe: verbatim auth, tenant header, encrypted storage", async () => {
-    const mock = stubFetch((url, init) => {
+    const mock = stubFetch((url, headers) => {
       expect(url).toContain("/loki/api/v1/labels");
-      const headers = (init?.headers ?? {}) as Record<string, string>;
-      expect(headers["Authorization"]).toBe("Bearer secret-123");
-      expect(headers["X-Scope-OrgID"]).toBe("team-a");
+      expect(headers.get("Authorization")).toBe("Bearer secret-123");
+      expect(headers.get("X-Scope-OrgID")).toBe("team-a");
       return jsonResponse(LOKI_LABELS);
     });
 
@@ -915,10 +912,9 @@ describe("Loki integration routes", () => {
   });
 
   it("connects without auth or tenant, sending neither header", async () => {
-    stubFetch((_url, init) => {
-      const headers = (init?.headers ?? {}) as Record<string, string>;
-      expect(headers["Authorization"]).toBeUndefined();
-      expect(headers["X-Scope-OrgID"]).toBeUndefined();
+    stubFetch((_url, headers) => {
+      expect(headers.get("Authorization")).toBeNull();
+      expect(headers.get("X-Scope-OrgID")).toBeNull();
       return jsonResponse(LOKI_LABELS);
     });
 
@@ -1097,10 +1093,9 @@ describe("Sentry integration routes", () => {
 
   it("probes both scopes before saving, and stores the token encrypted", async () => {
     const paths: string[] = [];
-    const mock = stubFetch((url, init) => {
+    const mock = stubFetch((url, headers) => {
       paths.push(new URL(url).pathname);
-      const headers = (init?.headers ?? {}) as Record<string, string>;
-      expect(headers["Authorization"]).toBe("Bearer sntrys_secret");
+      expect(headers.get("Authorization")).toBe("Bearer sntrys_secret");
       return jsonResponse([]);
     });
 

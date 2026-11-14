@@ -7,7 +7,7 @@ import { executeTool, findTool } from "../agent/tools/toolset.js";
 import { parsedContent } from "./tool-result.js";
 import type { MetricsRangeResult } from "../agent/tools/metrics.js";
 import type { Tool, ToolDispatchContext } from "../agent/tools/types.js";
-import { requestBody, requestUrl } from "./wire-helper.js";
+import { requestBody, requestHeaders, requestUrl } from "./wire-helper.js";
 
 const FIRED_AT = "2026-07-16T12:00:00.000Z";
 
@@ -33,10 +33,12 @@ interface PromMock {
   // The whole body, for the shapes `result` cannot express: a scalar, a
   // histogram, a warning beside the data, or a payload that has drifted.
   body?: unknown;
+  // Answers served first, in order, as a source that is briefly unavailable sends them.
+  unavailable: Response[];
 }
 
 function makeMock(): PromMock {
-  return { requests: [], result: [], status: "success" };
+  return { requests: [], result: [], status: "success", unavailable: [] };
 }
 
 function json(body: unknown, status = 200): Response {
@@ -47,7 +49,6 @@ function json(body: unknown, status = 200): Response {
 }
 
 // Routes the two query endpoints the tools touch, failing loudly on any other.
-// A signed AMP request arrives as a Request object, everything else as url+init.
 function installPromMock(mock: PromMock): void {
   vi.stubGlobal(
     "fetch",
@@ -60,18 +61,16 @@ function installPromMock(mock: PromMock): void {
         if (!url.includes("/api/v1/query")) {
           throw new Error(`Unexpected Prometheus request in test: ${url}`);
         }
-        const body =
-          input instanceof Request
-            ? await input.clone().text()
-            : requestBody(init);
-        const headers =
-          input instanceof Request ? input.headers : new Headers(init?.headers);
+        const body = await requestBody(input, init);
+        const headers = requestHeaders(input, init);
         const authorization = headers.get("Authorization") ?? undefined;
         mock.requests.push({
           path: url.slice(url.indexOf("/api/v1")),
           params: new URLSearchParams(body),
           authorization,
         });
+        const unavailable = mock.unavailable.shift();
+        if (unavailable !== undefined) return unavailable;
         if (mock.status === "error") {
           return json(
             { status: "error", errorType: "bad_data", error: mock.error },
@@ -202,6 +201,77 @@ describe("metrics tools through the tool dispatch", () => {
     expect(mock.requests[0]!.authorization).toMatch(
       /^AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE\/\d{8}\/us-east-1\/aps\/aws4_request/,
     );
+  });
+
+  // Real timers throughout: the waits are ky's own, between real attempts.
+  describe("a source that is briefly unavailable", () => {
+    // Signed, so the retry resends a Request aws4fetch built, body and all.
+    it("asks again after a 503 and reads the second answer", async () => {
+      await connect({
+        kind: "amp",
+        label: "AMP",
+        queryUrl:
+          "https://aps-workspaces.us-east-1.amazonaws.com/workspaces/ws-test",
+        queryAuthorization: JSON.stringify({
+          accessKeyId: "AKIDEXAMPLE",
+          secretAccessKey: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+          region: "us-east-1",
+        }),
+        rulesUrl: null,
+        rulesAuthorization: null,
+      });
+      mock.unavailable = [new Response("overloaded", { status: 503 })];
+      mock.result = [{ metric: { name: "api" }, value: [1752667200, "1"] }];
+
+      const result = await executeTool(
+        instant,
+        { query: "up" },
+        await toolContext(ALERT),
+      );
+
+      expect(result.isError).toBeUndefined();
+      expect(mock.requests).toHaveLength(2);
+      expect(mock.requests[1]!.params.get("query")).toBe("up");
+      expect(mock.requests[1]!.authorization).toMatch(/^AWS4-HMAC-SHA256 /);
+    });
+
+    it("waits as long as a 429's Retry-After asks before asking again", async () => {
+      await connect();
+      mock.unavailable = [
+        new Response("slow down", {
+          status: 429,
+          headers: { "Retry-After": "1" },
+        }),
+      ];
+
+      const started = Date.now();
+      const result = await executeTool(
+        instant,
+        { query: "up" },
+        await toolContext(ALERT),
+      );
+
+      expect(result.isError).toBeUndefined();
+      expect(mock.requests).toHaveLength(2);
+      expect(Date.now() - started).toBeGreaterThanOrEqual(950);
+    });
+
+    it("tells the agent the failure is temporary once the retries are spent", async () => {
+      await connect();
+      mock.unavailable = [502, 503, 504].map(
+        (status) => new Response("down", { status }),
+      );
+
+      const result = await executeTool(
+        instant,
+        { query: "up" },
+        await toolContext(ALERT),
+      );
+
+      expect(result.isError).toBe(true);
+      expect(mock.requests).toHaveLength(3);
+      expect(result.content).toContain("temporarily unavailable");
+    });
   });
 
   it("range query windows around firedAt with an auto step, echoing the window in the result", async () => {
@@ -344,8 +414,8 @@ describe("metrics tools through the tool dispatch", () => {
     function installDiscoveryMock(payloads: Record<string, unknown>): void {
       vi.stubGlobal(
         "fetch",
-        vi.fn((input: unknown): Promise<Response> => {
-          const url = String(input);
+        vi.fn((input: string | URL | Request): Promise<Response> => {
+          const url = requestUrl(input);
           const match = Object.keys(payloads).find((path) =>
             url.includes(path),
           );

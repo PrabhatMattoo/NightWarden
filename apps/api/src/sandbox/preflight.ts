@@ -5,6 +5,7 @@ import {
   pingDocker,
   type Isolation,
 } from "./docker.js";
+import type { SandboxLog } from "./workspace.js";
 
 interface PreflightResult {
   ok: boolean;
@@ -22,7 +23,7 @@ function gitAvailable(): Promise<boolean> {
 
 // Fail loud at setup time, never at 3am mid-incident; the image pull runs in
 // the background so the first real session doesn't pay it.
-export async function preflight(): Promise<PreflightResult> {
+export async function preflight(log: SandboxLog): Promise<PreflightResult> {
   if (!(await gitAvailable())) {
     return { ok: false, reason: "git is not installed on the API host" };
   }
@@ -38,6 +39,8 @@ export async function preflight(): Promise<PreflightResult> {
     };
   }
   const isolation = await detectIsolation();
-  void ensureImage().catch(() => undefined);
+  void ensureImage().catch((err: unknown) => {
+    log.warn({ err }, "sandbox image build failed");
+  });
   return { ok: true, isolation };
 }

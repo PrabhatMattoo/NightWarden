@@ -88,13 +88,14 @@ export type {
 } from "./metrics.js";
 export type { ToolName } from "./tools/names.js";
 export type {
-  WsEnvelope,
+  RunnerMessage,
   RunnerCommandMessage,
+  RunnerConnectedMessage,
   RunnerIdentityMessage,
   HideContainerMessage,
   RunnerManifestMessage,
   RunnerResultMessage,
-} from "./ws.js";
+} from "./schemas/runner-protocol.js";
 export type {
   FrontendHumanInputResolved,
   FrontendInterruptResolved,

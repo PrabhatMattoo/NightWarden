@@ -2,8 +2,15 @@
    never by the frontend, which would ship zod to the browser for nothing. */
 export {
   dockerServiceIdentitySchema,
+  k8sWorkloadKindSchema,
   kubernetesWorkloadIdentitySchema,
 } from "./service-identity.js";
+
+export {
+  parseRunnerMessage,
+  runnerManifestSchema,
+  runnerMessageSchema,
+} from "./runner-protocol.js";
 
 export {
   dockerLogsInputSchema,
