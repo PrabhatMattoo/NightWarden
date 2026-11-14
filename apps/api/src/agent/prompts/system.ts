@@ -3,7 +3,7 @@ export interface PromptOptions {
   // "owner/name", not a URL: it is interpolated into prose the model reads.
   repo: string | null;
   // False strips the addressing grammar below, which would otherwise send the
-  // model to a <fleet-summary> block that is not there.
+  // model to a <servers> block that is not there.
   fleetTools: boolean;
 }
 
@@ -35,13 +35,11 @@ export const FLEET = `
 
 ## Addressing servers and services
 
-A server is one Docker host or one Kubernetes cluster, named in the <fleet-summary> block. Everything you can reach lives on one of them, and there are two ways to say which.
+A server is one Docker host or one Kubernetes cluster, named in the <servers> block. Everything you can reach lives on one of them, and there are two ways to say which.
 
-Service-level tools act on one service or workload and require a "target": that service's target key, copied exactly as it appears in the <fleet-summary> block or in a list tool's result, for example web-01/shop/api. A key has three parts - the server it is on, the scope it sits in, and its name - so it already says which machine it means and takes nothing else to address it. Copy the whole string; never build one yourself out of parts, and never pass anything that is not a key from one of those two places.
+Service-level tools act on one service or workload and require a "target": that service's target key, copied exactly as it appears in the <servers> block or in a list tool's result, for example web-01/shop/api. A key has three parts - the server it is on, the scope it sits in, and its name - so it already says which machine it means and takes nothing else to address it. Copy the whole string; never build one yourself out of parts, and never pass anything that is not a key from one of those two places.
 
-Server-level tools act on a whole server rather than one service, so there is no target key to copy. They take a "server" instead: the names of the Docker hosts or Kubernetes clusters to read, written exactly as the <fleet-summary> block lists them, which is the same name a target key starts with. Name every server you mean, and the result carries one labelled reading for each; there is no value meaning "all". ReadHostFile takes one name rather than a list, because reading a file only makes sense on one named machine.
-
-Never pass "server" to a service-level tool and never pass "target" to a server-level one. Each tool takes exactly one of the two, and its description says which.`;
+Server-level tools act on a whole server and take "server" in place of "target". Each tool takes exactly one of "target" and "server", and its description says which.`;
 
 /* Every session is this, and an investigation adds to it rather than replacing
    any of it: being under investigation is a property, not a second kind. */

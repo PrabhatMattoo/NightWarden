@@ -56,7 +56,7 @@ const RECENT_CHANGES_INPUT = z.object({
     .max(MAX_WINDOW_HOURS)
     .default(24)
     .meta({
-      description: `How many hours before the alert to look back. A whole number from 1 to ${MAX_WINDOW_HOURS}, which is one week, defaulting to 24.`,
+      description: `How many hours before the alert to look back. From 1 to ${MAX_WINDOW_HOURS}, which is one week.`,
     }),
 });
 

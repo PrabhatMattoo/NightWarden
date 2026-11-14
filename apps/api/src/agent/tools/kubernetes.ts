@@ -5,16 +5,16 @@ import { declareTool } from "./schema.js";
 import { kubernetesServers as server } from "./server.js";
 import type { Tool } from "./types.js";
 
-// The workload's target key, copied verbatim from the <fleet-summary> block or a list
+// The workload's target key, copied verbatim from the <servers> block or a list
 // result - never assembled by hand. The API expands it to the structured identity.
 const target = z.string().meta({
   description:
-    "The workload's target key, copied exactly as it appears in the <fleet-summary> block or in a ListK8sWorkloads result, for example prod-cluster/shop/api. Copy the whole string; never assemble one yourself from parts.",
+    "The workload's target key, copied exactly as it appears in the <servers> block or in a ListK8sWorkloads result, for example prod-cluster/shop/api.",
 });
 
 const container = z.string().optional().meta({
   description:
-    "Which container to read, when the workload's pod runs more than one, for example an application container alongside a sidecar. Omit it for a single-container pod. If you omit it for a pod that has several, the result lists the containers you can choose from.",
+    "Which container to use, when the workload's pod runs more than one, for example an application container alongside a sidecar. Omit it for a single-container pod. If you omit it for a pod that has several, the result lists the containers you can choose from.",
 });
 
 const WORKLOAD_INPUT = z.object({ target });
@@ -33,7 +33,7 @@ const LOGS_INPUT = z.object({
   container,
   tailLines: z.number().int().optional().meta({
     description:
-      "How many of the newest lines to search, as a whole number, applied by the apiserver before contains and excludes. Defaults to 200. This is the size of the search, not the size of the answer, and says nothing about the lines it never read. Raise it to look further back.",
+      "How many of the newest lines to search before contains and excludes are applied. Defaults to 200. A filtered result covers only these lines, so raise it to look further back.",
   }),
   contains: z.array(z.string()).optional().meta({
     description:
@@ -45,7 +45,7 @@ const LOGS_INPUT = z.object({
   }),
   since: z.string().optional().meta({
     description:
-      "An ISO 8601 timestamp the window starts at. There is no matching end: the Kubernetes log API reads forward from a point and cannot stop at one, so these are always the newest lines after it.",
+      "An ISO 8601 timestamp the window starts at. The window always ends now, because the Kubernetes log API cannot stop at an earlier moment.",
   }),
 });
 
@@ -53,11 +53,11 @@ const EVENTS_INPUT = z.object({
   target,
   sinceMinutes: z.number().int().optional().meta({
     description:
-      "How many minutes to look back from now, as a whole number. Defaults to 60. Asking for more than that is worth doing when the result says older events exist, but a longer window cannot recover events Kubernetes has already deleted.",
+      "How many minutes to look back from now. Defaults to 60. Raise it when the result says older events exist.",
   }),
   warningsOnly: z.boolean().optional().meta({
     description:
-      "Whether to return only Warning events, which defaults to true. Kubernetes emits Normal events constantly, so set this to false only when you specifically need them.",
+      "Whether to return only Warning events. Defaults to true. Kubernetes emits Normal events constantly, so set this to false only when you specifically need them.",
   }),
 });
 
@@ -68,7 +68,7 @@ const RESTART_INPUT = z.object({
   reason,
   estimatedDowntimeSeconds: z.number().int().meta({
     description:
-      "How many seconds you expect the workload to be degraded or unavailable for, as a whole number.",
+      "How many seconds you expect the workload to be degraded or unavailable for.",
   }),
 });
 

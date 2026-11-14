@@ -298,11 +298,10 @@ const READ_INPUT = z.object({
   }),
   offset: z.number().int().optional().meta({
     description:
-      "Which line to start reading from, counting from 1, as a whole number. Defaults to the first line.",
+      "Which line to start reading from, counting from 1. Defaults to the first line.",
   }),
   limit: z.number().int().optional().meta({
-    description:
-      "How many lines to return, as a whole number. Both the default and the maximum are 2000.",
+    description: "How many lines to return, at most 2000. Defaults to 2000.",
   }),
 });
 

@@ -48,7 +48,7 @@ const OPEN_CANDIDATES_INPUT = z.object({
     )
     .meta({
       description:
-        "The candidate explanations worth testing, opened together so you weigh them side by side rather than settling on the first. Open at least two: one round of reads has answered at this point, which is too early to be certain a single explanation is the only one worth testing. A candidate you open and then disprove is worth recording, because it stops the reader retracing it.",
+        "The candidate explanations worth testing, at least two. A candidate you open and then disprove is worth recording, because it stops the reader retracing it.",
     }),
 });
 
@@ -66,7 +66,7 @@ const RECORD_FINDING_INPUT = z.object({
     }),
   evidenceIds: z.array(z.string()).meta({
     description:
-      'The evidence ids of the tool calls whose results settle this candidate. A result that can back a claim opens with a line reading "Evidence ID: e1", and the handle is written e1, e2, e3 and so on. A tool that reads nothing about your system carries no evidence id and cannot be cited. Cite only calls whose results you have already read: a tool you ask for in this reply has not run yet, its result reaches you in your next message, and a finding citing it is refused. At least one id must come from a result you received after you opened this candidate, because that result is what tests the candidate; you may also cite results you received before opening it. If any id names no answered call, none of them is recorded. A finding with the verdict "untestable" may leave this empty, and any id an untestable finding does cite must come from an attempt you made after opening the candidate.',
+      'The evidence ids of the tool calls whose results settle this candidate, written e1, e2, e3 as the line "Evidence ID: e1" opens each such result. Cite only results you have already read; a call you make in this same reply has not run yet. At least one id must come from a result you received after you opened this candidate, because that result is what tests the candidate; you may also cite results you received before opening it. A finding with the verdict "untestable" may leave this empty, and any id an untestable finding does cite must come from an attempt you made after opening the candidate.',
   }),
   verdict: z
     .enum([
@@ -83,14 +83,14 @@ const RECORD_FINDING_INPUT = z.object({
     }),
   candidate: z.string().meta({
     description:
-      "The id of the candidate this finding settles, written c1, c2, as it was given back to you when you opened it. Every finding settles exactly one candidate. To state a new view of a candidate you have already settled, record another finding naming that same candidate: the newest finding about a candidate carries the verdict that stands, and the earlier finding stays on the record beneath it as superseded. To record something you learned about an explanation you have yet to open, open it with OpenCandidates first and settle it here.",
+      "The id of the one candidate this finding settles, written c1, c2, as it was given back to you when you opened it. To revise a candidate you have already settled, record another finding naming that same candidate. To settle an explanation you have yet to open, open it with OpenCandidates first.",
   }),
 });
 
 const COMPOSE_REPORT_INPUT = z.object({
   headline: prose.meta({
     description:
-      "One sentence, under about 120 characters, naming what broke and why. This is the line someone reads at three in the morning before deciding whether to get up, and often the only line they read. State the cause, not the symptom: 'the retry loop added in PR #482 exhausted the payments-api connection pool', never 'payments-api returned errors'.",
+      "One sentence, under 120 characters, naming what broke and why. This is the line someone reads at three in the morning before deciding whether to get up, and often the only line they read. State the cause, not the symptom: 'the retry loop added in PR #482 exhausted the payments-api connection pool', never 'payments-api returned errors'.",
   }),
   affected: prose.meta({
     description:
@@ -105,7 +105,7 @@ const COMPOSE_REPORT_INPUT = z.object({
       z.object({
         at: z.iso.datetime({ offset: true }).meta({
           description:
-            "When it happened, as an ISO 8601 timestamp carrying a timezone: 2026-01-14T03:12:45Z, or 2026-01-14T08:42:45+05:30. Copy it, to the second, from the result you cite in evidenceId; a time that does not appear in that result is refused. Never a guess.",
+            "When it happened, as an ISO 8601 timestamp carrying a timezone: 2026-01-14T03:12:45Z, or 2026-01-14T08:42:45+05:30. Copy it, to the second, from the result you cite in evidenceId.",
         }),
         what: prose.meta({
           description: "One sentence, in the past tense.",
@@ -181,7 +181,7 @@ export const REPORT_TOOLS: Tool[] = [
   apiTool({
     name: "RecordFinding",
     description:
-      "Record a candidate explanation you have tested, and what testing it showed. Call this each time you settle one, including the ones that turned out to be wrong: what you ruled out is what stops the user repeating your work at three in the morning. Name the candidate it settles in 'candidate'. The record is append-only, so a later finding about a candidate carries the verdict that stands and the earlier finding stays on the record beneath it as superseded. RecordFinding records a claim by citing the tool calls whose results show that claim. RecordFinding reads nothing about your system, so a call to RecordFinding carries no evidence id, and no claim can cite a call to RecordFinding.",
+      "Record a candidate explanation you have tested, and what testing it showed. Call this each time you settle one, including the ones that turned out to be wrong: what you ruled out is what stops the user repeating your work at three in the morning. Name the candidate it settles in 'candidate'. The record is append-only, so a later finding about a candidate carries the verdict that stands and the earlier finding stays on the record beneath it as superseded. RecordFinding records a claim by citing the tool calls whose results show that claim. RecordFinding reads nothing about your system, so a call to RecordFinding carries no evidence id, and no claim can cite a call to RecordFinding. The call is refused, and nothing is recorded, when any cited id names a call whose result you have not received.",
     input: RECORD_FINDING_INPUT,
     effect: "read",
     policy: "auto",

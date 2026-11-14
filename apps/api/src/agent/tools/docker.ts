@@ -5,11 +5,11 @@ import { declareTool } from "./schema.js";
 import { dockerServers as server } from "./server.js";
 import type { Tool } from "./types.js";
 
-// The service's target key, copied verbatim from the <fleet-summary> block or a list
+// The service's target key, copied verbatim from the <servers> block or a list
 // result - never assembled by hand. The API expands it to the structured identity.
 const target = z.string().meta({
   description:
-    "The service's target key, copied exactly as it appears in the <fleet-summary> block or in a ListDockerServices result, for example web-01/shop/api. Copy the whole string; never assemble one yourself from parts.",
+    "The service's target key, copied exactly as it appears in the <servers> block or in a ListDockerServices result, for example web-01/shop/api.",
 });
 
 const LIST_SERVICES_INPUT = z.object({ server });
@@ -19,7 +19,7 @@ const LOGS_INPUT = z.object({
   target,
   tailLines: z.number().int().optional().meta({
     description:
-      "How many of the newest lines to search, as a whole number, applied by the engine before contains and excludes. Defaults to 200. This is the size of the search, not the size of the answer: filtering it for a word you expect twice can return two lines out of two hundred searched, and says nothing about the lines it never read. Raise it to look further back.",
+      "How many of the newest lines to search before contains and excludes are applied. Defaults to 200. A filtered result covers only these lines, so raise it to look further back.",
   }),
   contains: z.array(z.string()).optional().meta({
     description:
@@ -35,7 +35,7 @@ const LOGS_INPUT = z.object({
   }),
   until: z.string().optional().meta({
     description:
-      "An ISO 8601 timestamp the window ends at, so you can read a past moment rather than only the newest lines. Use it to look at when something started, taking the time from a metric series or from the timestamp on an earlier log line. Defaults to now.",
+      "An ISO 8601 timestamp the window ends at, such as the moment a metric series or an earlier log line shows a problem starting. Defaults to now.",
   }),
   stderrOnly: z.boolean().optional().meta({
     description: "Set this to true to read only stderr and ignore stdout.",
@@ -45,8 +45,7 @@ const LOGS_INPUT = z.object({
 const EVENTS_INPUT = z.object({
   target,
   sinceMinutes: z.number().int().optional().meta({
-    description:
-      "How many minutes to look back from now, as a whole number. Defaults to 60.",
+    description: "How many minutes to look back from now. Defaults to 60.",
   }),
 });
 
@@ -54,12 +53,12 @@ const RESTART_INPUT = z.object({
   target,
   delaySeconds: z.number().int().optional().meta({
     description:
-      "How many seconds to wait before restarting, as a whole number. Defaults to 0, which restarts immediately.",
+      "How many seconds to wait before restarting. Defaults to 0, which restarts immediately.",
   }),
   reason,
   estimatedDowntimeSeconds: z.number().int().meta({
     description:
-      "How many seconds you expect the service to be unavailable for, as a whole number.",
+      "How many seconds you expect the service to be unavailable for.",
   }),
 });
 

@@ -183,7 +183,7 @@ const QUERY_METRICS_RANGE_INPUT = z.object({
     .max(MAX_LOOKBACK_MINUTES)
     .default(DEFAULT_LOOKBACK_MINUTES)
     .meta({
-      description: `How many minutes before the alert to include. A whole number from 1 to ${MAX_LOOKBACK_MINUTES}, which is one week, defaulting to ${DEFAULT_LOOKBACK_MINUTES}.`,
+      description: `How many minutes before the alert to include. From 1 to ${MAX_LOOKBACK_MINUTES}, which is one week.`,
     }),
   lookforwardMinutes: z
     .number()
@@ -192,7 +192,7 @@ const QUERY_METRICS_RANGE_INPUT = z.object({
     .max(MAX_LOOKBACK_MINUTES)
     .default(DEFAULT_LOOKFORWARD_MINUTES)
     .meta({
-      description: `How many minutes after the alert to include, which is how you tell whether it recovered, never extending past now. A whole number from 1 to ${MAX_LOOKBACK_MINUTES}, defaulting to ${DEFAULT_LOOKFORWARD_MINUTES}.`,
+      description: `How many minutes after the alert to include, which is how you tell whether it recovered, never extending past now. From 1 to ${MAX_LOOKBACK_MINUTES}.`,
     }),
   stepSeconds: z
     .number()
@@ -200,7 +200,7 @@ const QUERY_METRICS_RANGE_INPUT = z.object({
     .min(1)
     .optional()
     .meta({
-      description: `How far apart the sampled points are, as a whole number of seconds, 1 or more. Omit this and a step is chosen that fits roughly ${TARGET_POINTS_PER_SERIES} points across the window.`,
+      description: `How far apart the sampled points are, in seconds, 1 or more. Omit this and a step is chosen that fits roughly ${TARGET_POINTS_PER_SERIES} points across the window.`,
     }),
 });
 

@@ -106,7 +106,7 @@ const QUERY_LOGS_INPUT = z.object({
     .max(MAX_LOG_LIMIT)
     .default(DEFAULT_LOG_LIMIT)
     .meta({
-      description: `How many lines to return at most, newest first. A whole number from 1 to ${MAX_LOG_LIMIT}, defaulting to ${DEFAULT_LOG_LIMIT}.`,
+      description: `How many lines to return at most, newest first. From 1 to ${MAX_LOG_LIMIT}.`,
     }),
   lookbackMinutes: z
     .number()
@@ -115,7 +115,7 @@ const QUERY_LOGS_INPUT = z.object({
     .max(MAX_LOOKBACK_MINUTES)
     .default(DEFAULT_LOG_LOOKBACK_MINUTES)
     .meta({
-      description: `How many minutes before the alert to search. A whole number from 1 to ${MAX_LOOKBACK_MINUTES}, which is one week, defaulting to ${DEFAULT_LOG_LOOKBACK_MINUTES}.`,
+      description: `How many minutes before the alert to search. From 1 to ${MAX_LOOKBACK_MINUTES}, which is one week.`,
     }),
   lookforwardMinutes: z
     .number()
@@ -124,7 +124,7 @@ const QUERY_LOGS_INPUT = z.object({
     .max(MAX_LOOKBACK_MINUTES)
     .default(DEFAULT_LOG_LOOKFORWARD_MINUTES)
     .meta({
-      description: `How many minutes after the alert to search, never extending past now. A whole number from 1 to ${MAX_LOOKBACK_MINUTES}, defaulting to ${DEFAULT_LOG_LOOKFORWARD_MINUTES}. Ignored when until is given.`,
+      description: `How many minutes after the alert to search, never extending past now. From 1 to ${MAX_LOOKBACK_MINUTES}. Ignored when until is given.`,
     }),
   until,
 });
@@ -141,7 +141,7 @@ const QUERY_LOG_METRICS_INPUT = z.object({
     .max(MAX_LOOKBACK_MINUTES)
     .default(DEFAULT_METRIC_LOOKBACK_MINUTES)
     .meta({
-      description: `How many minutes before the alert to include. A whole number from 1 to ${MAX_LOOKBACK_MINUTES}, which is one week, defaulting to ${DEFAULT_METRIC_LOOKBACK_MINUTES}.`,
+      description: `How many minutes before the alert to include. From 1 to ${MAX_LOOKBACK_MINUTES}, which is one week.`,
     }),
   lookforwardMinutes: z
     .number()
@@ -150,7 +150,7 @@ const QUERY_LOG_METRICS_INPUT = z.object({
     .max(MAX_LOOKBACK_MINUTES)
     .default(DEFAULT_METRIC_LOOKFORWARD_MINUTES)
     .meta({
-      description: `How many minutes after the alert to include, which is how you tell whether it recovered, never extending past now. A whole number from 1 to ${MAX_LOOKBACK_MINUTES}, defaulting to ${DEFAULT_METRIC_LOOKFORWARD_MINUTES}.`,
+      description: `How many minutes after the alert to include, which is how you tell whether it recovered, never extending past now. From 1 to ${MAX_LOOKBACK_MINUTES}.`,
     }),
   stepSeconds: z
     .number()
@@ -158,7 +158,7 @@ const QUERY_LOG_METRICS_INPUT = z.object({
     .min(1)
     .optional()
     .meta({
-      description: `How far apart the sampled points are, as a whole number of seconds, 1 or more. Omit this and a step is chosen that fits roughly ${TARGET_POINTS_PER_SERIES} points across the window.`,
+      description: `How far apart the sampled points are, in seconds, 1 or more. Omit this and a step is chosen that fits roughly ${TARGET_POINTS_PER_SERIES} points across the window.`,
     }),
 });
 

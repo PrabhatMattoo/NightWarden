@@ -129,7 +129,7 @@ function buildFleetSummary(fleetView: FleetRunner[] | undefined): string {
       r.services.map((s) => s.target).join(", ") || "no services advertised";
     return `${r.serverName} (${kind}): ${targets}`;
   });
-  return `\n<fleet-summary>\nEach line names one server - a Docker host or a Kubernetes cluster - and the target keys it advertises. A target key begins with the name of the server it is on, so a key identifies one service on one machine and nothing else needs to say where it is.\n${lines.join("\n")}\n</fleet-summary>\n`;
+  return `\n<servers>\nEach line names one server - a Docker host or a Kubernetes cluster - and the target keys it advertises. A target key begins with the name of the server it is on, so a key identifies one service on one machine and nothing else needs to say where it is.\n${lines.join("\n")}\n</servers>\n`;
 }
 
 // Prometheus puts the expression that fired in the generator link's query string,

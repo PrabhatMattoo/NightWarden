@@ -320,7 +320,7 @@ const window = {
     .max(MAX_LOOKBACK_MINUTES)
     .default(DEFAULT_LOOKBACK_MINUTES)
     .meta({
-      description: `How many minutes before the alert to search. A whole number from 1 to ${MAX_LOOKBACK_MINUTES}, which is one week, defaulting to ${DEFAULT_LOOKBACK_MINUTES}.`,
+      description: `How many minutes before the alert to search. From 1 to ${MAX_LOOKBACK_MINUTES}, which is one week.`,
     }),
   lookforwardMinutes: z
     .number()
@@ -329,14 +329,14 @@ const window = {
     .max(MAX_LOOKBACK_MINUTES)
     .default(DEFAULT_LOOKFORWARD_MINUTES)
     .meta({
-      description: `How many minutes after the alert to search, never extending past now. A whole number from 1 to ${MAX_LOOKBACK_MINUTES}, defaulting to ${DEFAULT_LOOKFORWARD_MINUTES}.`,
+      description: `How many minutes after the alert to search, never extending past now. From 1 to ${MAX_LOOKBACK_MINUTES}.`,
     }),
 };
 
 const SEARCH_ISSUES_INPUT = z.object({
   query: z.string().default("").meta({
     description:
-      "Sentry issue search syntax. Defaults to an empty string, which returns issues of every status. Sentry's own default of is:unresolved is never applied for you, so ask for it explicitly if you want it.",
+      "Sentry issue search syntax. An empty string returns issues of every status; include is:unresolved to see only unresolved issues.",
   }),
   projects: z.array(z.string()).optional().meta({
     description:
@@ -348,7 +348,7 @@ const SEARCH_ISSUES_INPUT = z.object({
   }),
   sort: z.enum(["freq", "date", "new", "user", "trends"]).default("freq").meta({
     description:
-      "How to order results: freq by event count (which is what spiked), date by last seen, new by first seen, user by people affected. Defaults to freq.",
+      "How to order results: freq by event count (which is what spiked), date by last seen, new by first seen, user by people affected.",
   }),
   limit: z
     .number()
@@ -357,7 +357,7 @@ const SEARCH_ISSUES_INPUT = z.object({
     .max(MAX_ISSUE_LIMIT)
     .default(DEFAULT_ISSUE_LIMIT)
     .meta({
-      description: `How many issues to return at most. A whole number from 1 to ${MAX_ISSUE_LIMIT}, defaulting to ${DEFAULT_ISSUE_LIMIT}.`,
+      description: `How many issues to return at most. From 1 to ${MAX_ISSUE_LIMIT}.`,
     }),
   ...window,
   cursor: cursor.meta({
@@ -402,7 +402,7 @@ const RELEASES_INPUT = z.object({
     .max(MAX_RELEASE_COUNT)
     .default(DEFAULT_RELEASE_COUNT)
     .meta({
-      description: `How many releases to return at most, newest first. A whole number from 1 to ${MAX_RELEASE_COUNT}, defaulting to ${DEFAULT_RELEASE_COUNT}.`,
+      description: `How many releases to return at most, newest first. From 1 to ${MAX_RELEASE_COUNT}.`,
     }),
   cursor: cursor.meta({
     description:

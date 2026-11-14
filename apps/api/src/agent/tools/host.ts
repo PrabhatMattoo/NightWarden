@@ -12,7 +12,7 @@ const HOST_VITALS_INPUT = z.object({ server });
 const HOST_DMESG_INPUT = z.object({
   tailLines: z.number().int().min(1).optional().meta({
     description:
-      "How many of the most recent lines to return, as a whole number of 1 or more. Defaults to 100.",
+      "How many of the most recent lines to return, 1 or more. Defaults to 100.",
   }),
   filterLevel: z.enum(["err", "warn", "all"]).optional().meta({
     description:
@@ -27,11 +27,11 @@ const READ_HOST_FILE_INPUT = z.object({
   }),
   maxLines: z.number().int().min(1).optional().meta({
     description:
-      "How many lines to return at most, as a whole number of 1 or more. Defaults to 500.",
+      "How many lines to return at most, 1 or more. Defaults to 500.",
   }),
   server: z.string().meta({
     description:
-      "The name of one Docker host, written exactly as the <fleet-summary> block lists it. This is required, because reading a file only makes sense on one named machine.",
+      "The name of one Docker host, written exactly as the <servers> block lists it.",
   }),
 });
 

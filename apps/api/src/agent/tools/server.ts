@@ -12,7 +12,7 @@ function servers(what: string, each: string): z.ZodType<string[]> {
     .min(1)
     .max(MAX_SERVERS_PER_CALL)
     .meta({
-      description: `The ${what} to read, each written exactly as the <fleet-summary> block lists it. Name at least one and at most ${MAX_SERVERS_PER_CALL}; the result carries one labelled reading per ${each}. Call it again for any beyond that, since a call naming more than ${MAX_SERVERS_PER_CALL} is refused rather than shortened.`,
+      description: `The ${what} to read, 1 to ${MAX_SERVERS_PER_CALL} of them, each named exactly as the <servers> block lists it; the result carries one labelled reading per ${each}.`,
     });
 }
 

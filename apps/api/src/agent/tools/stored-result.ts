@@ -59,7 +59,7 @@ const READ_TOOL_RESULT_INPUT = z.object({
   }),
   page: z.number().int().min(1).meta({
     description:
-      "Which page to read, as a whole number of 1 or more. Page 1 is what the original result already showed.",
+      "Which page to read, 1 or more. Page 1 is what the original result already showed.",
   }),
 });
 

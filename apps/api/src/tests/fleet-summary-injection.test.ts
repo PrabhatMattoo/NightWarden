@@ -322,7 +322,7 @@ describe("fleet summary injection", () => {
 
       // The map carries the addressable server name the required `server`
       // parameter needs - it must appear even with a single server.
-      expect(msg).toContain("<fleet-summary>");
+      expect(msg).toContain("<servers>");
       expect(msg).toContain("web-01");
     });
 
@@ -339,7 +339,7 @@ describe("fleet summary injection", () => {
       const msg = captureStartMessage();
       expect(msg).toBeDefined();
 
-      expect(msg).not.toContain("<fleet-summary>");
+      expect(msg).not.toContain("<servers>");
     });
   });
 });

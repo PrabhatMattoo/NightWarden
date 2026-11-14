@@ -87,9 +87,12 @@ function nodesOf(schema: unknown, name: string): Array<[string, Node]> {
 }
 
 // Every declared property, with the path a failure names it by.
-function propertiesOf(schema: ToolSchema): Array<[string, Node]> {
+function propertiesOf(
+  schema: ToolSchema,
+  inputSchema: unknown = schema.input_schema,
+): Array<[string, Node]> {
   const into: Array<[string, Node]> = [];
-  for (const [path, node] of nodesOf(schema.input_schema, schema.name)) {
+  for (const [path, node] of nodesOf(inputSchema, schema.name)) {
     const properties = node["properties"];
     if (!isNode(properties)) continue;
     for (const [name, property] of Object.entries(properties)) {
@@ -131,8 +134,20 @@ const BOUNDS = [
   "exclusiveMaximum",
   "minItems",
   "maxItems",
+  "minLength",
   "maxLength",
 ] as const;
+
+// OpenAI widens an optional field's type into a union with null, still carrying it.
+function carries(
+  node: Node | undefined,
+  keyword: string,
+  value: unknown,
+): boolean {
+  if (node === undefined) return false;
+  if (keyword === "type") return [node["type"]].flat().includes(value);
+  return node[keyword] === value;
+}
 
 // Zod stamps the safe-integer range onto every .int(). Nobody authored it, and
 // no description should have to recite it.
@@ -208,35 +223,34 @@ describe("every tool schema is one a provider will accept", () => {
     }
   });
 
-  /* A reducer deletes most bounds, so a limit reaches the model as prose alone.
-     Stated always: which provider runs is unknown when the description is written. */
-  it("states every bound in the description of the field carrying it", () => {
+  /* A bound every provider's copy still carries reaches the model as schema. Any
+     other reaches it as prose alone, since which provider runs is unknown here. */
+  it("states every bound some dialect strips, in the field carrying it", () => {
     for (const schema of SCHEMAS) {
+      const reduced = DIALECTS.map(
+        ({ reduce }) =>
+          new Map(propertiesOf(schema, reduce(schema.input_schema))),
+      );
       for (const [path, property] of propertiesOf(schema)) {
         const description = property["description"];
         if (typeof description !== "string") continue;
-        if (property["type"] === "integer") {
+        const needsProse = (keyword: string, value: unknown): boolean =>
+          !reduced.every((copy) => carries(copy.get(path), keyword, value));
+        if (property["type"] === "integer" && needsProse("type", "integer")) {
           expect(
             /whole number|integer/i.test(description),
             `${path} is an integer and does not say so`,
           ).toBe(true);
         }
         for (const bound of BOUNDS) {
-          if (property[bound] === undefined) continue;
-          if (!isAuthored(property[bound])) continue;
+          const value = property[bound];
+          if (value === undefined || !isAuthored(value)) continue;
+          // `required` already says a field needs content.
+          if (bound === "minLength" && value === 1) continue;
+          if (!needsProse(bound, value)) continue;
           expect(
-            states(description, property[bound]),
-            `${path} bounds ${bound} at ${JSON.stringify(property[bound])} without saying so`,
-          ).toBe(true);
-        }
-        // minLength 1 is exempt: `required` already says the field needs content.
-        if (
-          property["minLength"] !== undefined &&
-          property["minLength"] !== 1
-        ) {
-          expect(
-            states(description, property["minLength"]),
-            `${path} bounds minLength without saying so`,
+            states(description, value),
+            `${path} bounds ${bound} at ${JSON.stringify(value)} without saying so`,
           ).toBe(true);
         }
       }

@@ -33,7 +33,7 @@ export function resolveByService(
     typeof commandInput["target"] === "string" ? commandInput["target"] : null;
   if (target === null) {
     throw new Error(
-      "This command requires a 'target' key. Copy it exactly from the <fleet-summary> block or a list result.",
+      "This command requires a 'target' key. Copy it exactly from the <servers> block or a list result.",
     );
   }
 

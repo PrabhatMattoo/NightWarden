@@ -271,7 +271,7 @@ describe("toolset assembly by fleet capabilities", () => {
 
             // Same rule for the block a description points at: with no runner
             // the fleet summary is never rendered, so nothing may cite it.
-            expect(prompt.includes("<fleet-summary>")).toBe(
+            expect(prompt.includes("<servers>")).toBe(
               offeredNames.size > 0 &&
                 offered.tools.some((t) => t.on === "runner"),
             );
