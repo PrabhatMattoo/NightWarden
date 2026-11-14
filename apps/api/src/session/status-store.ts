@@ -1,4 +1,4 @@
-import type { InvestigationStatus } from "@nightwarden/shared";
+import type { FailureKind, InvestigationStatus } from "@nightwarden/shared";
 import { sql } from "kysely";
 import { getDb, type Db } from "../db.js";
 
@@ -122,7 +122,7 @@ export async function releaseRun(sessionId: string): Promise<void> {
 // classified afterwards and a bad key must never be retried.
 export async function recordRunFailure(
   sessionId: string,
-  kind: "transient" | "permanent",
+  kind: FailureKind,
 ): Promise<void> {
   await getDb()
     .updateTable("sessions")

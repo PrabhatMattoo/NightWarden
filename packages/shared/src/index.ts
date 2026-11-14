@@ -140,6 +140,8 @@ export type {
   SessionAlert,
   SessionDetail,
   InvestigationStatus,
+  FailureKind,
+  AwaitingKind,
   SessionListRow,
   SessionListPage,
   SessionKind,

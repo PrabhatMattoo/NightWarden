@@ -16,3 +16,8 @@ minimumReleaseAgeExclude:
   - "@tanstack/react-router@1.170.18"
   - "@tanstack/router-core@1.171.15"
   - ws@8.21.1
+# kysely-codegen requires typescript to parse its overrides without declaring it.
+packageExtensions:
+  kysely-codegen:
+    dependencies:
+      typescript: 5.9.3

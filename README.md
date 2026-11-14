@@ -88,7 +88,7 @@ pnpm install
 pnpm dev
 ```
 
-That starts the API on port 3000 and the frontend on port 5173, both with live reload. Five checks gate every change and are exactly what CI runs: `pnpm typecheck`, `pnpm lint`, `pnpm test`, `pnpm format:check`, `pnpm build`.
+That starts the API on port 3000 and the frontend on port 5173, both with live reload. Five checks gate every change and are exactly what CI runs: `pnpm typecheck`, `pnpm lint`, `pnpm test`, `pnpm format:check`, `pnpm build`. CI also runs `pnpm --filter @nightwarden/api db:types:check`, which fails when the committed database types no longer match the migrations; `db:types` regenerates them.
 
 ## License
 

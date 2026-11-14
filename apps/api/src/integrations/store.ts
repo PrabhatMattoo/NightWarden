@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { Selectable } from "kysely";
 import type { CredentialRejection } from "@nightwarden/shared";
 import { getDb } from "../db.js";
-import type { Database } from "../schema.js";
+import type { DB } from "../database.js";
 import { decrypt, encrypt } from "../secrets.js";
 
 /* One table holds every configured connection. This file owns the row shape;
@@ -21,7 +21,7 @@ export interface IntegrationRow {
   createdAt: string;
 }
 
-type RawRow = Selectable<Database["integrations"]>;
+type RawRow = Selectable<DB["integrations"]>;
 
 const COLUMNS = [
   "id",

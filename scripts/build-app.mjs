@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { cpSync, existsSync, readFileSync, rmSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { build } from "esbuild";
 
@@ -35,3 +35,11 @@ await build({
   external: Object.keys(pkg.dependencies ?? {}),
   logLevel: "info",
 });
+
+// The migrator reads its SQL beside the bundle. Cleared first, so a migration
+// removed from src cannot linger in dist and still be applied.
+const migrations = join(appDir, "src/migrations");
+if (existsSync(migrations)) {
+  rmSync(join(appDir, "dist/migrations"), { recursive: true, force: true });
+  cpSync(migrations, join(appDir, "dist/migrations"), { recursive: true });
+}

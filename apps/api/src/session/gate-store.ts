@@ -1,3 +1,4 @@
+import type { AwaitingKind } from "@nightwarden/shared";
 import { getDb } from "../db.js";
 import { refreshSessionStatus } from "./status-store.js";
 import type { ToolResult } from "../llm/types.js";
@@ -7,7 +8,7 @@ import type { ToolResult } from "../llm/types.js";
 export interface PendingHumanInput {
   sessionId: string;
   toolCallId: string;
-  kind: "approval" | "clarification" | "continue";
+  kind: AwaitingKind;
   completedResults: ToolResult[];
   claimedAt?: string | null;
 }

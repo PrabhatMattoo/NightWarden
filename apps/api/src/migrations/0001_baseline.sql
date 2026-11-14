@@ -1,16 +1,6 @@
-/* Applied in order. A version is a fact about every install, so an entry is
-   frozen from the first release; before it the baseline is edited directly. */
-
-export interface Migration {
-  version: number;
-  name: string;
-  sql: string;
-}
-
-const BASELINE = `
-
 CREATE TABLE IF NOT EXISTS runner (
-  id             TEXT     PRIMARY KEY,
+  id             TEXT     NOT NULL PRIMARY KEY,
+  -- The SHA-256 hash, never the credential.
   token          TEXT     NOT NULL UNIQUE,
   platform       TEXT     NOT NULL CHECK (platform IN ('docker', 'kubernetes')),
   server_name    TEXT     NOT NULL UNIQUE,
@@ -19,7 +9,7 @@ CREATE TABLE IF NOT EXISTS runner (
 );
 
 CREATE TABLE IF NOT EXISTS config (
-  id                            TEXT     PRIMARY KEY,
+  id                            TEXT     NOT NULL PRIMARY KEY,
   active_provider               TEXT,
   max_retries                   INTEGER  NOT NULL DEFAULT 3,
   max_investigations_per_hour   INTEGER  NOT NULL DEFAULT 10,
@@ -30,6 +20,7 @@ CREATE TABLE IF NOT EXISTS config (
   sandbox_memory_mb             INTEGER  NOT NULL DEFAULT 4096,
   sandbox_require_gvisor        INTEGER  NOT NULL DEFAULT 0,
   sandbox_network               TEXT     NOT NULL DEFAULT 'allowlist',
+  -- Newline-joined, which is the Settings textarea's own shape.
   sandbox_allowlist_hosts       TEXT     NOT NULL DEFAULT 'registry.npmjs.org
 registry.yarnpkg.com
 repo.yarnpkg.com',
@@ -38,7 +29,7 @@ repo.yarnpkg.com',
 );
 
 CREATE TABLE IF NOT EXISTS provider_config (
-  provider            TEXT     PRIMARY KEY,
+  provider            TEXT     NOT NULL PRIMARY KEY,
   model               TEXT,
   base_url            TEXT,
   api_key_encrypted   TEXT,
@@ -47,13 +38,16 @@ CREATE TABLE IF NOT EXISTS provider_config (
 );
 
 CREATE TABLE IF NOT EXISTS integrations (
-  id            TEXT   PRIMARY KEY,
+  id            TEXT   NOT NULL PRIMARY KEY,
   kind          TEXT   NOT NULL,
   name          TEXT   NOT NULL,
   config        TEXT   NOT NULL,
+  -- One encrypted value whose plaintext is a map, so a row can carry two.
   secrets       TEXT,
+  -- Set only for a sender that presents a credential to us.
   token_hash    TEXT   UNIQUE,
   last_used_at  TEXT,
+  -- When the third party last refused the stored credential, and its reason.
   rejected_at   TEXT,
   rejection     TEXT,
   created_at    TEXT   NOT NULL
@@ -62,21 +56,28 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_integrations_name ON integrations(name);
 CREATE INDEX IF NOT EXISTS idx_integrations_kind ON integrations(kind);
 
 CREATE TABLE IF NOT EXISTS sessions (
-  session_id           TEXT     PRIMARY KEY,
+  session_id           TEXT     NOT NULL PRIMARY KEY,
   title                TEXT     NOT NULL DEFAULT '',
   investigation        INTEGER  NOT NULL DEFAULT 0,
+  -- Every value but 'running' derives from the columns below; 'running' is
+  -- claimed by a conditional UPDATE, so the row is the dispatch mutex too.
   status               TEXT     NOT NULL DEFAULT 'completed'
                                 CHECK (status IN ('action_required', 'running',
                                   'resolved', 'stopped', 'failed', 'completed',
                                   'not_started')),
+  -- Why the hourly limit left this session for a person to start. Kept after a
+  -- Start, so the hourly count still reads it as not started automatically.
   held_reason          TEXT,
   failed_attempts      INTEGER  NOT NULL DEFAULT 0,
   failure_kind         TEXT     CHECK (failure_kind IN ('transient', 'permanent')),
   stopped_at           TEXT,
+  -- The gate, all null when the session is not parked on one.
   awaiting_tool_use_id TEXT,
   awaiting_kind        TEXT     CHECK (awaiting_kind IN
                                   ('approval', 'clarification', 'continue')),
   awaiting_results     TEXT     NOT NULL DEFAULT '[]',
+  -- Stamped before an approved call runs, so a crash in the gap says the write
+  -- may already have happened rather than replaying it.
   attempt_started_at   TEXT,
   candidates           TEXT     NOT NULL DEFAULT '[]',
   findings             TEXT     NOT NULL DEFAULT '[]',
@@ -94,16 +95,18 @@ CREATE INDEX IF NOT EXISTS idx_sessions_list
 DROP INDEX IF EXISTS idx_sessions_kind_activity;
 
 CREATE TABLE IF NOT EXISTS alerts (
-  id                 INTEGER  PRIMARY KEY,
+  id                 INTEGER  NOT NULL PRIMARY KEY,
   session_id         TEXT     NOT NULL REFERENCES sessions(session_id) ON DELETE CASCADE,
   group_key          TEXT     NOT NULL,
   source_alert_id    TEXT     NOT NULL,
+  -- Its own column so json_each reads the labels without the alert beside them.
   labels             TEXT     NOT NULL DEFAULT '{}',
   alert_type         TEXT     NOT NULL DEFAULT 'unknown',
   fired_at           TEXT     NOT NULL,
   arrived_at         TEXT     NOT NULL,
   cleared_at         TEXT,
   injected           INTEGER  NOT NULL DEFAULT 0,
+  -- 1 while an alert that joined a run waits for the model to be told of it.
   pending_delivery   INTEGER  NOT NULL DEFAULT 0,
   dropped_alerts     INTEGER  NOT NULL DEFAULT 0,
   group_context      TEXT,
@@ -123,7 +126,9 @@ CREATE TABLE IF NOT EXISTS session_transcript (
   content        TEXT     NOT NULL,
   canonical      TEXT,
   timestamp      TEXT     NOT NULL,
+  -- The sender's id for a person's message; null on every row no person sent.
   client_id      TEXT,
+  -- Which note a system_reminder row is; null on every other kind.
   reminder       TEXT     CHECK (reminder IN ('alert_opening',
                             'candidates_opening', 'frontier', 'falsification',
                             'report_request', 'report_retry', 'closing',
@@ -141,8 +146,8 @@ CREATE TABLE IF NOT EXISTS tool_result_store (
 );
 
 
--- Better Auth's own four tables, shaped by what its getMigrations emits. It
--- writes dates as ISO strings and booleans as 0/1.
+-- Better Auth's own four tables, transcribed from what its getMigrations emits
+-- for this config. It writes dates as ISO strings and booleans as 0/1.
 
 CREATE TABLE user (
   id             TEXT     NOT NULL PRIMARY KEY,
@@ -152,6 +157,8 @@ CREATE TABLE user (
   image          TEXT,
   created_at     DATE     NOT NULL,
   updated_at     DATE     NOT NULL,
+  -- The admin plugin's. It stamps 'user' on signup, so the first owner is
+  -- raised to 'admin' by a create hook rather than by this column's default.
   role           TEXT,
   banned         INTEGER,
   ban_reason     TEXT,
@@ -159,6 +166,8 @@ CREATE TABLE user (
   theme          TEXT     NOT NULL DEFAULT 'system'
 );
 
+-- Renamed from Better Auth's `session`, which would otherwise sit one letter
+-- from `sessions`, the agent's own.
 CREATE TABLE auth_session (
   id              TEXT     NOT NULL PRIMARY KEY,
   expires_at      DATE     NOT NULL,
@@ -171,6 +180,8 @@ CREATE TABLE auth_session (
   impersonated_by TEXT
 );
 
+-- One row per authentication method on a user. Email and password is a row with
+-- provider_id 'credential' holding the argon2id hash; SSO would add a second.
 CREATE TABLE account (
   id                          TEXT     NOT NULL PRIMARY KEY,
   issuer                      TEXT     NOT NULL,
@@ -188,6 +199,8 @@ CREATE TABLE account (
   updated_at                  DATE     NOT NULL
 );
 
+-- Short-lived tokens: password resets and email verification today, and an
+-- invite link when one is built.
 CREATE TABLE verification (
   id         TEXT     NOT NULL PRIMARY KEY,
   identifier TEXT     NOT NULL,
@@ -201,12 +214,3 @@ CREATE INDEX auth_session_user_id_idx ON auth_session (user_id);
 CREATE INDEX account_user_id_idx ON account (user_id);
 CREATE INDEX verification_identifier_idx ON verification (identifier);
 CREATE UNIQUE INDEX account_issuer_account_id_uidx ON account (issuer, account_id);
-
-`;
-
-/* Transcribed from what Better Auth's own getMigrations emits for this config,
-   so the columns are the library's answer rather than a reading of its docs. */
-
-export const MIGRATIONS: readonly Migration[] = [
-  { version: 1, name: "baseline", sql: BASELINE },
-];

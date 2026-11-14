@@ -1,4 +1,4 @@
-import type { TranscriptRow } from "./sessions.js";
+import type { AwaitingKind, TranscriptRow } from "./sessions.js";
 import type { TranscriptItem } from "./transcript.js";
 
 // Common envelope for the API→frontend event stream (SSE). messageId is a per-event UUID
@@ -73,7 +73,7 @@ export interface FrontendHumanInputRequired extends FrontendEnvelope {
     toolCallId: string;
     toolName: string;
     input: Record<string, unknown>;
-    kind: "approval" | "clarification" | "continue";
+    kind: AwaitingKind;
     question?: string;
     options?: Array<{ label: string; description: string }>;
     multiSelect?: boolean;

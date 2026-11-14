@@ -1,0 +1,17 @@
+dialect: sqlite
+outFile: src/database.ts
+customImports:
+  AwaitingKind: "@nightwarden/shared"
+  FailureKind: "@nightwarden/shared"
+  InvestigationStatus: "@nightwarden/shared"
+  Platform: "@nightwarden/shared"
+  ReminderKind: "@nightwarden/shared"
+  ThemePreference: "@nightwarden/shared"
+overrides:
+  columns:
+    runner.platform: Platform
+    user.theme: Generated<ThemePreference>
+    sessions.status: Generated<InvestigationStatus>
+    sessions.failure_kind: FailureKind | null
+    sessions.awaiting_kind: AwaitingKind | null
+    session_transcript.reminder: ReminderKind | null

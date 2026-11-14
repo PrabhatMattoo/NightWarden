@@ -37,6 +37,12 @@ export type InvestigationStatus =
   // Held by the hourly limit until a person starts it.
   | "not_started";
 
+// Whether a failed run is retried automatically or waits for a person.
+export type FailureKind = "transient" | "permanent";
+
+// Which gate a parked session waits on.
+export type AwaitingKind = "approval" | "clarification" | "continue";
+
 // The Investigations page's views beside All: what is still in play, what
 // recovered, and what ended without the alert clearing.
 export type StatusFilter = "active" | "resolved" | "closed";

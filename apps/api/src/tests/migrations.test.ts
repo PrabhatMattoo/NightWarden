@@ -1,9 +1,20 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
+import Database from "better-sqlite3";
 import { sql } from "kysely";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { getDb, resetDb } from "../db.js";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
+import { applyMigrations, getDb, resetDb } from "../db.js";
 
 // The runner is the only thing standing between a schema change and a deleted
 // database, so what it does on a second boot is the property worth pinning.
@@ -78,5 +89,66 @@ describe("the migration runner", () => {
     expect(detail).toContain("idx_sessions_list");
     // A temp B-tree would mean every session materialises to answer one page.
     expect(detail).not.toContain("TEMP B-TREE");
+  });
+});
+
+describe("the migrations folder", () => {
+  let dir: string;
+  let handle: Database.Database;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "nw-mig-files-"));
+    handle = new Database(":memory:");
+  });
+
+  afterEach(() => {
+    handle.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  function writeMigrations(files: Record<string, string>): URL {
+    for (const [name, text] of Object.entries(files)) {
+      writeFileSync(join(dir, name), text);
+    }
+    return pathToFileURL(`${dir}/`);
+  }
+
+  const recorded = () =>
+    handle
+      .prepare(`SELECT version, name FROM schema_migrations ORDER BY version`)
+      .all();
+
+  it("applies the files in filename order, each versioned by its prefix", () => {
+    const folder = writeMigrations({
+      "0002_add_note.sql": "ALTER TABLE probe ADD COLUMN note TEXT;",
+      "0001_create_probe.sql": "CREATE TABLE probe (id TEXT);",
+    });
+    applyMigrations(handle, folder);
+    expect(recorded()).toEqual([
+      { version: 1, name: "create_probe" },
+      { version: 2, name: "add_note" },
+    ]);
+  });
+
+  it("refuses two files that claim one version", () => {
+    const folder = writeMigrations({
+      "0001_create_probe.sql": "CREATE TABLE probe (id TEXT);",
+      "0001_create_other.sql": "CREATE TABLE other (id TEXT);",
+    });
+    expect(() => applyMigrations(handle, folder)).toThrow(/ascend/);
+  });
+
+  it("rolls a failing migration back whole and records nothing for it", () => {
+    const folder = writeMigrations({
+      "0001_create_probe.sql": "CREATE TABLE probe (id TEXT);",
+      "0002_half.sql":
+        "CREATE TABLE half (id TEXT); INSERT INTO missing VALUES (1);",
+    });
+    expect(() => applyMigrations(handle, folder)).toThrow(/migration 2/);
+    expect(recorded()).toEqual([{ version: 1, name: "create_probe" }]);
+    const half = handle
+      .prepare(`SELECT name FROM sqlite_master WHERE name = 'half'`)
+      .all();
+    expect(half).toEqual([]);
   });
 });

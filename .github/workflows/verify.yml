@@ -24,6 +24,9 @@ jobs:
 
       - run: pnpm format:check
 
+      # The committed database types must match what the migrations build.
+      - run: pnpm --filter @nightwarden/api db:types:check
+
       - run: pnpm typecheck
 
       - run: pnpm lint

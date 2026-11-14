@@ -1,3 +1,5 @@
+import type { AwaitingKind } from "./sessions.js";
+
 // Two outcomes only: a rejection carries the user's comment back, so there is
 // no third "added context" for the agent to read as success.
 export type ApprovalStatus =
@@ -8,7 +10,7 @@ export interface ApprovalRequest {
   toolName: string;
   toolInput: Record<string, unknown>;
   toolCallId: string; // Anthropic tool_use_id — correlation key
-  kind?: "approval" | "clarification" | "continue";
+  kind?: AwaitingKind;
   status: ApprovalStatus;
   resolvedAt?: string;
 }

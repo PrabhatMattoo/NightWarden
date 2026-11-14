@@ -1,3 +1,4 @@
 dist
 pnpm-lock.yaml
 apps/frontend/src/palette.css
+apps/api/src/database.ts
