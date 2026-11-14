@@ -30,3 +30,6 @@ deploy/
 
 # The Playwright CLI's scratch output.
 .playwright-cli/
+
+# Written by apps/api/scripts/generate-api-types.mjs from the API's own description, never committed.
+packages/shared/src/openapi.ts

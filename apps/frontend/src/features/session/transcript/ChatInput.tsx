@@ -11,7 +11,7 @@ import {
 import { Label } from "@/shared/ui/label";
 import { Toggle } from "@/shared/ui/toggle";
 import { toast } from "@/shared/lib/toast";
-import { apiFetch } from "@/shared/api/client";
+import { api, dataOrThrow } from "@/shared/api/client";
 import { newClientId } from "@/shared/lib/clientId";
 
 interface ChatInputProps {
@@ -48,36 +48,38 @@ export function ChatInput({
       reopen: boolean;
     }): Promise<string | null> => {
       if (sessionId !== null && send.reopen) {
-        await apiFetch<void>(`/api/sessions/${sessionId}/reopen`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            reason: send.message,
-            clientMessageId: send.clientMessageId,
+        await dataOrThrow(
+          api.POST("/api/sessions/{id}/reopen", {
+            params: { path: { id: sessionId } },
+            body: {
+              reason: send.message,
+              clientMessageId: send.clientMessageId,
+            },
           }),
-        });
+        );
         return null;
       }
       if (sessionId === null) {
-        const data = await apiFetch<{ sessionId: string }>("/api/chat", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            message: send.message,
-            clientMessageId: send.clientMessageId,
+        const data = await dataOrThrow(
+          api.POST("/api/chat", {
+            body: {
+              message: send.message,
+              clientMessageId: send.clientMessageId,
+            },
           }),
-        });
+        );
         onSessionCreated?.(data.sessionId, send.message);
         return data.sessionId;
       }
-      await apiFetch<void>(`/api/sessions/${sessionId}/messages`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          message: send.message,
-          clientMessageId: send.clientMessageId,
+      await dataOrThrow(
+        api.POST("/api/sessions/{id}/messages", {
+          params: { path: { id: sessionId } },
+          body: {
+            message: send.message,
+            clientMessageId: send.clientMessageId,
+          },
         }),
-      });
+      );
       return null;
     },
     onSuccess: async (createdSessionId, sent) => {
@@ -107,7 +109,11 @@ export function ChatInput({
 
   const stop = useMutation({
     mutationFn: () =>
-      apiFetch<void>(`/api/sessions/${sessionId}/stop`, { method: "POST" }),
+      dataOrThrow(
+        api.POST("/api/sessions/{id}/stop", {
+          params: { path: { id: sessionId ?? "" } },
+        }),
+      ),
     onError: (err) => {
       toast.show({
         title: "Could not stop the run",

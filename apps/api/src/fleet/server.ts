@@ -23,7 +23,7 @@ export async function registerWsRoutes(
 ): Promise<void> {
   fastify.get(
     "/clients/connect",
-    { websocket: true },
+    { websocket: true, schema: { hide: true } },
     async (socket: WebSocket, request) => {
       const plaintext = extractBearerToken(request.headers.authorization);
 

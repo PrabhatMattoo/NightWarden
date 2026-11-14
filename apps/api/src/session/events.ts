@@ -19,7 +19,7 @@ export async function registerFrontendEventRoutes(
 
   fastify.get(
     "/frontend/events",
-    { sse: "only", preHandler: requireSession },
+    { sse: "only", onRequest: requireSession, schema: { hide: true } },
     async (_request, reply) => {
       reply.sse.keepAlive();
 

@@ -1,6 +1,7 @@
 import { probeSignal } from "./reachability.js";
 import { z } from "zod";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { requireSession } from "../auth/session.js";
 import {
   deleteGitHubIntegration,
@@ -22,6 +23,19 @@ import {
 import { isAlertSourceKind } from "@nightwarden/shared";
 import type { AlertSourceKind, AlertSourceStatus } from "@nightwarden/shared";
 import {
+  alertSourceCredentialSchema,
+  alertSourceStatusSchema,
+  refusals,
+  gitHubErrorBodySchema,
+  gitHubIntegrationStatusSchema,
+  gitHubRepoPageSchema,
+  lokiErrorBodySchema,
+  lokiIntegrationStatusSchema,
+  sandboxPreflightSchema,
+  sentryErrorBodySchema,
+  sentryIntegrationStatusSchema,
+} from "@nightwarden/shared/schemas";
+import {
   GitHubApiError,
   listRepos,
   ownerIsOrganization,
@@ -36,7 +50,6 @@ import { SentryApiError, probeSentry } from "./sentry.js";
 import { preflight } from "../sandbox/preflight.js";
 import { teardownAll } from "../sandbox/workspace.js";
 import { logger } from "../logger.js";
-import { readable } from "../request-body.js";
 import { publicUrl } from "../public-url.js";
 import type {
   GitHubIntegrationStatus,
@@ -44,10 +57,12 @@ import type {
   SentryIntegrationStatus,
 } from "@nightwarden/shared";
 
-const ReposBodySchema = z.object({
-  token: z.string().min(1).optional(),
-  page: z.number().int().positive().optional(),
-});
+const ReposBodySchema = z
+  .object({
+    token: z.string().min(1).optional(),
+    page: z.number().int().positive().optional(),
+  })
+  .default({});
 
 const LokiConnectSchema = z.object({
   url: z.string().min(1),
@@ -102,6 +117,26 @@ async function sendGitHubError(
     return reply.code(status).send({ error: err.message, code: err.code });
   }
   throw err;
+}
+
+// GitHub 404s existence, visibility and permission alike, so for an organization
+// the refusal links to its token approvals, a plausible cause.
+async function sendRepoError(
+  reply: FastifyReply,
+  err: unknown,
+  owner: string,
+): Promise<FastifyReply> {
+  if (err instanceof GitHubApiError && err.code === "repo_not_found") {
+    const orgApprovalUrl = (await ownerIsOrganization(owner, probeSignal()))
+      ? `https://github.com/organizations/${owner}/settings/personal-access-token-requests`
+      : undefined;
+    return reply.code(404).send({
+      error: err.message,
+      code: err.code,
+      ...(orgApprovalUrl !== undefined && { orgApprovalUrl }),
+    });
+  }
+  return await sendGitHubError(reply, err);
 }
 
 async function lokiStatusPayload(): Promise<LokiIntegrationStatus> {
@@ -175,35 +210,51 @@ async function sendSentryError(
 export async function registerIntegrationRoutes(
   fastify: FastifyInstance,
 ): Promise<void> {
+  const app = fastify.withTypeProvider<ZodTypeProvider>();
+  const gitHubRefusals = refusals(gitHubErrorBodySchema);
+  const answersGitHub = {
+    response: { 200: gitHubIntegrationStatusSchema, ...gitHubRefusals },
+  };
+  const refusalsOnly = {
+    response: { 204: z.undefined(), ...refusals() },
+  };
+
   // Status only: the plaintext token is never returned by any endpoint - there
   // is no reveal use case; regenerate on GitHub via the deep link instead.
-  fastify.get(
+  app.get(
     "/integrations/github",
-    { preHandler: requireSession },
+    { onRequest: requireSession, schema: answersGitHub },
     async () => await statusPayload(),
   );
 
   // Sandbox prerequisites, checked when the user clicks Connect: fail
   // loud at setup time, never at 3am mid-incident.
-  fastify.post(
+  app.post(
     "/integrations/github/preflight",
-    { preHandler: requireSession },
+    {
+      onRequest: requireSession,
+      schema: {
+        response: { 200: sandboxPreflightSchema, ...refusals() },
+      },
+    },
     async (request) => await preflight(request.log),
   );
 
   // During onboarding the token rides the body; afterwards the stored
   // credential is used. POST, never GET, so a token never lands in a URL.
-  fastify.post(
+  app.post(
     "/integrations/github/repos",
-    { preHandler: requireSession },
+    {
+      onRequest: requireSession,
+      schema: {
+        body: ReposBodySchema,
+        response: { 200: gitHubRepoPageSchema, ...gitHubRefusals },
+      },
+    },
     async (request, reply) => {
-      const parsed = ReposBodySchema.safeParse(request.body ?? {});
-      if (!parsed.success) {
-        return reply.code(400).send({ error: readable(parsed.error) });
-      }
       const stored = await getGitHubIntegration();
-      const page = parsed.data.page ?? 1;
-      const token = parsed.data.token;
+      const page = request.body.page ?? 1;
+      const token = request.body.token;
       const list = async (t: string) => await listRepos(t, probeSignal(), page);
       const fetchPage =
         token !== undefined
@@ -230,15 +281,17 @@ export async function registerIntegrationRoutes(
   );
 
   // Bind: validate the exact repo with the pasted token, then encrypt + store.
-  fastify.post(
+  app.post(
     "/integrations/github",
-    { preHandler: requireSession },
+    {
+      onRequest: requireSession,
+      schema: {
+        body: ConnectBodySchema,
+        response: { 201: gitHubIntegrationStatusSchema, ...gitHubRefusals },
+      },
+    },
     async (request, reply) => {
-      const parsed = ConnectBodySchema.safeParse(request.body);
-      if (!parsed.success) {
-        return reply.code(400).send({ error: readable(parsed.error) });
-      }
-      const { token, repo } = parsed.data;
+      const { token, repo } = request.body;
       // The body schema regex guarantees exactly one slash with both sides
       // non-empty, so the two-element destructure cannot miss.
       const [owner, name] = repo.split("/") as [string, string];
@@ -258,39 +311,26 @@ export async function registerIntegrationRoutes(
         logger.info({ repo }, "github integration configured");
         return await reply.code(201).send(await statusPayload());
       } catch (err) {
-        if (err instanceof GitHubApiError && err.code === "repo_not_found") {
-          const orgApprovalUrl = (await ownerIsOrganization(
-            owner,
-            probeSignal(),
-          ))
-            ? `https://github.com/organizations/${owner}/settings/personal-access-token-requests`
-            : undefined;
-          return reply.code(404).send({
-            error: err.message,
-            code: err.code,
-            ...(orgApprovalUrl !== undefined && { orgApprovalUrl }),
-          });
-        }
-        return await sendGitHubError(reply, err);
+        return await sendRepoError(reply, err, owner);
       }
     },
   );
 
   // Never accepts a token - only ever uses the one already stored, so the
   // request proves nothing beyond "pick a different repo".
-  fastify.patch(
+  app.patch(
     "/integrations/github",
-    { preHandler: requireSession },
+    {
+      onRequest: requireSession,
+      schema: { body: RebindBodySchema, ...answersGitHub },
+    },
     async (request, reply) => {
       const stored = await getGitHubIntegration();
       if (!stored) {
         return reply.code(400).send({ error: "GitHub is not connected" });
       }
-      const parsed = RebindBodySchema.safeParse(request.body);
-      if (!parsed.success) {
-        return reply.code(400).send({ error: readable(parsed.error) });
-      }
-      const [owner, name] = parsed.data.repo.split("/") as [string, string];
+      // The same regex as on connect, so the destructure cannot miss.
+      const [owner, name] = request.body.repo.split("/") as [string, string];
       try {
         await withStoredCredential(
           stored.id,
@@ -299,33 +339,20 @@ export async function registerIntegrationRoutes(
         );
         await updateGitHubIntegrationRepo(owner, name);
         logger.info(
-          { repo: parsed.data.repo },
+          { repo: request.body.repo },
           "github integration repository changed",
         );
         return await reply.code(200).send(await statusPayload());
       } catch (err) {
-        if (err instanceof GitHubApiError && err.code === "repo_not_found") {
-          const orgApprovalUrl = (await ownerIsOrganization(
-            owner,
-            probeSignal(),
-          ))
-            ? `https://github.com/organizations/${owner}/settings/personal-access-token-requests`
-            : undefined;
-          return reply.code(404).send({
-            error: err.message,
-            code: err.code,
-            ...(orgApprovalUrl !== undefined && { orgApprovalUrl }),
-          });
-        }
-        return await sendGitHubError(reply, err);
+        return await sendRepoError(reply, err, owner);
       }
     },
   );
 
   // Test connection: the stored token must still reach the bound repository.
-  fastify.post(
+  app.post(
     "/integrations/github/test",
-    { preHandler: requireSession },
+    { onRequest: requireSession, schema: answersGitHub },
     async (_request, reply) => {
       const stored = await getGitHubIntegration();
       if (!stored) {
@@ -351,9 +378,9 @@ export async function registerIntegrationRoutes(
 
   // Deletes our stored copy only; full invalidation requires revoking on
   // GitHub. Sandboxes are torn down first, while the token still works.
-  fastify.delete(
+  app.delete(
     "/integrations/github",
-    { preHandler: requireSession },
+    { onRequest: requireSession, schema: refusalsOnly },
     async (_request, reply) => {
       await teardownAll("disconnected");
       await deleteGitHubIntegration();
@@ -362,23 +389,30 @@ export async function registerIntegrationRoutes(
     },
   );
 
-  fastify.get(
+  const lokiRefusals = refusals(lokiErrorBodySchema);
+  const answersLoki = {
+    response: { 200: lokiIntegrationStatusSchema, ...lokiRefusals },
+  };
+
+  app.get(
     "/integrations/loki",
-    { preHandler: requireSession },
+    { onRequest: requireSession, schema: answersLoki },
     async () => await lokiStatusPayload(),
   );
 
   // Probed before saving, because it exercises auth and the tenant header: a
   // bad URL or credential fails at setup rather than at 3am.
-  fastify.post(
+  app.post(
     "/integrations/loki",
-    { preHandler: requireSession },
+    {
+      onRequest: requireSession,
+      schema: {
+        body: LokiConnectSchema,
+        response: { 201: lokiIntegrationStatusSchema, ...lokiRefusals },
+      },
+    },
     async (request, reply) => {
-      const parsed = LokiConnectSchema.safeParse(request.body);
-      if (!parsed.success) {
-        return reply.code(400).send({ error: readable(parsed.error) });
-      }
-      const { url, authHeader, orgId } = parsed.data;
+      const { url, authHeader, orgId } = request.body;
       try {
         await probeLoki(url, authHeader ?? null, orgId ?? null, probeSignal());
         await saveLokiIntegration({
@@ -394,9 +428,9 @@ export async function registerIntegrationRoutes(
     },
   );
 
-  fastify.post(
+  app.post(
     "/integrations/loki/test",
-    { preHandler: requireSession },
+    { onRequest: requireSession, schema: answersLoki },
     async (_request, reply) => {
       const stored = await getLokiIntegration();
       if (!stored) {
@@ -420,9 +454,9 @@ export async function registerIntegrationRoutes(
     },
   );
 
-  fastify.delete(
+  app.delete(
     "/integrations/loki",
-    { preHandler: requireSession },
+    { onRequest: requireSession, schema: refusalsOnly },
     async (_request, reply) => {
       await deleteLokiIntegration();
       logger.info("loki integration disconnected");
@@ -430,23 +464,30 @@ export async function registerIntegrationRoutes(
     },
   );
 
-  fastify.get(
+  const sentryRefusals = refusals(sentryErrorBodySchema);
+  const answersSentry = {
+    response: { 200: sentryIntegrationStatusSchema, ...sentryRefusals },
+  };
+
+  app.get(
     "/integrations/sentry",
-    { preHandler: requireSession },
+    { onRequest: requireSession, schema: answersSentry },
     async () => await sentryStatusPayload(),
   );
 
   // Probed on both scopes before saving: a token carrying only event:read would
   // otherwise connect cleanly and answer nothing about releases mid-incident.
-  fastify.post(
+  app.post(
     "/integrations/sentry",
-    { preHandler: requireSession },
+    {
+      onRequest: requireSession,
+      schema: {
+        body: SentryConnectSchema,
+        response: { 201: sentryIntegrationStatusSchema, ...sentryRefusals },
+      },
+    },
     async (request, reply) => {
-      const parsed = SentryConnectSchema.safeParse(request.body);
-      if (!parsed.success) {
-        return reply.code(400).send({ error: readable(parsed.error) });
-      }
-      const { url, orgSlug, token } = parsed.data;
+      const { url, orgSlug, token } = request.body;
       try {
         await probeSentry({ baseUrl: url, orgSlug, token }, probeSignal());
         await saveSentryIntegration({ baseUrl: url, orgSlug, token });
@@ -458,9 +499,9 @@ export async function registerIntegrationRoutes(
     },
   );
 
-  fastify.post(
+  app.post(
     "/integrations/sentry/test",
-    { preHandler: requireSession },
+    { onRequest: requireSession, schema: answersSentry },
     async (_request, reply) => {
       const stored = await getSentryIntegration();
       if (!stored) {
@@ -478,9 +519,9 @@ export async function registerIntegrationRoutes(
     },
   );
 
-  fastify.delete(
+  app.delete(
     "/integrations/sentry",
-    { preHandler: requireSession },
+    { onRequest: requireSession, schema: refusalsOnly },
     async (_request, reply) => {
       await deleteSentryIntegration();
       logger.info("sentry integration disconnected");
@@ -490,13 +531,24 @@ export async function registerIntegrationRoutes(
 
   // Credential issued here (the config plane); deliveries hit /alerts/ingest
   // (the data plane) with it. One family, so a new sender is a kind.
-  const knownSender = [requireSession, requireKnownAlertSource];
+  const knownSender = {
+    onRequest: requireSession,
+    preHandler: requireKnownAlertSource,
+  };
+  // Any string, so a kind outside the shared list is a 404 naming nothing.
+  const params = z.object({ kind: z.string() });
 
-  fastify.get<AlertSourceRoute>(
+  app.get(
     "/integrations/alerting/:kind",
-    { preHandler: knownSender },
+    {
+      ...knownSender,
+      schema: {
+        params,
+        response: { 200: alertSourceStatusSchema, ...refusals() },
+      },
+    },
     async (request): Promise<AlertSourceStatus> => {
-      const source = await getAlertSource(request.params.kind);
+      const source = await getAlertSource(senderOf(request.params));
       return {
         configured: source !== null,
         ingestUrl: `${publicUrl(request)}/api/alerts/ingest`,
@@ -505,32 +557,37 @@ export async function registerIntegrationRoutes(
     },
   );
 
-  fastify.post<AlertSourceRoute>(
+  app.post(
     "/integrations/alerting/:kind/credential",
-    { preHandler: knownSender },
+    {
+      ...knownSender,
+      schema: {
+        params,
+        response: { 201: alertSourceCredentialSchema, ...refusals() },
+      },
+    },
     async (request, reply) =>
-      reply
-        .code(201)
-        .send({ token: await generateAlertSourceToken(request.params.kind) }),
+      reply.code(201).send({
+        token: await generateAlertSourceToken(senderOf(request.params)),
+      }),
   );
 
   // Deleting the row is the revoke: the credential stops matching on the next
   // delivery, which is the only place it is ever checked.
-  fastify.delete<AlertSourceRoute>(
+  app.delete(
     "/integrations/alerting/:kind",
-    { preHandler: knownSender },
+    { ...knownSender, schema: { params, ...refusalsOnly } },
     async (request, reply) => {
-      await deleteAlertSource(request.params.kind);
+      await deleteAlertSource(senderOf(request.params));
       logger.info({ kind: request.params.kind }, "alert source disconnected");
       return reply.code(204).send();
     },
   );
 }
 
-// Guarded the way requireSession guards identity: the check is the route's
-// precondition, not a branch inside every handler.
-interface AlertSourceRoute {
-  Params: { kind: AlertSourceKind };
+function senderOf(params: { kind: string }): AlertSourceKind {
+  // Reached only after requireKnownAlertSource has accepted the kind.
+  return params.kind as AlertSourceKind;
 }
 
 // Checked against the shared list, so the frontend and the API cannot disagree

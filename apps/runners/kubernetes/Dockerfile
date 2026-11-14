@@ -15,7 +15,7 @@ WORKDIR /build
 # until a dependency actually changes rather than on every source edit.
 FROM base AS manifests
 
-COPY pnpm-workspace.yaml pnpm-lock.yaml package.json ./
+COPY pnpm-workspace.yaml pnpm-lock.yaml package.json .pnpmfile.cjs ./
 COPY apps/runners/kubernetes/package.json apps/runners/kubernetes/
 COPY packages/shared/package.json packages/shared/
 COPY packages/runner-core/package.json packages/runner-core/

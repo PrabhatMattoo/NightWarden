@@ -1,22 +1,10 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import Fastify from "fastify";
-import FastifyWebSocket from "@fastify/websocket";
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifySchema } from "fastify";
 
 vi.mock("../llm/factory.js", () => import("./llm-factory-mock.js"));
 
-import { registerAlertRoutes } from "../alerts/ingest.js";
-import { registerAuthRoutes } from "../auth/routes.js";
-import { registerTokenRoutes } from "../auth/token.js";
-import { registerConfigRoutes } from "../config/routes.js";
-import { registerIntegrationRoutes } from "../integrations/routes.js";
-import { registerMetricsRoutes } from "../integrations/metrics/routes.js";
-import { registerInstallRoutes } from "../fleet/install.js";
-import { registerRunnerRoutes } from "../fleet/routes.js";
-import { registerFrontendEventRoutes } from "../session/events.js";
-import { registerSessionRoutes } from "../session/routes.js";
-import { registerWsRoutes } from "../fleet/server.js";
-import { mountApi } from "./api-server.js";
+import { registerApi } from "../api.js";
 import { useTempDb } from "./temp-db.js";
 
 // One walk of the whole surface, so tomorrow's route is covered. A route not
@@ -57,38 +45,28 @@ function fill(url: string): string {
   });
 }
 
-describe("every route refuses an anonymous caller", () => {
+describe("the route surface", () => {
   let server: FastifyInstance;
   let cleanupDb: () => void;
-  const routes: Array<{ method: string; url: string }> = [];
+  const routes: Array<{
+    method: string;
+    url: string;
+    schema: FastifySchema | undefined;
+  }> = [];
 
   beforeAll(async () => {
     cleanupDb = await useTempDb();
     server = Fastify({ logger: false });
-    await server.register(FastifyWebSocket);
     server.addHook("onRoute", (route) => {
       const methods = Array.isArray(route.method)
         ? route.method
         : [route.method];
       for (const method of methods) {
         if (method === "HEAD" || method === "OPTIONS") continue;
-        routes.push({ method, url: route.url });
+        routes.push({ method, url: route.url, schema: route.schema });
       }
     });
-    await mountApi(
-      server,
-      registerAuthRoutes,
-      registerTokenRoutes,
-      registerWsRoutes,
-      registerFrontendEventRoutes,
-      registerAlertRoutes,
-      registerConfigRoutes,
-      registerSessionRoutes,
-      registerRunnerRoutes,
-      registerInstallRoutes,
-      registerIntegrationRoutes,
-      registerMetricsRoutes,
-    );
+    await registerApi(server);
     await server.ready();
   });
 
@@ -115,6 +93,22 @@ describe("every route refuses an anonymous caller", () => {
       if (res.statusCode !== 401) allowed.push(`${route} -> ${res.statusCode}`);
     }
     expect(allowed).toEqual([]);
+  });
+
+  /* The serializer encodes a reply through the schema for its status and drops
+     any field it does not name, so a route without one would send everything. */
+  it("declares the success and refusal bodies of every route OpenAPI describes", () => {
+    const undeclared = routes
+      .filter(({ schema }) => schema?.hide !== true)
+      .filter(({ schema }) => {
+        const response = schema?.response;
+        if (typeof response !== "object" || response === null) return true;
+        const codes = Object.keys(response);
+        const refuses = codes.includes("4xx") && codes.includes("5xx");
+        return !refuses || !codes.some((c) => c.startsWith("2"));
+      })
+      .map(({ method, url }) => `${method} ${url}`);
+    expect(undeclared).toEqual([]);
   });
 
   /* The list cannot rot quietly in the other direction either: a route that was

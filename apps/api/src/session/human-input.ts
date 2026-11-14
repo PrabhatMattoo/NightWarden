@@ -36,7 +36,7 @@ type Settled = Extract<ApprovalStatus, "approved" | "rejected" | "answered">;
 
 export class HumanInputError extends Error {
   constructor(
-    public readonly statusCode: number,
+    public readonly statusCode: 400 | 409,
     message: string,
   ) {
     super(message);

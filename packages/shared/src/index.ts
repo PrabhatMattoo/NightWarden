@@ -1,10 +1,6 @@
-export type {
-  AlertGroupContext,
-  AlertSourceKind,
-  NormalizedAlert,
-} from "./alerts.js";
+export type { AlertSourceKind } from "./alerts.js";
 export { ALERT_SOURCE_KINDS, isAlertSourceKind } from "./alerts.js";
-export type { AuthStatusResponse, ThemePreference } from "./auth.js";
+export type { ThemePreference } from "./auth.js";
 export {
   AVATAR_MAX_LENGTH,
   AVATAR_PATTERN,
@@ -77,15 +73,7 @@ export {
   isToolName,
 } from "./tools/names.js";
 export { METRICS_SOURCE_KINDS, isMetricsSourceKind } from "./metrics.js";
-export type {
-  AmpCredential,
-  MetricsSourceKind,
-  MetricsSourceStatus,
-  MetricsConnectInput,
-  MetricsEndpointInput,
-  MetricsEndpointStatus,
-  MetricsErrorCode,
-} from "./metrics.js";
+export type { AmpCredential, MetricsSourceKind } from "./metrics.js";
 export type { ToolName } from "./tools/names.js";
 export type {
   RunnerMessage,
@@ -115,36 +103,18 @@ export type {
   FrontendEvent,
 } from "./frontend-events.js";
 export type {
-  ApprovalStatus,
-  ApprovalRequest,
-  ApprovalResponse,
-  RespondRequest,
-} from "./approvals.js";
-export type {
   DockerFleetRunner,
-  DockerManifest,
-  DockerServiceEntry,
   FleetRunner,
   KubernetesFleetRunner,
-  KubernetesManifest,
-  KubernetesWorkloadEntry,
   Platform,
-  RunnerManifest,
-  RunnerRecord,
 } from "./runner.js";
 export { PLATFORMS, isPlatform, serverNameError } from "./runner.js";
 export type {
   TranscriptKind,
   ReminderKind,
-  SessionMeta,
   TranscriptRow,
-  SessionAlert,
-  SessionDetail,
-  InvestigationStatus,
   FailureKind,
   AwaitingKind,
-  SessionListRow,
-  SessionListPage,
   SessionKind,
   StatusFilter,
 } from "./sessions.js";
@@ -160,39 +130,10 @@ export type {
   CompactionPart,
   MessagePart,
   PartProviderOptions,
-  Actor,
 } from "./messages.js";
 export { messagePartsToText, toolResultText } from "./messages.js";
-export type {
-  ToolGate,
-  ToolCallState,
-  UserTurnItem,
-  AgentTextItem,
-  ErrorTextItem,
-  ToolCallItem,
-  ContinueCardItem,
-  ReportCardItem,
-  CandidateRow,
-  CandidateCardItem,
-  AlertArrivedItem,
-  CompactionItem,
-  TranscriptItem,
-} from "./transcript.js";
 export { transcriptItemKey } from "./transcript.js";
-export type {
-  Verdict,
-  RecordGapKind,
-  Candidate,
-  Finding,
-  GatedCall,
-  TimelineEntry,
-  TimelineLane,
-  SubmittedReport,
-  InvestigationRecord,
-  EvidenceKind,
-  ResolvedEvidence,
-  SessionReportResponse,
-} from "./reports.js";
+export type { RecordGapKind } from "./reports.js";
 export {
   rankFindings,
   claimOf,
@@ -202,17 +143,8 @@ export {
   supersededIds,
 } from "./reports.js";
 export type {
-  CatalogError,
   LLMProviderName,
-  ModelCatalog,
-  ProviderOption,
-  ReasoningLevel,
-  ReasoningDescriptor,
-  ModelOption,
   SandboxNetwork,
-  AgentConfig,
-  ProviderSettings,
-  ProviderSettingsMap,
   ResolvedLLMConfig,
   NumericSetting,
   SettingRange,
@@ -224,16 +156,90 @@ export {
   SANDBOX_NETWORKS,
   SETTING_RANGES,
 } from "./config.js";
+
+// The HTTP contract, inferred from the route schemas. Type-only, so the
+// frontend that reads them never ships zod.
+export type { paths } from "./openapi.js";
+export type { AuthStatusResponse, MintedToken } from "./schemas/auth.js";
+export type {
+  AgentConfig,
+  CatalogError,
+  ConfigPatch,
+  SettingsPatch,
+  ModelCatalog,
+  ModelOption,
+  ProviderOption,
+  ProviderSettings,
+  ProviderSettingsMap,
+  ReasoningDescriptor,
+  ReasoningLevel,
+} from "./schemas/config.js";
+export type { RespondRequest } from "./schemas/http.js";
 export type {
   AlertSourceStatus,
+  CredentialRejection,
+  GitHubErrorBody,
   GitHubErrorCode,
   GitHubIntegrationStatus,
-  GitHubRepoSummary,
   GitHubRepoPage,
-  GitHubErrorBody,
-  CredentialRejection,
+  GitHubRepoSummary,
   LokiErrorCode,
   LokiIntegrationStatus,
+  MetricsConnectInput,
+  MetricsEndpointInput,
+  MetricsEndpointStatus,
+  MetricsErrorCode,
+  MetricsSourceStatus,
+  SandboxPreflight,
   SentryErrorCode,
   SentryIntegrationStatus,
-} from "./integrations.js";
+} from "./schemas/integrations.js";
+export type {
+  Actor,
+  Candidate,
+  EvidenceKind,
+  Finding,
+  GatedCall,
+  InvestigationRecord,
+  ResolvedEvidence,
+  SessionReportResponse,
+  SubmittedReport,
+  TimelineEntry,
+  TimelineLane,
+  Verdict,
+} from "./schemas/report.js";
+export type {
+  DockerManifest,
+  DockerServiceEntry,
+  KubernetesManifest,
+  KubernetesWorkloadEntry,
+  RunnerManifest,
+} from "./schemas/runner-protocol.js";
+export type { RunnerRecord } from "./schemas/runner.js";
+export type {
+  AlertGroupContext,
+  ApprovalResponse,
+  InvestigationStatus,
+  NormalizedAlert,
+  SessionAlert,
+  SessionDetail,
+  SessionListPage,
+  SessionListRow,
+  SessionMeta,
+} from "./schemas/sessions.js";
+export type {
+  AgentTextItem,
+  AlertArrivedItem,
+  ApprovalStatus,
+  CandidateCardItem,
+  CandidateRow,
+  CompactionItem,
+  ContinueCardItem,
+  ErrorTextItem,
+  ReportCardItem,
+  ToolCallItem,
+  ToolCallState,
+  ToolGate,
+  TranscriptItem,
+  UserTurnItem,
+} from "./schemas/transcript.js";

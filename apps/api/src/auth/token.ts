@@ -1,37 +1,43 @@
 import type { FastifyInstance } from "fastify";
+import type { ZodTypeProvider } from "fastify-type-provider-zod";
+import { z } from "zod";
 import { serverNameError } from "@nightwarden/shared";
-import { mintTokenRequestSchema } from "@nightwarden/shared/schemas";
-import { parseRequest } from "../request-body.js";
 import {
-  generateRunnerToken,
-  deleteRunner,
-  listRunnersMeta,
-} from "../fleet/runners-store.js";
+  refusals,
+  mintedTokenSchema,
+  mintTokenRequestSchema,
+} from "@nightwarden/shared/schemas";
+import { generateRunnerToken, deleteRunner } from "../fleet/runners-store.js";
 import { closeRunnerConnections } from "../fleet/connections.js";
 import { requireSession } from "./session.js";
 
 export async function registerTokenRoutes(
   fastify: FastifyInstance,
 ): Promise<void> {
+  const app = fastify.withTypeProvider<ZodTypeProvider>();
+
   // Generate a new runner token. The plaintext nwr_... value is returned
   // exactly once here and never stored — the DB holds only the SHA-256 hash.
-  fastify.post(
+  app.post(
     "/tokens",
-    { preHandler: requireSession },
+    {
+      onRequest: requireSession,
+      schema: {
+        body: mintTokenRequestSchema,
+        response: { 201: mintedTokenSchema, ...refusals() },
+      },
+    },
     async (request, reply) => {
       // Platform is refused rather than defaulted: a guess throws away what the
       // frontend was told, and the row is what everything else reads.
-      const body = parseRequest(mintTokenRequestSchema, request.body ?? {});
-      if (!body.ok) return reply.code(400).send({ error: body.error });
-      const { platform } = body.data;
-
-      const nameError = serverNameError(body.data.serverName);
+      const { platform } = request.body;
+      const nameError = serverNameError(request.body.serverName);
       if (nameError) return reply.code(400).send({ error: nameError });
-      const serverName = body.data.serverName.trim();
+      const serverName = request.body.serverName.trim();
 
       try {
         const generated = await generateRunnerToken(platform, serverName);
-        return reply.code(201).send({
+        return await reply.code(201).send({
           id: generated.id,
           token: generated.plaintext,
           platform: generated.platform,
@@ -50,16 +56,17 @@ export async function registerTokenRoutes(
     },
   );
 
-  // List all tokens (active and revoked). No plaintext is ever returned.
-  fastify.get("/tokens", { preHandler: requireSession }, async () => ({
-    tokens: await listRunnersMeta(),
-  }));
-
   // Delete a runner token by id. Closes any live runner sockets authenticated
   // with it immediately so deletion cuts access without waiting for reconnect.
-  fastify.delete<{ Params: { id: string } }>(
+  app.delete(
     "/tokens/:id",
-    { preHandler: requireSession },
+    {
+      onRequest: requireSession,
+      schema: {
+        params: z.object({ id: z.string() }),
+        response: { 204: z.undefined(), ...refusals() },
+      },
+    },
     async (request, reply) => {
       const deleted = await deleteRunner(request.params.id);
       if (!deleted) {

@@ -21,7 +21,7 @@ import {
 } from "../IntegrationPage";
 import { timeAgo } from "@/shared/lib/time";
 import { toast } from "@/shared/lib/toast";
-import { apiFetch } from "@/shared/api/client";
+import { api, dataOrThrow } from "@/shared/api/client";
 import { useDisconnect } from "../useIntegration";
 import { ALERT_SOURCE_CONTENT } from "./content";
 import { INTEGRATION_CATALOG } from "../catalog";
@@ -41,7 +41,7 @@ export function AlertSourcePage({
   const [confirmRotate, setConfirmRotate] = useState(false);
   const [confirmDisconnect, setConfirmDisconnect] = useState(false);
 
-  const base = `/api/integrations/alerting/${kind}`;
+  const path = { params: { path: { kind } } };
   const { queryKey } = alertSourceQuery(kind);
   const { data: status } = useSuspenseQuery(alertSourceQuery(kind));
 
@@ -55,7 +55,9 @@ export function AlertSourcePage({
 
   const generate = useMutation({
     mutationFn: () =>
-      apiFetch<{ token: string }>(`${base}/credential`, { method: "POST" }),
+      dataOrThrow(
+        api.POST("/api/integrations/alerting/{kind}/credential", path),
+      ),
     onSuccess: async ({ token }) => {
       setSecret(token);
       await queryClient.invalidateQueries({ queryKey });
@@ -71,7 +73,8 @@ export function AlertSourcePage({
   const disconnect = useDisconnect({
     label: identity.label,
     queryKey,
-    endpoint: () => base,
+    request: () =>
+      dataOrThrow(api.DELETE("/api/integrations/alerting/{kind}", path)),
   });
 
   const configured = status.configured;

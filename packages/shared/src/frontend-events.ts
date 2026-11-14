@@ -1,5 +1,5 @@
 import type { AwaitingKind, TranscriptRow } from "./sessions.js";
-import type { TranscriptItem } from "./transcript.js";
+import type { TranscriptItem } from "./schemas/transcript.js";
 
 // Common envelope for the API→frontend event stream (SSE). messageId is a per-event UUID
 // inside the payload JSON, not an SSE `id:` field - the feed is drop-tolerant with no Last-Event-ID replay.

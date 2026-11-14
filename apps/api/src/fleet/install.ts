@@ -1,4 +1,7 @@
 import type { FastifyInstance } from "fastify";
+import type { ZodTypeProvider } from "fastify-type-provider-zod";
+import { z } from "zod";
+import { refusals } from "@nightwarden/shared/schemas";
 import type { Platform } from "@nightwarden/shared";
 import { requireSession } from "../auth/session.js";
 import { extractBearerToken } from "../auth/bearer.js";
@@ -28,11 +31,19 @@ const ARTIFACT: Record<Platform, InstallArtifact> = {
 export async function registerInstallRoutes(
   fastify: FastifyInstance,
 ): Promise<void> {
+  const app = fastify.withTypeProvider<ZodTypeProvider>();
+  // Described as plain text: the artifact's own type varies with the platform.
+  const schema = {
+    response: {
+      200: { content: { "text/plain": { schema: z.string() } } },
+      ...refusals(),
+    },
+  };
   // One endpoint for both platforms: the row the token names decides which
   // artifact comes back, so the wrong one cannot be fetched for a runner.
-  fastify.get(
+  app.get(
     "/runners/install",
-    { preHandler: requireSession },
+    { onRequest: requireSession, schema },
     async (request, reply) => {
       const token = extractBearerToken(request.headers.authorization);
       if (!token) {

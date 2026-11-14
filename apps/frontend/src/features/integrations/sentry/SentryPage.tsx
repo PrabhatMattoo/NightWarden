@@ -9,7 +9,7 @@ import type { SentryIntegrationStatus } from "@nightwarden/shared";
 import { Input } from "@/shared/ui/input";
 import { ConfirmDialog } from "@/shared/ui/ConfirmDialog";
 import { toast } from "@/shared/lib/toast";
-import { apiFetch } from "@/shared/api/client";
+import { api, dataOrThrow } from "@/shared/api/client";
 import {
   rowLabel,
   SettingsGroup,
@@ -51,15 +51,15 @@ function ConnectForm({
 
   const connect = useMutation({
     mutationFn: () =>
-      apiFetch<SentryIntegrationStatus>("/api/integrations/sentry", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          url: url.trim(),
-          orgSlug: orgSlug.trim(),
-          token: token.trim(),
+      dataOrThrow(
+        api.POST("/api/integrations/sentry", {
+          body: {
+            url: url.trim(),
+            orgSlug: orgSlug.trim(),
+            token: token.trim(),
+          },
         }),
-      }),
+      ),
     onMutate: () => setError(null),
     onSuccess: async () => {
       toast.success(status.configured ? "Sentry updated" : "Sentry connected");
@@ -137,12 +137,12 @@ export function SentryPage(): React.JSX.Element {
   const disconnect = useDisconnect({
     label: "Sentry",
     queryKey: sentryStatusQuery().queryKey,
-    endpoint: () => "/api/integrations/sentry",
+    request: () => dataOrThrow(api.DELETE("/api/integrations/sentry")),
   });
   const test = useTestConnection({
     label: "Sentry",
     queryKey: sentryStatusQuery().queryKey,
-    endpoint: "/api/integrations/sentry/test",
+    request: () => dataOrThrow(api.POST("/api/integrations/sentry/test")),
   });
 
   return (

@@ -6,7 +6,7 @@ import type { SessionKind } from "@nightwarden/shared";
 import { ConfirmDialog } from "@/shared/ui/ConfirmDialog";
 import { removeSession } from "@/features/session/useSessions";
 import { toast } from "@/shared/lib/toast";
-import { apiFetch } from "@/shared/api/client";
+import { api, dataOrThrow } from "@/shared/api/client";
 
 /* Deleting a session is one act with one failure mode, so both surfaces that
    offer it ask the same question and report the same error. What differs is
@@ -37,7 +37,11 @@ export function useSessionDeletion({
 
   const remove = useMutation({
     mutationFn: () =>
-      apiFetch<void>(`/api/sessions/${sessionId}`, { method: "DELETE" }),
+      dataOrThrow(
+        api.DELETE("/api/sessions/{id}", {
+          params: { path: { id: sessionId ?? "" } },
+        }),
+      ),
     onSuccess: () => {
       if (sessionId !== null) removeSession(queryClient, kind, sessionId);
       void navigate({ to: returnTo });

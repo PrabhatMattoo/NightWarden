@@ -1,5 +1,8 @@
-// The frontend's single fetch boundary: one place for status handling, so a failure
-// throws an ApiError react-query surfaces instead of a swallowed `if (!res.ok) return`.
+// The frontend's single fetch boundary, typed by the API's own description: the
+// path picks the request and response types, and a failure throws an ApiError.
+import createFetchClient from "openapi-fetch";
+import createQueryClient from "openapi-react-query";
+import type { paths } from "@nightwarden/shared";
 
 export class ApiError extends Error {
   constructor(
@@ -14,46 +17,61 @@ export class ApiError extends Error {
   }
 }
 
-// A failure throws, carrying the route's `error` or Better Auth's `message` as its text.
-async function request(url: string, init?: RequestInit): Promise<Response> {
-  const res = init === undefined ? await fetch(url) : await fetch(url, init);
-  if (res.ok) return res;
-  let message = `${init?.method ?? "GET"} ${url} failed (${res.status})`;
-  let body: unknown;
-  try {
-    body = await res.json();
-    if (typeof body === "object" && body !== null) {
-      const text =
-        "error" in body && typeof body.error === "string"
-          ? body.error
-          : "message" in body && typeof body.message === "string"
-            ? body.message
-            : undefined;
-      if (text !== undefined) message = text;
+// The middleware below throws every failure as an ApiError, so the client is
+// typed by each route's success answers alone and the query cache sees Error.
+type Answered<Operation> = Operation extends { responses: infer Responses }
+  ? Omit<Operation, "responses"> & {
+      responses: Pick<
+        Responses,
+        Extract<keyof Responses, 200 | 201 | 202 | 204>
+      >;
     }
-  } catch {
-    // Non-JSON error body (or none); keep the status-based message.
-  }
-  throw new ApiError(res.status, message, body);
-}
+  : Operation;
+type SuccessPaths = {
+  [Path in keyof paths]: {
+    [Method in keyof paths[Path]]: Answered<paths[Path][Method]>;
+  };
+};
 
-export async function apiText(
-  url: string,
-  init?: RequestInit,
-): Promise<string> {
-  return await (await request(url, init)).text();
-}
+export const api = createFetchClient<SuccessPaths>({
+  // A Request needs an absolute URL; the API shares the page's origin.
+  baseUrl: window.location.origin,
+  // The global is read per call rather than captured once, so a stubbed fetch is the one used.
+  fetch: (request) => fetch(request),
+});
 
-export async function apiFetch<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await request(url, init);
-  if (res.status === 204) return undefined as T;
-  try {
-    // The one trusted cast in the frontend: responses are shape-checked at
-    // compile time via @nightwarden/shared, a contract we own both ends of.
-    return (await res.json()) as T;
-  } catch {
-    // A success with an empty or non-JSON body - the void endpoints (DELETE,
-    // stop). Their callers type the result as void.
-    return undefined as T;
-  }
+// A failure throws, carrying the route's `error` or Better Auth's `message` as its text.
+api.use({
+  async onResponse({ request, response }) {
+    if (response.ok) return;
+    const path = new URL(request.url).pathname;
+    let message = `${request.method} ${path} failed (${response.status})`;
+    let body: unknown;
+    try {
+      body = await response.clone().json();
+      if (typeof body === "object" && body !== null) {
+        const text =
+          "error" in body && typeof body.error === "string"
+            ? body.error
+            : "message" in body && typeof body.message === "string"
+              ? body.message
+              : undefined;
+        if (text !== undefined) message = text;
+      }
+    } catch {
+      // Non-JSON error body (or none); keep the status-based message.
+    }
+    throw new ApiError(response.status, message, body);
+  },
+});
+
+export const apiQuery = createQueryClient(api);
+
+// A failure has already thrown in the middleware, so what is left is the data.
+export async function dataOrThrow<
+  Answer extends { data?: unknown; error?: unknown },
+>(pending: Promise<Answer>): Promise<Required<Answer>["data"]> {
+  const answer = await pending;
+  if ("error" in answer) throw answer.error;
+  return answer.data;
 }

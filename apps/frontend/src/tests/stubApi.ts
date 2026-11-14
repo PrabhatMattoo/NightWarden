@@ -6,6 +6,7 @@ export interface ApiRequest {
   path: string;
   method: string;
   body: unknown;
+  headers: Headers;
 }
 
 export function json(body: unknown, status = 200): Response {
@@ -25,13 +26,35 @@ function pathOf(input: RequestInfo | URL): string {
   return `${url.pathname}${url.search}`;
 }
 
-function bodyOf(init?: RequestInit): unknown {
-  if (typeof init?.body !== "string") return undefined;
+// The typed client hands over a Request and no init, so its method and body are read from it.
+async function bodyOf(
+  input: RequestInfo | URL,
+  init?: RequestInit,
+): Promise<unknown> {
+  const text =
+    typeof init?.body === "string"
+      ? init.body
+      : input instanceof Request
+        ? await input.clone().text()
+        : "";
+  if (text === "") return undefined;
   try {
-    return JSON.parse(init.body) as unknown;
+    return JSON.parse(text) as unknown;
   } catch {
-    return init.body;
+    return text;
   }
+}
+
+function headersOf(input: RequestInfo | URL, init?: RequestInit): Headers {
+  return new Headers(
+    init?.headers ?? (input instanceof Request ? input.headers : undefined),
+  );
+}
+
+function methodOf(input: RequestInfo | URL, init?: RequestInit): string {
+  const method =
+    init?.method ?? (input instanceof Request ? input.method : "GET");
+  return method.toUpperCase();
 }
 
 /* Answers each request through `route`. Anything it leaves unanswered is a 404
@@ -41,15 +64,17 @@ export function stubApi(
 ) {
   const log: ApiRequest[] = [];
   const fetchMock = vi.fn(
-    (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
       const request: ApiRequest = {
         path: pathOf(input),
-        method: (init?.method ?? "GET").toUpperCase(),
-        body: bodyOf(init),
+        method: methodOf(input, init),
+        body: await bodyOf(input, init),
+        headers: headersOf(input, init),
       };
       log.push(request);
-      return Promise.resolve(
-        route(request) ?? json({ error: `unstubbed ${request.path}` }, 404),
+      return (
+        (await route(request)) ??
+        json({ error: `unstubbed ${request.path}` }, 404)
       );
     },
   );

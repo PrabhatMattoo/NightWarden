@@ -15,6 +15,16 @@ function sha256hex(s: string): string {
   return createHash("sha256").update(s).digest("hex");
 }
 
+// The row's last_used_at, or undefined once the row is gone.
+async function lastUsedAt(id: string): Promise<string | null | undefined> {
+  const row = await getDb()
+    .selectFrom("runner")
+    .select("last_used_at")
+    .where("id", "=", id)
+    .executeTakeFirst();
+  return row?.last_used_at;
+}
+
 describe("Runner token lifecycle (issue 038)", () => {
   let nw: Harness;
   let port: number;
@@ -214,31 +224,6 @@ describe("Runner token lifecycle (issue 038)", () => {
     });
   });
 
-  describe("GET /tokens", () => {
-    it("never returns plaintext in the list", async () => {
-      const issued = await nw.server.inject({
-        method: "POST",
-        url: "/api/tokens",
-        headers: { cookie: `${SESSION}` },
-        payload: {
-          platform: "docker",
-          label: "list-test",
-          serverName: "srv-03",
-        },
-      });
-      const { token } = JSON.parse(issued.body) as { token: string };
-
-      const res = await nw.server.inject({
-        method: "GET",
-        url: "/api/tokens",
-        payload: { platform: "docker", serverName: "srv-04" },
-        headers: { cookie: `${SESSION}` },
-      });
-      expect(res.statusCode).toBe(200);
-      expect(res.body).not.toContain(token);
-    });
-  });
-
   describe("DELETE /tokens/:id", () => {
     it("returns 204 and removes the token row entirely", async () => {
       const issued = await nw.server.inject({
@@ -259,17 +244,7 @@ describe("Runner token lifecycle (issue 038)", () => {
         headers: { cookie: `${SESSION}` },
       });
       expect(del.statusCode).toBe(204);
-
-      const list = await nw.server.inject({
-        method: "GET",
-        url: "/api/tokens",
-        payload: { platform: "docker", serverName: "srv-06" },
-        headers: { cookie: `${SESSION}` },
-      });
-      const { tokens } = JSON.parse(list.body) as {
-        tokens: Array<{ id: string }>;
-      };
-      expect(tokens.find((t) => t.id === id)).toBeUndefined();
+      expect(await lastUsedAt(id)).toBeUndefined();
     });
 
     it("returns 404 for unknown id", async () => {
@@ -517,17 +492,7 @@ describe("Runner token lifecycle (issue 038)", () => {
         ws.on("error", reject);
       });
 
-      const list = await nw.server.inject({
-        method: "GET",
-        url: "/api/tokens",
-        payload: { platform: "docker", serverName: "srv-11" },
-        headers: { cookie: `${SESSION}` },
-      });
-      const { tokens } = JSON.parse(list.body) as {
-        tokens: Array<{ id: string; lastUsedAt: string | null }>;
-      };
-      const found = tokens.find((t) => t.id === id);
-      expect(found!.lastUsedAt).toBeTruthy();
+      expect(await lastUsedAt(id)).toBeTruthy();
     });
 
     // A runner whose platform API is down authenticates but never manifests.
@@ -560,15 +525,7 @@ describe("Runner token lifecycle (issue 038)", () => {
         ws.on("error", reject);
       });
 
-      const list = await nw.server.inject({
-        method: "GET",
-        url: "/api/tokens",
-        headers: { cookie: `${SESSION}` },
-      });
-      const { tokens } = JSON.parse(list.body) as {
-        tokens: Array<{ id: string; lastUsedAt: string | null }>;
-      };
-      expect(tokens.find((t) => t.id === id)!.lastUsedAt).toBeTruthy();
+      expect(await lastUsedAt(id)).toBeTruthy();
 
       // So its name is no longer free, and the live runner keeps its token.
       const second = await nw.server.inject({

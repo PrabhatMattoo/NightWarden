@@ -10,9 +10,11 @@ import {
   createRouter,
 } from "@tanstack/react-router";
 import { TestProviders } from "./renderWithProviders.js";
+import { json, stubApi } from "./stubApi.js";
 import type { RunnerRecord } from "@nightwarden/shared";
 
 import { RunnerListPage } from "../features/integrations/runners/RunnerListPage.js";
+import { runnersQuery } from "../features/integrations/queries.js";
 
 const NOW = new Date("2024-01-01T12:00:00Z").getTime();
 
@@ -80,25 +82,15 @@ function renderRunnerServersRoute(qc: QueryClient) {
 }
 
 function setup(runners: RunnerRecord[] = []) {
-  const fetchMock = vi
-    .fn()
-    .mockImplementation((url: string, init?: RequestInit) => {
-      if (url === "/api/runners") {
-        return Promise.resolve({
-          ok: true,
-          json: () => Promise.resolve(runners),
-        });
-      }
-      if (url.startsWith("/api/tokens/") && init?.method === "DELETE") {
-        return Promise.resolve({
-          ok: true,
-          status: 204,
-          json: () => Promise.resolve({}),
-        });
-      }
-      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
-    });
-  vi.stubGlobal("fetch", fetchMock);
+  const api = stubApi(({ path, method }) => {
+    if (path === "/api/runners") return json(runners);
+    if (path.startsWith("/api/tokens/") && method === "DELETE") {
+      return new Response(null, { status: 204 });
+    }
+    return json({});
+  });
+  const revokes = () =>
+    api.requests("/api/tokens/").filter((r) => r.method === "DELETE");
 
   const qc = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: 0 } },
@@ -106,7 +98,7 @@ function setup(runners: RunnerRecord[] = []) {
 
   renderRunnerServersRoute(qc);
 
-  return { fetchMock, qc };
+  return { revokes, qc };
 }
 
 afterEach(() => {
@@ -134,7 +126,7 @@ describe("RunnerListPage", () => {
   describe("Remove", () => {
     it("revokes the runner's token only once the dialog confirms it", async () => {
       const user = userEvent.setup();
-      const { fetchMock } = setup([WEB_RUNNER]);
+      const { revokes } = setup([WEB_RUNNER]);
 
       await waitFor(() => {
         expect(screen.getByText("web-01")).toBeInTheDocument();
@@ -142,17 +134,13 @@ describe("RunnerListPage", () => {
 
       await user.click(screen.getByRole("button", { name: /remove/i }));
       const dialog = await screen.findByRole("alertdialog");
-      expect(fetchMock).not.toHaveBeenCalledWith(
-        `/api/tokens/${WEB_RUNNER.id}`,
-        expect.objectContaining({ method: "DELETE" }),
-      );
+      expect(revokes()).toEqual([]);
       await user.click(within(dialog).getByRole("button", { name: "Remove" }));
 
       await waitFor(() => {
-        expect(fetchMock).toHaveBeenCalledWith(
+        expect(revokes().map((r) => r.path)).toEqual([
           `/api/tokens/${WEB_RUNNER.id}`,
-          expect.objectContaining({ method: "DELETE" }),
-        );
+        ]);
       });
     });
   });
@@ -161,15 +149,10 @@ describe("RunnerListPage", () => {
     it("re-polls every 30s, picking up a runner that has gone offline", async () => {
       vi.useFakeTimers();
       let call = 0;
-      const fetchMock = vi.fn().mockImplementation(() => {
+      const { fetchMock } = stubApi(() => {
         call += 1;
-        const online = call === 1;
-        return Promise.resolve({
-          ok: true,
-          json: () => Promise.resolve([{ ...WEB_RUNNER, online }]),
-        });
+        return json([{ ...WEB_RUNNER, online: call === 1 }]);
       });
-      vi.stubGlobal("fetch", fetchMock);
 
       const qc = new QueryClient({
         defaultOptions: { queries: { retry: false, gcTime: 0 } },
@@ -186,7 +169,7 @@ describe("RunnerListPage", () => {
         await vi.advanceTimersByTimeAsync(30_000);
       });
       expect(fetchMock).toHaveBeenCalledTimes(2);
-      const polled = qc.getQueryData<RunnerRecord[]>(["runners"]);
+      const polled = qc.getQueryData(runnersQuery().queryKey);
       expect(polled?.[0].online).toBe(false);
       await act(async () => {
         await vi.advanceTimersByTimeAsync(100);

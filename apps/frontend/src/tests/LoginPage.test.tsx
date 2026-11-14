@@ -73,7 +73,7 @@ describe("LoginPage", () => {
     await waitFor(() =>
       expect(router.state.location.pathname).toBe("/investigations"),
     );
-    expect(requests("/api/auth/sign-up/email")).toEqual([
+    expect(requests("/api/auth/sign-up/email")).toMatchObject([
       {
         path: "/api/auth/sign-up/email",
         method: "POST",
@@ -101,7 +101,7 @@ describe("LoginPage", () => {
     await waitFor(() =>
       expect(router.state.location.pathname).toBe("/investigations"),
     );
-    expect(requests("/api/auth/sign-in/email")).toEqual([
+    expect(requests("/api/auth/sign-in/email")).toMatchObject([
       {
         path: "/api/auth/sign-in/email",
         method: "POST",

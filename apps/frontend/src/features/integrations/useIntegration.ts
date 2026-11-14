@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 
-import { ApiError, apiFetch } from "@/shared/api/client";
+import { ApiError } from "@/shared/api/client";
 import { toast } from "@/shared/lib/toast";
 
 /* What a page says when a connect attempt never reached us. A failure the API
@@ -12,21 +12,20 @@ export function connectMessage(err: unknown): string {
 
 // The one step every integration performs identically. Connecting is not here:
 // each product asks for different fields, and a shared shape would hide that.
-export function useDisconnect<TVars = void>({
+export function useDisconnect({
   label,
   queryKey,
-  endpoint,
+  request,
 }: {
   label: string;
   queryKey: readonly unknown[];
-  endpoint: (vars: TVars) => string;
+  request: () => Promise<unknown>;
 }) {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
 
   return useMutation({
-    mutationFn: (vars: TVars) =>
-      apiFetch<void>(endpoint(vars), { method: "DELETE" }),
+    mutationFn: request,
     onSuccess: async () => {
       toast.success(`${label} disconnected`);
       await queryClient.invalidateQueries({ queryKey });
@@ -46,15 +45,15 @@ export function useDisconnect<TVars = void>({
 export function useTestConnection({
   label,
   queryKey,
-  endpoint,
+  request,
 }: {
   label: string;
   queryKey: readonly unknown[];
-  endpoint: string;
+  request: () => Promise<unknown>;
 }) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: () => apiFetch<unknown>(endpoint, { method: "POST" }),
+    mutationFn: request,
     onSuccess: () => toast.success(`${label} connection works`),
     onError: (err) =>
       toast.show({

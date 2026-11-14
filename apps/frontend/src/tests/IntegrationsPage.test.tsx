@@ -15,6 +15,7 @@ import type {
 } from "@nightwarden/shared";
 
 import { TestProviders } from "./renderWithProviders.js";
+import { json, stubApi } from "./stubApi.js";
 import { IntegrationsPage } from "@/features/integrations/IntegrationsPage";
 
 const NOT_CONFIGURED: GitHubIntegrationStatus = {
@@ -159,54 +160,47 @@ function setup(
     sentryConfigured = false,
   } = opts;
 
-  const fetchMock = vi
-    .fn<(url: string, init?: RequestInit) => Promise<unknown>>()
-    .mockImplementation((url: string) => {
-      const body =
-        url === "/api/runners"
-          ? runners
-          : url === "/api/integrations/alerting/alertmanager"
-            ? { configured: ingestConfigured, lastReceivedAt }
-            : url === "/api/integrations/alerting/grafana"
-              ? { configured: grafanaConfigured, lastReceivedAt: null }
-              : url === "/api/integrations/metrics"
-                ? metrics
-                : url === "/api/integrations/loki"
+  const api = stubApi(({ path: url }) => {
+    const body =
+      url === "/api/runners"
+        ? runners
+        : url === "/api/integrations/alerting/alertmanager"
+          ? { configured: ingestConfigured, lastReceivedAt }
+          : url === "/api/integrations/alerting/grafana"
+            ? { configured: grafanaConfigured, lastReceivedAt: null }
+            : url === "/api/integrations/metrics"
+              ? metrics
+              : url === "/api/integrations/loki"
+                ? {
+                    configured: lokiConfigured,
+                    url: lokiConfigured ? "http://loki:3100" : null,
+                    hasAuth: false,
+                    hasOrgId: false,
+                    rejection: lokiRejected
+                      ? {
+                          reason: "Loki rejected the credential",
+                          at: new Date().toISOString(),
+                        }
+                      : null,
+                  }
+                : url === "/api/integrations/sentry"
                   ? {
-                      configured: lokiConfigured,
-                      url: lokiConfigured ? "http://loki:3100" : null,
-                      hasAuth: false,
-                      hasOrgId: false,
-                      rejection: lokiRejected
-                        ? {
-                            reason: "Loki rejected the credential",
-                            at: new Date().toISOString(),
-                          }
+                      configured: sentryConfigured,
+                      url: sentryConfigured
+                        ? "https://sentry.example.com"
                         : null,
+                      orgSlug: sentryConfigured ? "acme" : null,
+                      rejection: null,
                     }
-                  : url === "/api/integrations/sentry"
-                    ? {
-                        configured: sentryConfigured,
-                        url: sentryConfigured
-                          ? "https://sentry.example.com"
-                          : null,
-                        orgSlug: sentryConfigured ? "acme" : null,
-                        rejection: null,
-                      }
-                    : github;
-      return Promise.resolve({
-        ok: true,
-        status: 200,
-        json: () => Promise.resolve(body),
-      });
-    });
-  vi.stubGlobal("fetch", fetchMock);
+                  : github;
+    return json(body);
+  });
 
   const qc = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: 0 } },
   });
   const view = renderCatalogRoute(qc);
-  return { fetchMock, qc, view };
+  return { api, qc, view };
 }
 
 /* The whole row is the link, so there is no button to find. */

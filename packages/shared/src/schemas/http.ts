@@ -2,6 +2,24 @@ import { z } from "zod";
 import { PLATFORMS } from "../runner.js";
 import { STATUS_FILTERS } from "../sessions.js";
 
+// Every refusal a route answers, whatever its status, so a client reads one field.
+export const errorBodySchema = z.object({ error: z.string() });
+
+// 5xx too: Fastify's own 500 body carries the thrown error's message, which this strips to `error`.
+export function refusals<Body extends z.ZodType>(
+  body: Body,
+): {
+  "4xx": Body;
+  "5xx": Body;
+};
+export function refusals(): {
+  "4xx": typeof errorBodySchema;
+  "5xx": typeof errorBodySchema;
+};
+export function refusals(body: z.ZodType = errorBodySchema) {
+  return { "4xx": body, "5xx": body };
+}
+
 // Text the agent will read, so an all-whitespace one is empty rather than short.
 // Trimmed here, which keeps every route from repeating the check.
 const said = (name: string) =>

@@ -24,7 +24,7 @@ FROM toolchain AS manifests
 
 # --frozen-lockfile resolves the whole workspace, so every member's manifest must
 # be here even when this image ships none of its code.
-COPY pnpm-workspace.yaml pnpm-lock.yaml package.json ./
+COPY pnpm-workspace.yaml pnpm-lock.yaml package.json .pnpmfile.cjs ./
 COPY apps/api/package.json apps/api/
 COPY apps/frontend/package.json apps/frontend/
 COPY apps/runners/docker/package.json apps/runners/docker/

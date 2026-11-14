@@ -21,6 +21,7 @@ import type {
   ProviderSettings,
   ProviderSettingsMap,
   SandboxNetwork,
+  SettingsPatch,
 } from "@nightwarden/shared";
 
 const CONFIG_ID = "global";
@@ -169,11 +170,7 @@ export async function loadApiKey(
 
 // Global settings only; the per-provider blocks are written by updateProvider so
 // a change to one provider can never disturb the other.
-type GlobalConfigPatch = Partial<Omit<AgentConfig, "providers">>;
-
-export async function updateConfig(
-  patch: GlobalConfigPatch,
-): Promise<AgentConfig> {
+export async function updateConfig(patch: SettingsPatch): Promise<AgentConfig> {
   const next: AgentConfig = { ...(await loadConfig()), ...patch };
   const values = {
     active_provider: next.provider,

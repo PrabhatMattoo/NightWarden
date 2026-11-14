@@ -1,26 +1,15 @@
 import "dotenv/config";
 import Fastify from "fastify";
-import FastifyWebSocket from "@fastify/websocket";
 import { initSecrets } from "./secrets.js";
 import { initDb } from "./db.js";
-import { registerAuthRoutes } from "./auth/routes.js";
-import { registerTokenRoutes } from "./auth/token.js";
-import { registerWsRoutes } from "./fleet/server.js";
-import { registerFrontendEventRoutes } from "./session/events.js";
-import { registerAlertRoutes } from "./alerts/ingest.js";
+import { registerApi } from "./api.js";
 import {
   RECONCILE_TICK_MS,
   reconcileRecovery,
 } from "./verification/reconciler.js";
-import { registerConfigRoutes } from "./config/routes.js";
 import { checkSecretKey, seedConfigFromEnv } from "./config/store.js";
 import { seedIntegrationsFromEnv } from "./integrations/seed.js";
-import { registerSessionRoutes } from "./session/routes.js";
 import { recoverDeadRuns } from "./session/recover.js";
-import { registerRunnerRoutes } from "./fleet/routes.js";
-import { registerInstallRoutes } from "./fleet/install.js";
-import { registerIntegrationRoutes } from "./integrations/routes.js";
-import { registerMetricsRoutes } from "./integrations/metrics/routes.js";
 import { registerFrontendRoutes } from "./frontend.js";
 import { buildAuthHeader } from "./integrations/github.js";
 import { reapOrphans } from "./sandbox/docker.js";
@@ -62,26 +51,7 @@ const fastify = Fastify({
   forceCloseConnections: true,
 });
 
-await fastify.register(FastifyWebSocket);
-
-// Under /api so the frontend owns every other path: /integrations/metrics
-// and /sessions/:id each name both a page and an endpoint.
-await fastify.register(
-  async (api) => {
-    await registerAuthRoutes(api);
-    await registerTokenRoutes(api);
-    await registerWsRoutes(api);
-    await registerFrontendEventRoutes(api);
-    await registerAlertRoutes(api);
-    await registerConfigRoutes(api);
-    await registerSessionRoutes(api);
-    await registerRunnerRoutes(api);
-    await registerInstallRoutes(api);
-    await registerIntegrationRoutes(api);
-    await registerMetricsRoutes(api);
-  },
-  { prefix: "/api" },
-);
+await registerApi(fastify);
 
 // Outside /api: a container probe is infrastructure, not API surface.
 fastify.get("/health", async () => ({ status: "ok" }));

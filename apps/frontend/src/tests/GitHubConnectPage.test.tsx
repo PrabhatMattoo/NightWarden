@@ -14,7 +14,7 @@ import type { GitHubIntegrationStatus } from "@nightwarden/shared";
 import { TestProviders } from "./renderWithProviders.js";
 import { GitHubConnectPage } from "@/features/integrations/github/GitHubConnectPage";
 import { toast } from "@/shared/lib/toast";
-import { sentBody } from "./sentBody";
+import { json, stubApi, type ApiRequest } from "./stubApi";
 
 const NOT_CONFIGURED: GitHubIntegrationStatus = {
   configured: false,
@@ -57,63 +57,31 @@ interface MockState {
   patch: { status: number; body?: unknown };
 }
 
-function makeFetchMock(state: MockState) {
-  return vi
-    .fn<(url: string, init?: RequestInit) => Promise<unknown>>()
-    .mockImplementation((url, init) => {
-      if (url.includes("/api/integrations/github/repos")) {
-        return (state.reposGate ?? Promise.resolve()).then(() => ({
-          ok: state.repos.status < 400,
-          status: state.repos.status,
-          json: () => Promise.resolve(state.repos.body),
-        }));
+function answerFrom(state: MockState) {
+  return async ({ path, method, body }: ApiRequest): Promise<Response> => {
+    if (path.startsWith("/api/integrations/github/repos")) {
+      await (state.reposGate ?? Promise.resolve());
+      return json(state.repos.body, state.repos.status);
+    }
+    if (path === "/api/integrations/github") {
+      if (method === "POST") {
+        const { repo } = body as { token: string; repo: string };
+        if (state.bind.status < 400) state.status = configuredStatus(repo);
+        return json(state.bind.body ?? state.status, state.bind.status);
       }
-      if (url === "/api/integrations/github") {
-        if (init?.method === "POST") {
-          const body = sentBody(init) as {
-            token: string;
-            repo: string;
-          };
-          if (state.bind.status < 400) {
-            state.status = configuredStatus(body.repo);
-          }
-          return Promise.resolve({
-            ok: state.bind.status < 400,
-            status: state.bind.status,
-            json: () => Promise.resolve(state.bind.body ?? state.status),
-          });
-        }
-        if (init?.method === "PATCH") {
-          const body = sentBody(init) as { repo: string };
-          if (state.patch.status < 400) {
-            state.status = { ...state.status, repo: body.repo };
-          }
-          return Promise.resolve({
-            ok: state.patch.status < 400,
-            status: state.patch.status,
-            json: () => Promise.resolve(state.patch.body ?? state.status),
-          });
-        }
-        if (init?.method === "DELETE") {
-          state.status = NOT_CONFIGURED;
-          return Promise.resolve({
-            ok: true,
-            status: 204,
-            json: () => Promise.resolve(undefined),
-          });
-        }
-        return Promise.resolve({
-          ok: true,
-          status: 200,
-          json: () => Promise.resolve(state.status),
-        });
+      if (method === "PATCH") {
+        const { repo } = body as { repo: string };
+        if (state.patch.status < 400) state.status = { ...state.status, repo };
+        return json(state.patch.body ?? state.status, state.patch.status);
       }
-      return Promise.resolve({
-        ok: true,
-        status: 200,
-        json: () => Promise.resolve({}),
-      });
-    });
+      if (method === "DELETE") {
+        state.status = NOT_CONFIGURED;
+        return new Response(null, { status: 204 });
+      }
+      return json(state.status);
+    }
+    return json({});
+  };
 }
 
 /* GitHubConnectPage navigates back to /integrations (disconnect and back
@@ -151,14 +119,16 @@ function setup(overrides?: Partial<MockState>) {
     patch: { status: 200 },
     ...overrides,
   };
-  const fetchMock = makeFetchMock(state);
-  vi.stubGlobal("fetch", fetchMock);
+  const api = stubApi(answerFrom(state));
+  // The request this page sent to an exact path with a method, if it sent one.
+  const sent = (method: string, path: string) =>
+    api.requests(path).find((r) => r.method === method && r.path === path);
 
   const qc = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: 0 } },
   });
   renderConnectRoute(qc);
-  return { fetchMock, state };
+  return { sent, state };
 }
 
 async function validate(
@@ -229,7 +199,7 @@ describe("GitHubConnectPage - onboarding (not yet connected)", () => {
 
   it("validates, picks a repo, connects, and reflects the connected state in place", async () => {
     const user = userEvent.setup();
-    const { fetchMock } = setup();
+    const { sent } = setup();
 
     await validate(user);
     await pickRepo(user, /acme\/api/i);
@@ -243,12 +213,7 @@ describe("GitHubConnectPage - onboarding (not yet connected)", () => {
       ).toBeInTheDocument();
     });
 
-    const bindCall = fetchMock.mock.calls.find(
-      ([url, init]) =>
-        url === "/api/integrations/github" && init?.method === "POST",
-    );
-    expect(bindCall).toBeDefined();
-    expect(sentBody(bindCall?.[1])).toEqual({
+    expect(sent("POST", "/api/integrations/github")?.body).toEqual({
       token: "github_pat_test",
       repo: "acme/api",
     });
@@ -333,7 +298,7 @@ describe("GitHubConnectPage - onboarding (not yet connected)", () => {
 
 describe("GitHubConnectPage - management (already connected)", () => {
   it("shows the token expiry and the combobox pre-selected to the bound repo, without re-validating", async () => {
-    const { fetchMock } = setup({ status: configuredStatus("acme/api", 5) });
+    const { sent } = setup({ status: configuredStatus("acme/api", 5) });
 
     expect(await screen.findByText("Expires in 5 days")).toBeInTheDocument();
     expect(
@@ -345,11 +310,9 @@ describe("GitHubConnectPage - management (already connected)", () => {
     });
     expect(combobox).toHaveValue("acme/api");
 
-    const reposCall = fetchMock.mock.calls.find(([url]) =>
-      url.includes("/api/integrations/github/repos"),
-    );
-    expect(reposCall).toBeDefined();
-    expect(sentBody(reposCall?.[1])).toEqual({ page: 1 });
+    expect(sent("POST", "/api/integrations/github/repos")?.body).toEqual({
+      page: 1,
+    });
     expect(
       screen.getByRole("button", { name: "Update repository" }),
     ).toBeDisabled();
@@ -384,18 +347,16 @@ describe("GitHubConnectPage - management (already connected)", () => {
 
   it("changes the repository via the stored token, with no token in the request", async () => {
     const user = userEvent.setup();
-    const { fetchMock } = setup({ status: configuredStatus("acme/api") });
+    const { sent } = setup({ status: configuredStatus("acme/api") });
 
     const combobox = await screen.findByRole("combobox", {
       name: /repository/i,
     });
     expect(combobox).toHaveValue("acme/api");
 
-    const reposCall = fetchMock.mock.calls.find(([url]) =>
-      url.includes("/api/integrations/github/repos"),
-    );
-    expect(reposCall).toBeDefined();
-    expect(sentBody(reposCall?.[1])).toEqual({ page: 1 });
+    expect(sent("POST", "/api/integrations/github/repos")?.body).toEqual({
+      page: 1,
+    });
 
     const updateButton = screen.getByRole("button", {
       name: "Update repository",
@@ -407,21 +368,18 @@ describe("GitHubConnectPage - management (already connected)", () => {
     await user.click(updateButton);
 
     const patchCall = await waitFor(() => {
-      const call = fetchMock.mock.calls.find(
-        ([url, init]) =>
-          url === "/api/integrations/github" && init?.method === "PATCH",
-      );
+      const call = sent("PATCH", "/api/integrations/github");
       expect(call).toBeDefined();
       return call;
     });
-    expect(sentBody(patchCall?.[1])).toEqual({
+    expect(patchCall?.body).toEqual({
       repo: "prabhat/dotfiles",
     });
   });
 
   it("changing the token opens a blank field and reconnects with a full bind, not a rebind", async () => {
     const user = userEvent.setup();
-    const { fetchMock } = setup({ status: configuredStatus("acme/api") });
+    const { sent } = setup({ status: configuredStatus("acme/api") });
 
     await screen.findByText(/expires in/i);
     await user.click(screen.getByRole("button", { name: "Change token" }));
@@ -434,14 +392,11 @@ describe("GitHubConnectPage - management (already connected)", () => {
     await user.click(screen.getByRole("button", { name: "Update repository" }));
 
     const bindCall = await waitFor(() => {
-      const call = fetchMock.mock.calls.find(
-        ([url, init]) =>
-          url === "/api/integrations/github" && init?.method === "POST",
-      );
+      const call = sent("POST", "/api/integrations/github");
       expect(call).toBeDefined();
       return call;
     });
-    expect(sentBody(bindCall?.[1])).toEqual({
+    expect(bindCall?.body).toEqual({
       token: "github_pat_new",
       repo: "acme/api",
     });
@@ -449,7 +404,7 @@ describe("GitHubConnectPage - management (already connected)", () => {
 
   it("disconnects and returns to the integrations list", async () => {
     const user = userEvent.setup();
-    const { fetchMock } = setup({ status: configuredStatus("acme/api") });
+    const { sent } = setup({ status: configuredStatus("acme/api") });
 
     await screen.findByText(/expires in/i);
     await user.click(screen.getByRole("button", { name: "Disconnect" }));
@@ -459,9 +414,6 @@ describe("GitHubConnectPage - management (already connected)", () => {
     );
 
     await screen.findByText(/integrations destination/i);
-    expect(fetchMock).toHaveBeenCalledWith(
-      "/api/integrations/github",
-      expect.objectContaining({ method: "DELETE" }),
-    );
+    expect(sent("DELETE", "/api/integrations/github")).toBeDefined();
   });
 });

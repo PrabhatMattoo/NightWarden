@@ -2,6 +2,7 @@
 // rides on the part it belongs to, under that provider's own name.
 
 import type { RecordGapKind } from "./reports.js";
+import type { Actor } from "./schemas/report.js";
 
 type JsonValue =
   | null
@@ -61,14 +62,6 @@ export interface ToolResultPart {
 export type ToolRefusal =
   | { kind: "unavailable"; tool: string }
   | { kind: "record_gaps"; gaps: RecordGapKind[] };
-
-// The signed-in person who made a human decision, stamped from the request's own
-// session so the audit trail names who, not just what. Optional on older parts.
-export interface Actor {
-  id: string;
-  name: string;
-  email: string;
-}
 
 // Written only where a person was asked to release a write, which is the only
 // place approval can be known. A refused call never reached a gate.

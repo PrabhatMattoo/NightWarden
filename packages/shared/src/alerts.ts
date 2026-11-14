@@ -7,29 +7,3 @@ export type AlertSourceKind = (typeof ALERT_SOURCE_KINDS)[number];
 export function isAlertSourceKind(value: string): value is AlertSourceKind {
   return (ALERT_SOURCE_KINDS as readonly string[]).includes(value);
 }
-
-// No target: an alert names no service on its own. Resolution asks the live fleet
-// which advertised service the labels describe, so nothing speculative is stored.
-export interface NormalizedAlert {
-  sourceAlertId: string;
-  labels: Record<string, string>;
-  // What a human wrote about this condition: summary, description, runbook_url.
-  // Context only, so it enriches the prompt and never feeds a control decision.
-  annotations: Record<string, string>;
-  alertType: string;
-  firedAt: string;
-  // Where the sender says the condition lives. Prometheus puts the expression that
-  // fired in its query string; Grafana names a rule page and carries none.
-  generatorURL: string | null;
-  // What the rule evaluated to when it fired, keyed by the query behind each
-  // number. Grafana sends these; a sender that does not carries an empty map.
-  values: Record<string, number>;
-}
-
-// Every field is optional on the wire, so an absent one is an empty map rather
-// than a reason to reject the body.
-export interface AlertGroupContext {
-  groupLabels: Record<string, string>;
-  commonLabels: Record<string, string>;
-  commonAnnotations: Record<string, string>;
-}

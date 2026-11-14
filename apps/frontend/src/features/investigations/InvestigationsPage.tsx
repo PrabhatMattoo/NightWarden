@@ -35,7 +35,7 @@ import {
   groupByStatus,
   STATUS_LABEL,
 } from "@/features/investigations/queue";
-import { apiFetch } from "@/shared/api/client";
+import { api, dataOrThrow } from "@/shared/api/client";
 import { timeAgo } from "@/shared/lib/time";
 import { toast } from "@/shared/lib/toast";
 import { cn } from "@/shared/lib/utils";
@@ -54,7 +54,11 @@ function StartButton({ sessionId }: { sessionId: string }): React.JSX.Element {
   const queryClient = useQueryClient();
   const start = useMutation({
     mutationFn: () =>
-      apiFetch<void>(`/api/sessions/${sessionId}/start`, { method: "POST" }),
+      dataOrThrow(
+        api.POST("/api/sessions/{id}/start", {
+          params: { path: { id: sessionId } },
+        }),
+      ),
     onSuccess: () =>
       queryClient.invalidateQueries({
         queryKey: sessionsQueryKey("investigation"),

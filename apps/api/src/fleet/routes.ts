@@ -1,16 +1,22 @@
 import type { FastifyInstance } from "fastify";
+import type { ZodTypeProvider } from "fastify-type-provider-zod";
+import type { RunnerRecord } from "@nightwarden/shared";
+import { refusals, runnerRecordsSchema } from "@nightwarden/shared/schemas";
 import { listRunnersMeta } from "../fleet/runners-store.js";
-import { listRunners, getFleetView } from "../fleet/connections.js";
+import { listRunners } from "../fleet/connections.js";
 import { requireSession } from "../auth/session.js";
 import { logger } from "../logger.js";
-import type { FleetRunner, RunnerRecord } from "@nightwarden/shared";
 
 export async function registerRunnerRoutes(
   fastify: FastifyInstance,
 ): Promise<void> {
   // Live runners come from the in-memory registry; offline tokens show as
   // single rows so their install command remains discoverable.
-  fastify.get("/runners", { preHandler: requireSession }, async () => {
+  const app = fastify.withTypeProvider<ZodTypeProvider>();
+  const schema = {
+    response: { 200: runnerRecordsSchema, ...refusals() },
+  };
+  app.get("/runners", { onRequest: requireSession, schema }, async () => {
     const live = listRunners();
     const byRunner = new Map<string, typeof live>();
     for (const r of live) {
@@ -50,12 +56,6 @@ export async function registerRunnerRoutes(
     }
     return records;
   });
-
-  // Read-only, no token management fields - the frontend fleet page's single
-  // pane of glass.
-  fastify.get("/fleet", { preHandler: requireSession }, (): FleetRunner[] =>
-    getFleetView(),
-  );
 
   logger.info("runner routes registered");
 }

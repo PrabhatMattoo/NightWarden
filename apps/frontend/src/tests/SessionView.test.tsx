@@ -20,7 +20,8 @@ import { RouterProvider } from "@tanstack/react-router";
 import { SessionView } from "../features/session/SessionView.js";
 import { FrontendEventsProvider } from "@/shared/events/FrontendEventsProvider";
 import { MockEventSource } from "./mockEventSource.js";
-import { sentBody } from "./sentBody";
+import { json, stubApi } from "./stubApi";
+import { sessionQuery } from "../features/session/queries.js";
 
 // What the API accepts as a client message id.
 const UUID_V4 =
@@ -32,6 +33,18 @@ const USER_TURN = {
   id: "user-1-0",
   text: "Service is down on web-01",
 };
+
+type Api = ReturnType<typeof stubApi>;
+
+// The network of the session most recently set up, so a case can read what it sent.
+let sessionApi: Api | null = null;
+
+// Every answer the view posted to the session's respond route, in order.
+function respondedWith(): unknown[] {
+  return (sessionApi?.requests("/api/sessions/s1/respond") ?? []).map(
+    (r) => r.body,
+  );
+}
 
 function setup(initialItems: object[] = [USER_TURN], running = false) {
   MockEventSource.reset();
@@ -52,40 +65,41 @@ function setup(initialItems: object[] = [USER_TURN], running = false) {
     return () => releaseRespond?.();
   };
 
+  // A send that never reaches the API, which a case switches on mid-test.
+  let messagesUnreachable = false;
+  const cutMessages = (): void => {
+    messagesUnreachable = true;
+  };
+
   vi.stubGlobal("EventSource", MockEventSource);
-  const fetchMock = vi.fn().mockImplementation((url: string) => {
-    if (url.includes("/respond") && holdingRespond) {
-      return new Promise((resolve) => {
-        releaseRespond = () =>
-          resolve({ ok: true, json: () => Promise.resolve({}) });
+  const api = stubApi(({ path }) => {
+    if (path.endsWith("/messages") && messagesUnreachable) {
+      return Promise.reject(new TypeError("network down"));
+    }
+    if (path.includes("/respond") && holdingRespond) {
+      return new Promise<Response>((resolve) => {
+        releaseRespond = () => resolve(json({}));
       });
     }
     // The session answers what it is and carries its transcript; the report is
     // a separate resource that may not exist yet.
-    if (url.endsWith("/sessions/s1")) {
-      return Promise.resolve({
-        ok: true,
-        json: () =>
-          Promise.resolve({
-            sessionId: "s1",
-            title: "Service is down on web-01",
-            createdAt: "2026-06-13T00:00:00.000Z",
-            investigation: false,
-            running,
-            alerts: [],
-            transcript: items,
-          }),
+    if (path === "/api/sessions/s1") {
+      return json({
+        sessionId: "s1",
+        title: "Service is down on web-01",
+        createdAt: "2026-06-13T00:00:00.000Z",
+        lastActivityAt: "2026-06-13T00:00:00.000Z",
+        investigation: false,
+        running,
+        reopenable: false,
+        alerts: [],
+        transcript: items,
       });
     }
-    if (url.includes("/sessions/s1")) {
-      return Promise.resolve({
-        ok: true,
-        json: () => Promise.resolve(items),
-      });
-    }
-    return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
+    if (path.includes("/sessions/s1")) return json(items);
+    return json({});
   });
-  vi.stubGlobal("fetch", fetchMock);
+  sessionApi = api;
 
   const qc = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: 0 } },
@@ -110,7 +124,7 @@ function setup(initialItems: object[] = [USER_TURN], running = false) {
     </TestProviders>,
   );
 
-  return { qc, fetchMock, setItems, holdRespond };
+  return { qc, api, setItems, holdRespond, cutMessages };
 }
 
 const AGO_MINUTES = (n: number): string =>
@@ -141,89 +155,69 @@ function setupPage({
   const writeText = vi.fn().mockResolvedValue(undefined);
   vi.stubGlobal("navigator", { clipboard: { writeText } });
 
-  const fetchMock = vi.fn().mockImplementation((url: string, init?: object) => {
-    if (url.includes("/auth-status")) {
-      return Promise.resolve({
-        ok: true,
-        status: 200,
-        json: () =>
-          Promise.resolve({
-            ownerExists: true,
-            authenticated: true,
-            email: "user@nightwarden.io",
-            name: "User",
-            image: null,
-            theme: "system",
-          }),
+  const api = stubApi(({ path: url, method }) => {
+    if (url === "/api/auth-status") {
+      return json({
+        ownerExists: true,
+        authenticated: true,
+        email: "user@nightwarden.io",
+        name: "User",
+        image: null,
+        theme: "system",
       });
     }
     const record = /\/sessions\/([^?/]+)$/.exec(url);
     if (record !== null && !url.includes("?")) {
       const id = record[1]!;
-      if ((init as { method?: string })?.method === "DELETE") {
-        return Promise.resolve({ ok: true, status: 204, json: () => null });
-      }
-      return Promise.resolve({
-        ok: true,
-        json: () =>
-          Promise.resolve({
-            sessionId: id,
-            title: CHAT_ROWS.find((r) => r.sessionId === id)?.title ?? "Chat",
-            createdAt: "2026-06-13T00:00:00.000Z",
-            investigation: false,
-            running,
-            alerts: [],
-            transcript: [
-              {
-                kind: "user_turn",
-                id: "u-1",
-                text: "Why is redis restarting?",
-              },
-              {
-                kind: "agent_text",
-                id: "a-1",
-                text: "It was OOM-killed at 02:14.",
-              },
-            ],
-          }),
+      if (method === "DELETE") return new Response(null, { status: 204 });
+      return json({
+        sessionId: id,
+        title: CHAT_ROWS.find((r) => r.sessionId === id)?.title ?? "Chat",
+        createdAt: "2026-06-13T00:00:00.000Z",
+        lastActivityAt: "2026-06-13T00:00:00.000Z",
+        investigation: false,
+        running,
+        reopenable: false,
+        alerts: [],
+        transcript: [
+          { kind: "user_turn", id: "u-1", text: "Why is redis restarting?" },
+          {
+            kind: "agent_text",
+            id: "a-1",
+            text: "It was OOM-killed at 02:14.",
+          },
+        ],
       });
     }
-    if (url.includes("/sessions")) {
+    if (url.startsWith("/api/sessions")) {
       // Answering only what was asked for is the point: a page that requested
       // every session would be handed the investigation below.
-      const q = new URL(url, "http://test").searchParams.get("q") ?? "";
-      const rows = url.includes("kind=chat")
-        ? CHAT_ROWS.filter((row) =>
-            row.title.toLowerCase().includes(q.toLowerCase()),
-          ).map((row) => ({
-            sessionId: row.sessionId,
-            title: row.title,
-            createdAt: AGO_MINUTES(row.minutes),
-            lastActivityAt: AGO_MINUTES(row.minutes),
-            investigation: false,
-            severityLabel: null,
-            status: null,
-            statusLine: null,
-            awaitingHumanInput: false,
-          }))
-        : [];
-      return Promise.resolve({
-        ok: true,
-        json: () =>
-          Promise.resolve({
-            rows,
-            nextOffset: null,
-            investigationTotal: 0,
-          }),
-      });
+      const query = new URL(url, "http://test").searchParams;
+      const q = query.get("q") ?? "";
+      const rows =
+        query.get("kind") === "chat"
+          ? CHAT_ROWS.filter((row) =>
+              row.title.toLowerCase().includes(q.toLowerCase()),
+            ).map((row) => ({
+              sessionId: row.sessionId,
+              title: row.title,
+              createdAt: AGO_MINUTES(row.minutes),
+              lastActivityAt: AGO_MINUTES(row.minutes),
+              investigation: false,
+              severityLabel: null,
+              status: null,
+              statusLine: null,
+              awaitingHumanInput: false,
+            }))
+          : [];
+      return json({ rows, nextOffset: null, investigationTotal: 0 });
     }
-    return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
+    return json({});
   });
-  vi.stubGlobal("fetch", fetchMock);
 
   const { router } = renderApp({ path });
 
-  return { router, fetchMock, writeText };
+  return { router, api, writeText };
 }
 
 afterEach(() => {
@@ -739,21 +733,18 @@ describe("SessionView", () => {
 
   describe("optimistic echo", () => {
     // The id the view minted for the message it just posted.
-    const postedClientId = (fetchMock: ReturnType<typeof vi.fn>): string => {
-      const posts = fetchMock.mock.calls.filter(
-        (call: unknown[]) =>
-          String(call[0]).endsWith("/messages") &&
-          (call[1] as RequestInit | undefined)?.method === "POST",
-      );
-      const init = posts[posts.length - 1]?.[1] as RequestInit;
-      const body = sentBody(init) as {
-        clientMessageId: string;
-      };
-      return body.clientMessageId;
-    };
+    const postedClientId = async (api: Api): Promise<string> =>
+      await waitFor(() => {
+        const posts = api
+          .requests("/api/sessions/s1/messages")
+          .filter((r) => r.method === "POST");
+        const body = posts.at(-1)?.body as { clientMessageId?: string };
+        if (body?.clientMessageId === undefined) throw new Error("no send yet");
+        return body.clientMessageId;
+      });
 
     it("echoes the message instantly and keeps exactly one bubble through the persist", async () => {
-      const { setItems, fetchMock, qc } = setup();
+      const { setItems, api, qc } = setup();
 
       await waitFor(() => {
         expect(
@@ -794,12 +785,14 @@ describe("SessionView", () => {
         USER_TURN,
         {
           kind: "user_turn",
-          id: postedClientId(fetchMock),
+          id: await postedClientId(api),
           text: "check the db",
         },
       ]);
       await act(async () => {
-        await qc.invalidateQueries({ queryKey: ["session", "s1"] });
+        await qc.invalidateQueries({
+          queryKey: sessionQuery("s1").queryKey,
+        });
       });
 
       // The persisted row replaces the echo one-for-one, never both.
@@ -820,7 +813,7 @@ describe("SessionView", () => {
     });
 
     it("keeps one bubble when the server saves different text than was typed", async () => {
-      const { setItems, fetchMock, qc } = setup();
+      const { setItems, api, qc } = setup();
       await waitFor(() => {
         expect(screen.getAllByTestId("user-turn")).toHaveLength(1);
       });
@@ -835,12 +828,14 @@ describe("SessionView", () => {
         USER_TURN,
         {
           kind: "user_turn",
-          id: postedClientId(fetchMock),
+          id: await postedClientId(api),
           text: "check the db, rewritten",
         },
       ]);
       await act(async () => {
-        await qc.invalidateQueries({ queryKey: ["session", "s1"] });
+        await qc.invalidateQueries({
+          queryKey: sessionQuery("s1").queryKey,
+        });
       });
 
       await waitFor(() => {
@@ -852,7 +847,7 @@ describe("SessionView", () => {
     });
 
     it("sends the report retry with an id of its own and echoes it", async () => {
-      const { fetchMock } = setup([
+      const { api } = setup([
         USER_TURN,
         { kind: "report_card", id: "report", state: { phase: "failed" } },
       ]);
@@ -862,12 +857,12 @@ describe("SessionView", () => {
         await screen.findByRole("button", { name: /try again/i }),
       );
 
-      expect(postedClientId(fetchMock)).toMatch(UUID_V4);
+      expect(await postedClientId(api)).toMatch(UUID_V4);
       expect(screen.getAllByTestId("user-turn")).toHaveLength(2);
     });
 
     it("rolls back the echo and restores the text when the send never reaches the API", async () => {
-      const { fetchMock } = setup();
+      const { cutMessages } = setup();
 
       await waitFor(() => {
         expect(
@@ -875,12 +870,7 @@ describe("SessionView", () => {
         ).toBeInTheDocument();
       });
 
-      fetchMock.mockImplementation((url: string, init?: RequestInit) => {
-        if (String(url).includes("/messages") && init?.method === "POST") {
-          return Promise.reject(new Error("network down"));
-        }
-        return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
-      });
+      cutMessages();
 
       const user = userEvent.setup();
       await user.type(screen.getByRole("textbox"), "check the db");
@@ -940,15 +930,9 @@ describe("SessionView", () => {
       await user.click(within(card).getByRole("button", { name: /restart/i }));
 
       await waitFor(() => {
-        expect(fetch).toHaveBeenCalledWith(
-          "/api/sessions/s1/respond",
-          expect.objectContaining({
-            method: "POST",
-            body: JSON.stringify({
-              decision: "approve",
-            }),
-          }),
-        );
+        expect(respondedWith()).toContainEqual({
+          decision: "approve",
+        });
         expect(
           within(card).getByRole("button", { name: /restart/i }),
         ).toBeDisabled();
@@ -1086,15 +1070,9 @@ describe("SessionView", () => {
       await user.click(within(card).getByRole("button", { name: /restart/i }));
 
       await waitFor(() => {
-        expect(fetch).toHaveBeenCalledWith(
-          "/api/sessions/s1/respond",
-          expect.objectContaining({
-            method: "POST",
-            body: JSON.stringify({
-              decision: "approve",
-            }),
-          }),
-        );
+        expect(respondedWith()).toContainEqual({
+          decision: "approve",
+        });
       });
     });
   });
@@ -1413,15 +1391,9 @@ describe("SessionView", () => {
       await user.click(within(card).getByRole("button", { name: /submit/i }));
 
       await waitFor(() => {
-        expect(fetch).toHaveBeenCalledWith(
-          "/api/sessions/s1/respond",
-          expect.objectContaining({
-            method: "POST",
-            body: JSON.stringify({
-              text: "nginx",
-            }),
-          }),
-        );
+        expect(respondedWith()).toContainEqual({
+          text: "nginx",
+        });
       });
     });
 
@@ -1509,15 +1481,9 @@ describe("SessionView", () => {
       await user.click(within(card).getByRole("button", { name: /submit/i }));
 
       await waitFor(() => {
-        expect(fetch).toHaveBeenCalledWith(
-          "/api/sessions/s1/respond",
-          expect.objectContaining({
-            method: "POST",
-            body: JSON.stringify({
-              text: "nginx, postgres",
-            }),
-          }),
-        );
+        expect(respondedWith()).toContainEqual({
+          text: "nginx, postgres",
+        });
       });
     });
 
@@ -1607,7 +1573,7 @@ describe("SessionView", () => {
 
   describe("stream reconnect", () => {
     it("refetches active queries after the event stream reconnects", async () => {
-      const { fetchMock } = setup();
+      const { api } = setup();
 
       await waitFor(() => {
         expect(
@@ -1616,9 +1582,7 @@ describe("SessionView", () => {
       });
 
       const transcriptFetches = (): number =>
-        fetchMock.mock.calls.filter(([url]) =>
-          String(url).includes("/sessions/s1"),
-        ).length;
+        api.requests("/api/sessions/s1").length;
       const before = transcriptFetches();
 
       // A drop then reopen: events published during the gap are lost (the feed
@@ -1702,7 +1666,7 @@ describe("the Agent page", () => {
   });
 
   it("lists only conversations a person started, grouped by day", async () => {
-    const { fetchMock } = setupPage();
+    const { api } = setupPage();
     await openHistory("New chat");
 
     const panel = await screen.findByRole("dialog");
@@ -1713,7 +1677,7 @@ describe("the Agent page", () => {
     // The request carrying the filter is the behaviour worth pinning. Which day
     // heading a row lands under is the clock's business.
     expect(
-      fetchMock.mock.calls.some(([url]) => String(url).includes("kind=chat")),
+      api.requests("/api/sessions?").some((r) => r.path.includes("kind=chat")),
     ).toBe(true);
   });
 
@@ -1744,7 +1708,7 @@ describe("the Agent page", () => {
   // The search is the server's, so the request carries it and the list is its answer.
   it("searches the history as the person types, and opens what they pick", async () => {
     const user = userEvent.setup();
-    const { fetchMock, router } = setupPage();
+    const { api, router } = setupPage();
     await openHistory("New chat");
     const panel = await screen.findByRole("dialog");
 
@@ -1759,7 +1723,7 @@ describe("the Agent page", () => {
       ).toHaveLength(0);
     });
     expect(
-      fetchMock.mock.calls.some(([url]) => String(url).includes("q=redis")),
+      api.requests("/api/sessions?").some((r) => r.path.includes("q=redis")),
     ).toBe(true);
 
     await user.click(
@@ -1791,7 +1755,7 @@ describe("the Agent page", () => {
 
   it("names the chat in its delete confirmation and then deletes it", async () => {
     const user = userEvent.setup();
-    const { fetchMock, router } = setupPage({ path: "/agent/c1" });
+    const { api, router } = setupPage({ path: "/agent/c1" });
 
     await user.click(
       await screen.findByRole("button", { name: "More actions" }),
@@ -1804,11 +1768,7 @@ describe("the Agent page", () => {
 
     await waitFor(() => {
       expect(
-        fetchMock.mock.calls.some(
-          ([url, init]) =>
-            String(url).includes("/sessions/c1") &&
-            (init as { method?: string })?.method === "DELETE",
-        ),
+        api.requests("/api/sessions/c1").some((r) => r.method === "DELETE"),
       ).toBe(true);
     });
     await waitFor(() => expect(router.state.location.pathname).toBe("/agent"));

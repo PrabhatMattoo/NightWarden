@@ -6,11 +6,7 @@ import {
   useSuspenseQuery,
 } from "@tanstack/react-query";
 import { ExternalLink, RefreshCw } from "lucide-react";
-import type {
-  GitHubErrorBody,
-  GitHubIntegrationStatus,
-  GitHubRepoSummary,
-} from "@nightwarden/shared";
+import type { GitHubErrorBody, GitHubRepoSummary } from "@nightwarden/shared";
 
 import { Alert, AlertDescription, AlertTitle } from "@/shared/ui/alert";
 import { MetaText, StatusText } from "@/shared/ui/status";
@@ -29,7 +25,7 @@ import { ConfirmDialog } from "@/shared/ui/ConfirmDialog";
 import { expiryDaysFrom } from "@/features/integrations/github/useGitHubExpiryDays";
 import { ICON_UI } from "@/shared/lib/iconProps";
 import { toast } from "@/shared/lib/toast";
-import { ApiError, apiFetch } from "@/shared/api/client";
+import { ApiError, api, dataOrThrow } from "@/shared/api/client";
 import { INTEGRATION_CATALOG } from "../catalog";
 import {
   rowLabel,
@@ -72,20 +68,6 @@ function errorBody(err: unknown): Partial<GitHubErrorBody> {
   if (typeof err.body !== "object" || err.body === null) return {};
   return err.body as Partial<GitHubErrorBody>;
 }
-
-const githubPost = <T,>(url: string, payload: unknown): Promise<T> =>
-  apiFetch<T>(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-
-const githubPatch = <T,>(url: string, payload: unknown): Promise<T> =>
-  apiFetch<T>(url, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
 
 interface LadderContent {
   // Something to act on is a warning; a failure nothing here can fix is red.
@@ -318,10 +300,9 @@ export function GitHubConnectPage(): React.JSX.Element {
      can replace the stored credential. */
   const connectWithToken = useMutation({
     mutationFn: (repo: string) =>
-      githubPost<GitHubIntegrationStatus>("/api/integrations/github", {
-        token,
-        repo,
-      }),
+      dataOrThrow(
+        api.POST("/api/integrations/github", { body: { token, repo } }),
+      ),
     onMutate: () => validate.reset(),
     onSuccess: async () => {
       // The list just validated is now the stored credential's, so it stays on screen.
@@ -343,9 +324,7 @@ export function GitHubConnectPage(): React.JSX.Element {
      one that can be used here. */
   const updateRepoOnly = useMutation({
     mutationFn: (repo: string) =>
-      githubPatch<GitHubIntegrationStatus>("/api/integrations/github", {
-        repo,
-      }),
+      dataOrThrow(api.PATCH("/api/integrations/github", { body: { repo } })),
     onMutate: () => validate.reset(),
     onSuccess: async () => {
       toast.success("GitHub repository updated");
@@ -358,12 +337,12 @@ export function GitHubConnectPage(): React.JSX.Element {
   const disconnect = useDisconnect({
     label: "GitHub",
     queryKey: githubStatusQuery().queryKey,
-    endpoint: () => "/api/integrations/github",
+    request: () => dataOrThrow(api.DELETE("/api/integrations/github")),
   });
   const test = useTestConnection({
     label: "GitHub",
     queryKey: githubStatusQuery().queryKey,
-    endpoint: "/api/integrations/github/test",
+    request: () => dataOrThrow(api.POST("/api/integrations/github/test")),
   });
 
   // The latest action's failure first, then whatever GitHub last said of the list.

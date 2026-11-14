@@ -9,7 +9,7 @@ import type { LokiIntegrationStatus } from "@nightwarden/shared";
 import { Input } from "@/shared/ui/input";
 import { ConfirmDialog } from "@/shared/ui/ConfirmDialog";
 import { toast } from "@/shared/lib/toast";
-import { apiFetch } from "@/shared/api/client";
+import { api, dataOrThrow } from "@/shared/api/client";
 import {
   rowLabel,
   SettingsGroup,
@@ -50,15 +50,15 @@ function ConnectForm({
 
   const connect = useMutation({
     mutationFn: () =>
-      apiFetch<LokiIntegrationStatus>("/api/integrations/loki", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          url: url.trim(),
-          ...(authHeader.trim() && { authHeader: authHeader.trim() }),
-          ...(orgId.trim() && { orgId: orgId.trim() }),
+      dataOrThrow(
+        api.POST("/api/integrations/loki", {
+          body: {
+            url: url.trim(),
+            ...(authHeader.trim() && { authHeader: authHeader.trim() }),
+            ...(orgId.trim() && { orgId: orgId.trim() }),
+          },
         }),
-      }),
+      ),
     onMutate: () => setError(null),
     onSuccess: async () => {
       toast.success(status.configured ? "Loki updated" : "Loki connected");
@@ -133,12 +133,12 @@ export function LokiPage(): React.JSX.Element {
   const disconnect = useDisconnect({
     label: "Loki",
     queryKey: lokiStatusQuery().queryKey,
-    endpoint: () => "/api/integrations/loki",
+    request: () => dataOrThrow(api.DELETE("/api/integrations/loki")),
   });
   const test = useTestConnection({
     label: "Loki",
     queryKey: lokiStatusQuery().queryKey,
-    endpoint: "/api/integrations/loki/test",
+    request: () => dataOrThrow(api.POST("/api/integrations/loki/test")),
   });
 
   return (

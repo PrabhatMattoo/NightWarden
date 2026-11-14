@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
   AgentConfig,
   CatalogError,
+  ConfigPatch,
   LLMProviderName,
   ModelCatalog,
   ProviderSettings,
@@ -11,7 +12,7 @@ import type {
 
 import { Page } from "@/shared/ui/Page";
 import { toast } from "@/shared/lib/toast";
-import { apiFetch } from "@/shared/api/client";
+import { api, dataOrThrow } from "@/shared/api/client";
 import { ConfirmDialog } from "@/shared/ui/ConfirmDialog";
 import { LimitsSection } from "@/features/settings/LimitsSection";
 import { ProfileSection } from "@/features/settings/ProfileSection";
@@ -54,12 +55,7 @@ const EDITABLE_PROVIDER_FIELDS = [
   "reasoningLevel",
 ] as const satisfies readonly (keyof ProviderSettings)[];
 
-type ProviderDelta = Partial<
-  Record<
-    LLMProviderName,
-    Partial<Pick<ProviderSettings, (typeof EDITABLE_PROVIDER_FIELDS)[number]>>
-  >
->;
+type ProviderDelta = NonNullable<ConfigPatch["providers"]>;
 
 function buildProviderDelta(
   form: AgentConfig,
@@ -123,42 +119,38 @@ export function SettingsPage(): React.JSX.Element {
         catalogInput.keyRevision,
       ],
       queryFn: () =>
-        apiFetch<ModelCatalog>("/api/config/models", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            ...(catalogInput.provider && { provider: catalogInput.provider }),
-            ...(catalogInput.baseUrl && { baseUrl: catalogInput.baseUrl }),
-            ...(catalogInput.apiKey.trim() && {
-              apiKey: catalogInput.apiKey.trim(),
-            }),
+        dataOrThrow(
+          api.POST("/api/config/models", {
+            body: {
+              ...(catalogInput.provider && { provider: catalogInput.provider }),
+              ...(catalogInput.baseUrl && { baseUrl: catalogInput.baseUrl }),
+              ...(catalogInput.apiKey.trim() && {
+                apiKey: catalogInput.apiKey.trim(),
+              }),
+            },
           }),
-        }).catch<ModelCatalog>(() => ({ ok: false, error: "unreachable" })),
+        ).catch<ModelCatalog>(() => ({ ok: false, error: "unreachable" })),
       staleTime: 30_000,
       enabled: catalogInput.provider !== null,
     });
 
   const saveConfig = useMutation({
     mutationFn: (providers: ProviderDelta) =>
-      apiFetch<AgentConfig>("/api/config", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ...(form.provider !== config.provider && {
-            provider: form.provider,
-          }),
-          providers,
+      dataOrThrow(
+        api.PATCH("/api/config", {
+          body: {
+            ...(form.provider !== config.provider && {
+              provider: form.provider,
+            }),
+            providers,
+          },
         }),
-      }),
+      ),
   });
 
   const saveApiKey = useMutation({
     mutationFn: (vars: { provider: LLMProviderName; apiKey: string }) =>
-      apiFetch<{ apiKeyMasked: string }>("/api/config/key", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(vars),
-      }),
+      dataOrThrow(api.PATCH("/api/config/key", { body: vars })),
   });
 
   const block = form.provider ? form.providers[form.provider] : null;

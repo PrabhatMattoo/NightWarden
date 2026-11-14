@@ -5,7 +5,7 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import type { SessionAlert, SessionListRow } from "@nightwarden/shared";
 
 import { renderApp } from "./renderWithProviders.js";
-import { json } from "./stubApi.js";
+import { json, stubApi } from "./stubApi.js";
 import { MockEventSource } from "./mockEventSource.js";
 
 const OWNER_EMAIL = "admin@example.com";
@@ -116,87 +116,51 @@ function setup({ path = "/agent" }: { path?: string } = {}) {
     alerts = next;
   };
 
-  const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL) => {
-    // The auth client passes a URL and reads the Response the way a browser does.
-    const url =
-      typeof input === "string"
-        ? input
-        : input instanceof URL
-          ? input.href
-          : input.url;
-    if (url.endsWith("/api/auth/sign-out")) {
-      return Promise.resolve(json({ success: true }));
-    }
-    if (url.includes("/auth-status")) {
-      return Promise.resolve({
-        ok: true,
-        status: 200,
-        json: () =>
-          Promise.resolve({
-            ownerExists: true,
-            authenticated: true,
-            email: OWNER_EMAIL,
-            name: "Admin",
-            image: null,
-          }),
+  const api = stubApi(({ path: url }) => {
+    if (url === "/api/auth/sign-out") return json({ success: true });
+    if (url === "/api/auth-status") {
+      return json({
+        ownerExists: true,
+        authenticated: true,
+        email: OWNER_EMAIL,
+        name: "Admin",
+        image: null,
       });
     }
-    if (url.includes("/chat")) {
-      return Promise.resolve({
-        ok: true,
-        json: () => Promise.resolve({ sessionId: "new-s1" }),
-      });
-    }
-    if (url.includes("/runners")) {
-      return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
-    }
+    if (url === "/api/chat") return json({ sessionId: "new-s1" }, 202);
+    if (url.startsWith("/api/runners")) return json([]);
     // Configured, so the page has a status line to put in its controls row.
-    if (url.includes("/integrations/alerting/alertmanager")) {
-      return Promise.resolve({
-        ok: true,
-        json: () =>
-          Promise.resolve({
-            configured: true,
-            ingestUrl: "http://localhost:3000/api/alerts/ingest",
-            lastReceivedAt: new Date().toISOString(),
-          }),
+    if (url.startsWith("/api/integrations/alerting/alertmanager")) {
+      return json({
+        configured: true,
+        ingestUrl: "http://localhost:3000/api/alerts/ingest",
+        lastReceivedAt: new Date().toISOString(),
       });
     }
-    if (url.includes("/integrations/")) {
-      return Promise.resolve({
-        ok: true,
-        json: () =>
-          Promise.resolve({ configured: false, lastReceivedAt: null }),
-      });
+    if (url.startsWith("/api/integrations/")) {
+      return json({ configured: false, lastReceivedAt: null });
     }
-    if (url.includes("/report")) {
-      return Promise.resolve({
-        ok: false,
-        status: 404,
-        json: () => Promise.resolve({ error: "no report for session" }),
-      });
+    if (url.endsWith("/report")) {
+      return json({ error: "no report for session" }, 404);
     }
     const record = /\/sessions\/([^?/]+)$/.exec(url);
     if (record !== null) {
       const id = record[1]!;
       const known = INVESTIGATIONS.find((row) => row.sessionId === id);
-      return Promise.resolve({
-        ok: true,
-        json: () =>
-          Promise.resolve({
-            sessionId: id,
-            title: known?.title ?? "Check disk",
-            createdAt: "2026-06-13T00:00:00.000Z",
-            investigation: known !== undefined || investigation,
-            running: false,
-            alerts,
-            transcript: [],
-          }),
+      return json({
+        sessionId: id,
+        title: known?.title ?? "Check disk",
+        createdAt: "2026-06-13T00:00:00.000Z",
+        investigation: known !== undefined || investigation,
+        running: false,
+        alerts,
+        transcript: [],
       });
     }
-    if (url.includes("/sessions")) {
+    if (url.startsWith("/api/sessions")) {
       // Filtered the way the server filters: closed gathers the three endings.
-      const status = new URL(url, "http://test").searchParams.get("status");
+      const query = new URL(url, "http://test").searchParams;
+      const status = query.get("status");
       const gathers = (filter: string, row: SessionListRow): boolean =>
         (filter === "active"
           ? ["action_required", "running"]
@@ -204,28 +168,24 @@ function setup({ path = "/agent" }: { path?: string } = {}) {
             ? ["completed", "stopped", "failed"]
             : [filter]
         ).includes(row.status ?? "");
-      const rows = url.includes("kind=investigation")
-        ? INVESTIGATIONS.filter(
-            (row) => status === null || gathers(status, row),
-          )
-        : [SESSION_1];
-      return Promise.resolve({
-        ok: true,
-        json: () =>
-          Promise.resolve({
-            rows,
-            nextOffset: null,
-            investigationTotal: INVESTIGATIONS.length,
-          }),
+      const rows =
+        query.get("kind") === "investigation"
+          ? INVESTIGATIONS.filter(
+              (row) => status === null || gathers(status, row),
+            )
+          : [SESSION_1];
+      return json({
+        rows,
+        nextOffset: null,
+        investigationTotal: INVESTIGATIONS.length,
       });
     }
-    return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
+    return json({});
   });
-  vi.stubGlobal("fetch", fetchMock);
 
   const { router, queryClient: qc } = renderApp({ path });
 
-  return { router, qc, fetchMock, setInvestigation, setAlerts };
+  return { router, qc, api, setInvestigation, setAlerts };
 }
 
 afterEach(() => {
@@ -270,7 +230,7 @@ describe("Shell", () => {
   describe("signing out", () => {
     it("asks first, then leaves for the login page once the server has ended the session", async () => {
       const user = userEvent.setup();
-      const { router, fetchMock } = setup({ path: "/investigations" });
+      const { router, api } = setup({ path: "/investigations" });
       await screen.findByRole("heading", { name: "Investigations" });
 
       await user.click(screen.getByRole("button", { name: "Account menu" }));
@@ -278,11 +238,7 @@ describe("Shell", () => {
         await screen.findByRole("menuitem", { name: "Sign out" }),
       );
       const confirm = await screen.findByRole("alertdialog");
-      expect(
-        fetchMock.mock.calls.some(([input]) =>
-          String(input).endsWith("/api/auth/sign-out"),
-        ),
-      ).toBe(false);
+      expect(api.requests("/api/auth/sign-out").length > 0).toBe(false);
       await user.click(
         within(confirm).getByRole("button", { name: "Sign out" }),
       );
@@ -291,11 +247,7 @@ describe("Shell", () => {
         await screen.findByRole("heading", { name: /^log in$/i }),
       ).toBeInTheDocument();
       expect(router.state.location.pathname).toBe("/login");
-      expect(
-        fetchMock.mock.calls.some(([input]) =>
-          String(input).endsWith("/api/auth/sign-out"),
-        ),
-      ).toBe(true);
+      expect(api.requests("/api/auth/sign-out").length > 0).toBe(true);
     });
   });
 
@@ -369,7 +321,7 @@ describe("Shell", () => {
     // replaces the address rather than rearranging the page mid-read.
     it("morphs on the address, not on the session's own flag", async () => {
       const user = userEvent.setup();
-      const { router, setInvestigation, fetchMock } = setup();
+      const { router, setInvestigation, api } = setup();
 
       await screen.findByRole("textbox");
       await user.type(screen.getByRole("textbox"), "Check disk");
@@ -381,9 +333,9 @@ describe("Shell", () => {
       const streamBefore = MockEventSource.latest;
 
       const sessionFetches = (): number =>
-        fetchMock.mock.calls.filter(
-          (call) => call[0] === "/api/sessions/new-s1",
-        ).length;
+        api
+          .requests("/api/sessions/new-s1")
+          .filter((r) => r.path === "/api/sessions/new-s1").length;
       const before = sessionFetches();
 
       setInvestigation(true);
@@ -641,7 +593,7 @@ describe("Shell", () => {
     // Active gathers what is still in play, so one view holds both a waiting run and a working one.
     it("switches views on the server, Active gathering what is still in play", async () => {
       const user = userEvent.setup();
-      const { fetchMock } = setup({ path: "/investigations" });
+      const { api } = setup({ path: "/investigations" });
 
       const all = await screen.findByRole("button", { name: "All" });
       expect(all).toHaveAttribute("aria-pressed", "true");
@@ -660,9 +612,9 @@ describe("Shell", () => {
         ).toBeInTheDocument();
       });
       expect(
-        fetchMock.mock.calls.some(([url]) =>
-          String(url).includes("status=active"),
-        ),
+        api
+          .requests("/api/sessions?")
+          .some((r) => r.path.includes("status=active")),
       ).toBe(true);
       // One view's rows are one list, so the status headings step aside.
       expect(
@@ -676,7 +628,7 @@ describe("Shell", () => {
 
     it("starts a held investigation from its row", async () => {
       const user = userEvent.setup();
-      const { fetchMock } = setup({ path: "/investigations" });
+      const { api } = setup({ path: "/investigations" });
 
       const held = await screen.findByRole("region", { name: "Not started" });
       expect(held).toHaveTextContent("Settings → Limits");
@@ -684,11 +636,9 @@ describe("Shell", () => {
 
       await waitFor(() =>
         expect(
-          fetchMock.mock.calls.some(
-            ([url, init]) =>
-              String(url).endsWith("/api/sessions/inv-held/start") &&
-              init?.method === "POST",
-          ),
+          api
+            .requests("/api/sessions/inv-held/start")
+            .some((r) => r.method === "POST"),
         ).toBe(true),
       );
     });
@@ -787,7 +737,7 @@ describe("Shell", () => {
 
     it("names the record in its delete confirmation and then deletes it", async () => {
       const user = userEvent.setup();
-      const { router, fetchMock } = setup({ path: "/investigations/inv-crit" });
+      const { router, api } = setup({ path: "/investigations/inv-crit" });
 
       await user.click(
         await screen.findByRole("button", { name: "More actions" }),
@@ -799,10 +749,11 @@ describe("Shell", () => {
       await user.click(within(dialog).getByRole("button", { name: "Delete" }));
 
       await waitFor(() => {
-        expect(fetchMock).toHaveBeenCalledWith(
-          "/api/sessions/inv-crit",
-          expect.objectContaining({ method: "DELETE" }),
-        );
+        expect(
+          api
+            .requests("/api/sessions/inv-crit")
+            .some((r) => r.method === "DELETE"),
+        ).toBe(true);
       });
       await waitFor(() => {
         expect(router.state.location.pathname).toBe("/investigations");

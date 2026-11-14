@@ -1,14 +1,22 @@
 import { randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
+import type { ZodTypeProvider } from "fastify-type-provider-zod";
+import { z } from "zod";
 import type { SessionDetail, SessionReportResponse } from "@nightwarden/shared";
 import {
+  approvalResponseSchema,
   chatRequestSchema,
+  refusals,
   reopenRequestSchema,
+  respondRequestSchema,
+  sessionAcceptedSchema,
+  sessionDetailSchema,
+  sessionListPageSchema,
   sessionMessageRequestSchema,
   sessionPageQuerySchema,
-  respondRequestSchema,
+  sessionReportResponseSchema,
+  sessionStoppedSchema,
 } from "@nightwarden/shared/schemas";
-import { parseRequest } from "../request-body.js";
 import { gatedCalls, resolveEvidence, toolCallsIn } from "../agent/report.js";
 import { hasPendingHumanInput } from "./gate-store.js";
 import { getRecord } from "./record-store.js";
@@ -34,34 +42,27 @@ import {
   notConfiguredMessage,
 } from "../config/readiness.js";
 
-function sendHumanInputError(
-  reply: {
-    code: (statusCode: number) => {
-      send: (body: { error: string }) => unknown;
-    };
-  },
-  error: unknown,
-) {
-  if (error instanceof HumanInputError) {
-    return reply.code(error.statusCode).send({ error: error.message });
-  }
-  throw error;
-}
+const params = z.object({ id: z.string() });
+
+const accepted = { response: { 202: sessionAcceptedSchema, ...refusals() } };
 
 export async function registerSessionRoutes(
   fastify: FastifyInstance,
 ): Promise<void> {
-  // Paginated rather than capped: a cap makes the hundredth session the last
-  // one reachable, with nothing on screen saying so.
-  fastify.get(
+  const app = fastify.withTypeProvider<ZodTypeProvider>();
+  // Paginated rather than capped, and one kind at a time: the list is served by
+  // one index, and a cap makes the hundredth session the last one reachable.
+  app.get(
     "/sessions",
-    { preHandler: requireSession },
-    async (request, reply) => {
-      // kind is required: the list is served by one index, and the unfiltered
-      // shape it cannot serve was reachable only by omitting this.
-      const query = parseRequest(sessionPageQuerySchema, request.query);
-      if (!query.ok) return reply.code(400).send({ error: query.error });
-      const { limit, offset, kind, status, q } = query.data;
+    {
+      onRequest: requireSession,
+      schema: {
+        querystring: sessionPageQuerySchema,
+        response: { 200: sessionListPageSchema, ...refusals() },
+      },
+    },
+    async (request) => {
+      const { limit, offset, kind, status, q } = request.query;
       return await listSessionPage(limit, offset, kind, {
         ...(status !== undefined && { status }),
         ...(q !== undefined && { q }),
@@ -71,9 +72,15 @@ export async function registerSessionRoutes(
 
   // The session answers what it is. A bare transcript returned `200 []` for an
   // unknown id, which the frontend drew as a real but empty session.
-  fastify.get<{ Params: { id: string } }>(
+  app.get(
     "/sessions/:id",
-    { preHandler: requireSession },
+    {
+      onRequest: requireSession,
+      schema: {
+        params,
+        response: { 200: sessionDetailSchema, ...refusals() },
+      },
+    },
     async (request, reply) => {
       const session = await getSession(request.params.id);
       if (session === undefined) {
@@ -95,9 +102,15 @@ export async function registerSessionRoutes(
     },
   );
 
-  fastify.get<{ Params: { id: string } }>(
+  app.get(
     "/sessions/:id/report",
-    { preHandler: requireSession },
+    {
+      onRequest: requireSession,
+      schema: {
+        params,
+        response: { 200: sessionReportResponseSchema, ...refusals() },
+      },
+    },
     async (request, reply) => {
       const record = await getRecord(request.params.id);
       if (record === undefined) {
@@ -115,9 +128,12 @@ export async function registerSessionRoutes(
     },
   );
 
-  fastify.delete<{ Params: { id: string } }>(
+  app.delete(
     "/sessions/:id",
-    { preHandler: requireSession },
+    {
+      onRequest: requireSession,
+      schema: { params, response: { 204: z.undefined(), ...refusals() } },
+    },
     async (request, reply) => {
       const sessionId = request.params.id;
       if (await dispatcher.isSessionRunning(sessionId)) {
@@ -133,9 +149,15 @@ export async function registerSessionRoutes(
     },
   );
 
-  fastify.post<{ Params: { id: string } }>(
+  app.post(
     "/sessions/:id/stop",
-    { preHandler: requireSession },
+    {
+      onRequest: requireSession,
+      schema: {
+        params,
+        response: { 200: sessionStoppedSchema, ...refusals() },
+      },
+    },
     async (request, reply) => {
       const stopped = dispatcher.stop(request.params.id);
       if (!stopped) {
@@ -145,12 +167,18 @@ export async function registerSessionRoutes(
     },
   );
 
-  fastify.post<{ Params: { id: string } }>(
+  app.post(
     "/sessions/:id/respond",
-    { preHandler: requireSession },
+    {
+      onRequest: requireSession,
+      schema: {
+        params,
+        // Either half may stand alone, so a missing body is an empty answer.
+        body: respondRequestSchema.prefault({}),
+        response: { 200: approvalResponseSchema, ...refusals() },
+      },
+    },
     async (request, reply) => {
-      const body = parseRequest(respondRequestSchema, request.body ?? {});
-      if (!body.ok) return reply.code(400).send({ error: body.error });
       // Behind requireSession, so a null here is a race with sign-out, not an
       // anonymous caller: refuse rather than record a decision with no author.
       const user = await currentUser(request);
@@ -160,25 +188,29 @@ export async function registerSessionRoutes(
       try {
         const response = await respondToPendingHumanInput(
           request.params.id,
-          body.data,
+          request.body,
           actorOf(user),
         );
         return reply.code(200).send(response);
       } catch (error) {
-        return sendHumanInputError(reply, error);
+        if (!(error instanceof HumanInputError)) throw error;
+        return await reply
+          .code(error.statusCode)
+          .send({ error: error.message });
       }
     },
   );
 
-  fastify.post(
+  // The schema admits only kind "chat": an investigation is a session with a
+  // falsifiable condition attached, and only an alert carries one.
+  app.post(
     "/chat",
-    { preHandler: requireSession },
+    {
+      onRequest: requireSession,
+      schema: { body: chatRequestSchema, ...accepted },
+    },
     async (request, reply) => {
-      // The schema admits only kind "chat": an investigation is a session with a
-      // falsifiable condition attached, and only an alert carries one.
-      const body = parseRequest(chatRequestSchema, request.body ?? {});
-      if (!body.ok) return reply.code(400).send({ error: body.error });
-      const { message, clientMessageId } = body.data;
+      const { message, clientMessageId } = request.body;
       const readiness = await checkLLMReadiness();
       if (!readiness.ready) {
         return reply
@@ -200,17 +232,19 @@ export async function registerSessionRoutes(
     },
   );
 
-  fastify.post<{ Params: { id: string } }>(
+  app.post(
     "/sessions/:id/messages",
-    { preHandler: requireSession },
+    {
+      onRequest: requireSession,
+      schema: {
+        params,
+        body: sessionMessageRequestSchema,
+        ...accepted,
+      },
+    },
     async (request, reply) => {
       const sessionId = request.params.id;
-      const body = parseRequest(
-        sessionMessageRequestSchema,
-        request.body ?? {},
-      );
-      if (!body.ok) return reply.code(400).send({ error: body.error });
-      const { message, clientMessageId } = body.data;
+      const { message, clientMessageId } = request.body;
       if (!(await sessionExists(sessionId))) {
         return reply.code(404).send({ error: "unknown session" });
       }
@@ -242,9 +276,9 @@ export async function registerSessionRoutes(
   );
 
   // A person starting what the hourly limit held, on the alerts its session holds.
-  fastify.post<{ Params: { id: string } }>(
+  app.post(
     "/sessions/:id/start",
-    { preHandler: requireSession },
+    { onRequest: requireSession, schema: { params, ...accepted } },
     async (request, reply) => {
       const sessionId = request.params.id;
       if (!(await sessionExists(sessionId))) {
@@ -273,14 +307,19 @@ export async function registerSessionRoutes(
 
   // The person's call alone, since reopening judges the write-up rather than the
   // world: the investigation returns to testing with its record intact.
-  fastify.post<{ Params: { id: string } }>(
+  app.post(
     "/sessions/:id/reopen",
-    { preHandler: requireSession },
+    {
+      onRequest: requireSession,
+      schema: {
+        params,
+        body: reopenRequestSchema,
+        ...accepted,
+      },
+    },
     async (request, reply) => {
       const sessionId = request.params.id;
-      const body = parseRequest(reopenRequestSchema, request.body ?? {});
-      if (!body.ok) return reply.code(400).send({ error: body.error });
-      const { reason, clientMessageId } = body.data;
+      const { reason, clientMessageId } = request.body;
       const session = await getSession(sessionId);
       if (session === undefined) {
         return reply.code(404).send({ error: "unknown session" });

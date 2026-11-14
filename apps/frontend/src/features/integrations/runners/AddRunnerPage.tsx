@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useMutation, useSuspenseQuery } from "@tanstack/react-query";
 import { useBlocker, useNavigate } from "@tanstack/react-router";
-import type { Platform } from "@nightwarden/shared";
+import type { MintedToken, Platform } from "@nightwarden/shared";
 import { serverNameError } from "@nightwarden/shared";
 
 import { Alert, AlertTitle, AlertDescription } from "@/shared/ui/alert";
@@ -12,7 +12,7 @@ import { FieldError } from "@/shared/ui/field";
 import { Input } from "@/shared/ui/input";
 import { Waiting } from "@/shared/ui/Rounds";
 import { Section } from "@/shared/ui/Page";
-import { ApiError, apiFetch, apiText } from "@/shared/api/client";
+import { ApiError, api, dataOrThrow } from "@/shared/api/client";
 import {
   rowLabel,
   SettingsGroup,
@@ -32,16 +32,7 @@ import { runnersQuery } from "../queries";
 import { connectedOn } from "./connectedOn";
 import { PLATFORM_COPY } from "./RunnerListPage.js";
 
-interface MintedToken {
-  id: string;
-  token: string;
-}
-
 const RUNNER_POLL_MS = 3000;
-
-// One endpoint for both: the platform was stored when the token was minted, so
-// the artifact that comes back is the one this runner's row already names.
-const INSTALL_URL = "/api/runners/install";
 
 const WAITING: ConnectionState = {
   tone: "run",
@@ -93,15 +84,19 @@ export function AddRunnerPage({
      still revokes it. A taken name leaves the name open to change. */
   const prepare = useMutation({
     mutationFn: async () => {
-      const minted = await apiFetch<MintedToken>("/api/tokens", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ platform, serverName: serverName.trim() }),
-      });
+      const minted = await dataOrThrow(
+        api.POST("/api/tokens", {
+          body: { platform, serverName: serverName.trim() },
+        }),
+      );
       setMintedToken(minted);
-      return await apiText(INSTALL_URL, {
-        headers: { Authorization: `Bearer ${minted.token}` },
-      });
+      // One endpoint for both platforms: the row the token names picks the artifact.
+      return await dataOrThrow(
+        api.GET("/api/runners/install", {
+          headers: { Authorization: `Bearer ${minted.token}` },
+          parseAs: "text",
+        }),
+      );
     },
     onError: (err) => {
       if (err instanceof ApiError && err.status === 409) setMintedToken(null);
@@ -130,7 +125,7 @@ export function AddRunnerPage({
   // Best effort: leaving never waits on it.
   const revoke = useMutation({
     mutationFn: (id: string) =>
-      apiFetch<void>(`/api/tokens/${id}`, { method: "DELETE" }),
+      dataOrThrow(api.DELETE("/api/tokens/{id}", { params: { path: { id } } })),
   });
 
   // A different name needs a different token, so the one already minted goes.

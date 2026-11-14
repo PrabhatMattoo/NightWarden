@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderApp, TestProviders } from "./renderWithProviders.js";
-import { json, stubApi } from "./stubApi.js";
+import { json, stubApi, type ApiRequest } from "./stubApi.js";
 import { MockEventSource } from "./mockEventSource.js";
 import type {
   AgentConfig,
@@ -21,8 +21,8 @@ import {
 } from "@tanstack/react-router";
 
 import { SettingsPage } from "@/features/settings/SettingsPage";
+import { configQuery } from "@/features/settings/queries";
 import { toast } from "@/shared/lib/toast";
-import { sentBody } from "./sentBody";
 
 const OWNER_EMAIL = "admin@example.com";
 const AUTH_STATUS_RESPONSE = {
@@ -111,49 +111,32 @@ const MODELS_RESPONSE: ModelCatalog = {
 };
 
 // A promise lets a test hold the catalog open and prove what renders without it.
-function makeFetchMock(
+function answerFrom(
   config: AgentConfig,
   models: ModelCatalog | Promise<ModelCatalog> = MODELS_RESPONSE,
 ) {
-  return vi.fn().mockImplementation((url: string, init?: RequestInit) => {
-    if (url.includes("/auth-status")) {
-      return Promise.resolve({
-        ok: true,
-        status: 200,
-        json: () => Promise.resolve(AUTH_STATUS_RESPONSE),
-      });
-    }
-    if (url.includes("/config/models")) {
-      return Promise.resolve({
-        ok: true,
-        json: () => Promise.resolve(models),
-      });
-    }
-    if (url.includes("/config")) {
-      if (init?.method === "PATCH") {
-        const patch = sentBody(init);
-        const patched =
-          typeof patch === "object" ? { ...config, ...patch } : config;
-        return Promise.resolve({
-          ok: true,
-          json: () => Promise.resolve(patched),
-        });
+  return async ({ path, method, body }: ApiRequest): Promise<Response> => {
+    if (path === "/api/auth-status") return json(AUTH_STATUS_RESPONSE);
+    if (path === "/api/config/models") return json(await models);
+    if (path.startsWith("/api/config")) {
+      if (method === "PATCH" && typeof body === "object") {
+        return json({ ...config, ...body });
       }
-      return Promise.resolve({
-        ok: true,
-        json: () => Promise.resolve(config),
-      });
+      return json(config);
     }
-    return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
-  });
+    return json({});
+  };
 }
 
 /* Settings is a route now, so it renders under a router with somewhere to
    navigate away to - which is what the unsaved-provider guard reacts to. */
 let sectionRouter: ReturnType<typeof renderSettings>["router"] | null = null;
 
-function renderSettings(fetchMock: ReturnType<typeof vi.fn>) {
-  vi.stubGlobal("fetch", fetchMock);
+function renderSettings(answer: (request: ApiRequest) => Promise<Response>) {
+  const api = stubApi(answer);
+  // What the page sent to one exact path with one method, in order.
+  const sent = (method: string, path: string) =>
+    api.requests(path).filter((r) => r.method === method && r.path === path);
 
   const qc = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: 0 } },
@@ -184,7 +167,7 @@ function renderSettings(fetchMock: ReturnType<typeof vi.fn>) {
     </TestProviders>,
   );
 
-  return { fetchMock, qc, router };
+  return { sent, qc, router };
 }
 
 function setup(
@@ -192,7 +175,7 @@ function setup(
   modelsOverride?: ModelCatalog | Promise<ModelCatalog>,
 ) {
   const config = { ...CONFIG, ...configOverride };
-  return renderSettings(makeFetchMock(config, modelsOverride));
+  return renderSettings(answerFrom(config, modelsOverride));
 }
 
 // The section nav lives in the sidebar shell, absent from this isolated page
@@ -272,7 +255,7 @@ describe("SettingsPage", () => {
       // Window focus alone triggers a refetch in a real browser, so an edit in
       // progress has to survive one.
       await act(async () => {
-        await qc.invalidateQueries({ queryKey: ["config"] });
+        await qc.invalidateQueries({ queryKey: configQuery().queryKey });
       });
 
       expect(
@@ -282,51 +265,25 @@ describe("SettingsPage", () => {
 
     it("PATCHes /config with only the changed field when Save is clicked", async () => {
       const user = userEvent.setup();
-      const { fetchMock } = setup();
+      const { sent } = setup();
 
       await screen.findByLabelText(/^model$/i, { selector: "input" });
       await pickModel(user, "claude-opus-4-8");
       await user.click(screen.getByRole("button", { name: /save/i }));
 
       await waitFor(() => {
-        const patchCall = fetchMock.mock.calls.find(
-          ([, init]) => (init as RequestInit | undefined)?.method === "PATCH",
-        );
-        expect(patchCall).toBeDefined();
-        expect(patchCall?.[0]).toContain("/config");
+        expect(sent("PATCH", "/api/config")).toHaveLength(1);
       });
     });
 
     it("shows an error notification when the save fails", async () => {
       const user = userEvent.setup();
-      const fetchMock = vi
-        .fn()
-        .mockImplementation((url: string, init?: RequestInit) => {
-          if (url.includes("/auth-status")) {
-            return Promise.resolve({
-              ok: true,
-              status: 200,
-              json: () => Promise.resolve(AUTH_STATUS_RESPONSE),
-            });
-          }
-          if (url.includes("/config/models")) {
-            return Promise.resolve({
-              ok: true,
-              json: () => Promise.resolve(MODELS_RESPONSE),
-            });
-          }
-          if (url.includes("/config") && init?.method === "PATCH") {
-            return Promise.resolve({ ok: false, status: 500 });
-          }
-          if (url.includes("/config")) {
-            return Promise.resolve({
-              ok: true,
-              json: () => Promise.resolve(CONFIG),
-            });
-          }
-          return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
-        });
-      renderSettings(fetchMock);
+      const answer = answerFrom(CONFIG);
+      renderSettings(async (request) =>
+        request.path === "/api/config" && request.method === "PATCH"
+          ? new Response(null, { status: 500 })
+          : await answer(request),
+      );
 
       await screen.findByLabelText(/^model$/i, { selector: "input" });
       await pickModel(user, "claude-opus-4-8");
@@ -597,7 +554,7 @@ describe("SettingsPage", () => {
     it("shows no reasoning control at all for a model that advertises none", async () => {
       const user = userEvent.setup();
       // The ladder comes from the catalog, so the saved model publishes none there.
-      const { fetchMock } = setup(undefined, {
+      const { sent } = setup(undefined, {
         ok: true,
         models: [{ id: "claude-sonnet-4-6", reasoning: null }],
       });
@@ -605,11 +562,7 @@ describe("SettingsPage", () => {
 
       await screen.findByLabelText(/^model$/i, { selector: "input" });
       await waitFor(() =>
-        expect(
-          fetchMock.mock.calls.some(([url]) =>
-            String(url).includes("/config/models"),
-          ),
-        ).toBe(true),
+        expect(sent("POST", "/api/config/models").length).toBeGreaterThan(0),
       );
       await act(async () => {});
       expect(screen.queryByLabelText(/^reasoning$/i)).not.toBeInTheDocument();
@@ -736,17 +689,13 @@ describe("SettingsPage", () => {
 
     it("loads the catalog with the saved key, without it being retyped", async () => {
       const user = userEvent.setup();
-      const { fetchMock } = setup(withStoredKey);
+      const { sent } = setup(withStoredKey);
       await openSection(user, /provider/i);
 
       await waitFor(() => {
-        const call = fetchMock.mock.calls.find(
-          ([url, init]) =>
-            (url as string).includes("/config/models") &&
-            (init as RequestInit | undefined)?.method === "POST",
-        );
+        const call = sent("POST", "/api/config/models")[0];
         expect(call).toBeDefined();
-        const body = sentBody(call?.[1]) as {
+        const body = call?.body as {
           apiKey?: string;
           provider: string;
         };
@@ -785,18 +734,16 @@ describe("SettingsPage", () => {
 
     it("writes the picked preset in milliseconds", async () => {
       const user = userEvent.setup();
-      const { fetchMock } = setup();
+      const { sent } = setup();
       await openSection(user, /limits/i);
 
       const list = await openSelect(user, /ask to continue after/i);
       await user.click(within(list).getByRole("option", { name: "1 hour" }));
 
       await waitFor(() => {
-        const patch = fetchMock.mock.calls.find(
-          ([, init]) => (init as RequestInit | undefined)?.method === "PATCH",
-        );
+        const patch = sent("PATCH", "/api/config")[0];
         expect(patch).toBeDefined();
-        const body = sentBody(patch?.[1]) as { checkInAfterMs: number };
+        const body = patch?.body as { checkInAfterMs: number };
         expect(body.checkInAfterMs).toBe(3_600_000);
       });
     });
@@ -805,7 +752,7 @@ describe("SettingsPage", () => {
   describe("API key", () => {
     it("carries a freshly typed key on the catalog request, which is what verifies it", async () => {
       const user = userEvent.setup();
-      const { fetchMock } = setup();
+      const { sent } = setup();
       await openSection(user, /provider/i);
 
       const keyInput = await screen.findByPlaceholderText(/paste api key/i);
@@ -814,10 +761,8 @@ describe("SettingsPage", () => {
       // Debounced, so this is the request that lands after typing stops.
       await waitFor(
         () => {
-          const withKey = fetchMock.mock.calls.filter(
-            ([url, init]) =>
-              (url as string).includes("/config/models") &&
-              JSON.stringify(init ?? null).includes("sk-ant-newkey"),
+          const withKey = sent("POST", "/api/config/models").filter((r) =>
+            JSON.stringify(r.body ?? null).includes("sk-ant-newkey"),
           );
           expect(withKey.length).toBe(1);
         },
@@ -865,7 +810,7 @@ describe("SettingsPage", () => {
 
     it("PATCHes /config/key on Save, before the config that depends on it", async () => {
       const user = userEvent.setup();
-      const { fetchMock } = setup();
+      const { sent } = setup();
       await openSection(user, /provider/i);
 
       const keyInput = await screen.findByPlaceholderText(/paste api key/i);
@@ -873,13 +818,9 @@ describe("SettingsPage", () => {
       await user.click(screen.getByRole("button", { name: /^save$/i }));
 
       await waitFor(() => {
-        const keyCall = fetchMock.mock.calls.findIndex(
-          ([url, init]) =>
-            (url as string).includes("/config/key") &&
-            (init as RequestInit | undefined)?.method === "PATCH",
-        );
-        expect(keyCall).toBeGreaterThan(-1);
-        const body = sentBody(fetchMock.mock.calls[keyCall]?.[1]) as {
+        const keyCall = sent("PATCH", "/api/config/key")[0];
+        expect(keyCall).toBeDefined();
+        const body = keyCall?.body as {
           apiKey: string;
           provider: string;
         };
@@ -892,7 +833,7 @@ describe("SettingsPage", () => {
   describe("sandbox network", () => {
     it("saves the sandbox network knob and explains what each mode means", async () => {
       const user = userEvent.setup();
-      const { fetchMock } = setup();
+      const { sent } = setup();
       await openSection(user, /sandbox/i);
 
       expect(
@@ -907,13 +848,9 @@ describe("SettingsPage", () => {
       expect(screen.getByText(/could exfiltrate/i)).toBeInTheDocument();
 
       await waitFor(() => {
-        const patch = fetchMock.mock.calls.find(
-          (call) =>
-            call[0] === "/api/config" &&
-            (call[1] as RequestInit | undefined)?.method === "PATCH",
-        );
+        const patch = sent("PATCH", "/api/config")[0];
         expect(patch).toBeDefined();
-        const body = sentBody(patch?.[1]) as {
+        const body = patch?.body as {
           sandboxNetwork?: string;
         };
         expect(body.sandboxNetwork).toBe("open");
@@ -922,7 +859,7 @@ describe("SettingsPage", () => {
 
     it("adds and removes allowed hosts as chips, and refuses anything but a hostname", async () => {
       const user = userEvent.setup();
-      const { fetchMock } = setup({ sandboxNetwork: "allowlist" });
+      const { sent } = setup({ sandboxNetwork: "allowlist" });
       await openSection(user, /sandbox/i);
 
       const hosts = await screen.findByRole("list", { name: /allowed hosts/i });
@@ -936,17 +873,11 @@ describe("SettingsPage", () => {
       await user.type(field, "internal.dev{enter}");
 
       const patches = () =>
-        fetchMock.mock.calls
-          .filter(
-            (call) =>
-              call[0] === "/api/config" &&
-              (call[1] as RequestInit | undefined)?.method === "PATCH",
-          )
-          .map(
-            (call) =>
-              (sentBody(call[1]) as { sandboxAllowlistHosts?: string[] })
-                .sandboxAllowlistHosts,
-          );
+        sent("PATCH", "/api/config").map(
+          (r) =>
+            (r.body as { sandboxAllowlistHosts?: string[] })
+              .sandboxAllowlistHosts,
+        );
       await waitFor(() =>
         expect(patches().at(-1)).toEqual([
           "registry.npmjs.org",

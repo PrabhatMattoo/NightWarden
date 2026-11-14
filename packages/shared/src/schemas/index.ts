@@ -76,8 +76,38 @@ export type {
 } from "./http.js";
 
 export {
+  agentConfigSchema,
   configPatchSchema,
   llmProviderNameSchema,
+  modelCatalogSchema,
+  providerKeySavedSchema,
   themePreferenceSchema,
 } from "./config.js";
-export type { ConfigPatch } from "./config.js";
+export type { ConfigPatch, SettingsPatch } from "./config.js";
+
+export { errorBodySchema, refusals } from "./http.js";
+export { authStatusResponseSchema, mintedTokenSchema } from "./auth.js";
+export {
+  alertSourceCredentialSchema,
+  alertSourceStatusSchema,
+  gitHubErrorBodySchema,
+  gitHubIntegrationStatusSchema,
+  gitHubRepoPageSchema,
+  lokiErrorBodySchema,
+  lokiIntegrationStatusSchema,
+  metricsConnectInputSchema,
+  metricsErrorBodySchema,
+  metricsSourceStatusSchema,
+  sandboxPreflightSchema,
+  sentryErrorBodySchema,
+  sentryIntegrationStatusSchema,
+} from "./integrations.js";
+export { sessionReportResponseSchema } from "./report.js";
+export { runnerRecordsSchema } from "./runner.js";
+export {
+  approvalResponseSchema,
+  sessionAcceptedSchema,
+  sessionDetailSchema,
+  sessionListPageSchema,
+  sessionStoppedSchema,
+} from "./sessions.js";

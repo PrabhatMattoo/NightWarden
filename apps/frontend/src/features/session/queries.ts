@@ -1,18 +1,14 @@
 import { infiniteQueryOptions, queryOptions } from "@tanstack/react-query";
-import type {
-  SessionDetail,
-  SessionKind,
-  SessionListPage,
-  StatusFilter,
-} from "@nightwarden/shared";
+import type { SessionKind, StatusFilter } from "@nightwarden/shared";
 
-import { apiFetch } from "@/shared/api/client";
+import { api, apiQuery, dataOrThrow } from "@/shared/api/client";
 
 export function sessionQuery(sessionId: string) {
-  return queryOptions({
-    queryKey: ["session", sessionId],
-    queryFn: () => apiFetch<SessionDetail>(`/api/sessions/${sessionId}`),
-  });
+  return queryOptions(
+    apiQuery.queryOptions("get", "/api/sessions/{id}", {
+      params: { path: { id: sessionId } },
+    }),
+  );
 }
 
 // What a list is narrowed to. Empty is the whole list, which the route loads.
@@ -30,12 +26,19 @@ export function sessionsQueryKey(kind: SessionKind): readonly [string, string] {
 export function sessionsQuery(kind: SessionKind, filter: SessionsFilter = {}) {
   return infiniteQueryOptions({
     queryKey: [...sessionsQueryKey(kind), filter] as const,
-    queryFn: ({ pageParam }) => {
-      const params = new URLSearchParams({ kind, offset: String(pageParam) });
-      if (filter.status !== undefined) params.set("status", filter.status);
-      if (filter.q !== undefined && filter.q !== "") params.set("q", filter.q);
-      return apiFetch<SessionListPage>(`/api/sessions?${params.toString()}`);
-    },
+    queryFn: ({ pageParam }) =>
+      dataOrThrow(
+        api.GET("/api/sessions", {
+          params: {
+            query: {
+              kind,
+              offset: pageParam,
+              ...(filter.status !== undefined && { status: filter.status }),
+              ...(filter.q !== undefined && filter.q !== "" && { q: filter.q }),
+            },
+          },
+        }),
+      ),
     initialPageParam: 0,
     getNextPageParam: (lastPage) => lastPage.nextOffset ?? undefined,
   });

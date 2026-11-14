@@ -16,7 +16,7 @@ import type {
 
 import { TestProviders } from "./renderWithProviders.js";
 import { MetricsSourcePage } from "../features/integrations/metrics/MetricsSourcePage.js";
-import { sentBody } from "./sentBody";
+import { json, stubApi } from "./stubApi";
 
 // The page navigates on disconnect, so it needs a real router around it.
 function renderPage(kind: MetricsSourceKind) {
@@ -71,22 +71,13 @@ function connected(over: Partial<MetricsSourceStatus> = {}) {
 }
 
 // Captures what the page posts, and answers the status from what a case sets.
-function stubApi(status: unknown, calls: string[] = []) {
+function stubStatus(status: unknown, calls: string[] = []) {
   const posted: unknown[] = [];
-  const fetchMock = vi
-    .fn<(url: string, init?: RequestInit) => Promise<unknown>>()
-    .mockImplementation((url: string, init?: RequestInit) => {
-      calls.push(`${init?.method ?? "GET"} ${url}`);
-      if (init?.method === "POST" && init.body !== undefined) {
-        posted.push(sentBody(init));
-      }
-      return Promise.resolve({
-        ok: true,
-        status: 200,
-        json: () => Promise.resolve(status),
-      });
-    });
-  vi.stubGlobal("fetch", fetchMock);
+  stubApi(({ path, method, body }) => {
+    calls.push(`${method} ${path}`);
+    if (method === "POST" && body !== undefined) posted.push(body);
+    return json(status);
+  });
   return posted;
 }
 
@@ -100,7 +91,7 @@ describe("MetricsSourcePage", () => {
      name and the form has nothing to ask about naming. */
   it("posts both endpoints, and asks for no name", async () => {
     const user = userEvent.setup();
-    const posted = stubApi(NOT_CONNECTED);
+    const posted = stubStatus(NOT_CONNECTED);
     renderPage("victoriametrics");
 
     await user.type(
@@ -122,7 +113,7 @@ describe("MetricsSourcePage", () => {
   /* A supported configuration that costs something specific, so the page names
      the path that still works rather than reporting a plain "Connected". */
   it("says what a source with no rules endpoint costs", async () => {
-    stubApi(connected({ rules: null }));
+    stubStatus(connected({ rules: null }));
     renderPage("victoriametrics");
 
     const rules = await screen.findByLabelText("Rules endpoint");
@@ -145,7 +136,7 @@ describe("MetricsSourcePage", () => {
   it("says Connected in the facts card and acts through the buttons under the card", async () => {
     const user = userEvent.setup();
     const calls: string[] = [];
-    const posted = stubApi(connected(), calls);
+    const posted = stubStatus(connected(), calls);
     renderPage("victoriametrics");
 
     expect(await screen.findByText("Connected")).toHaveClass("text-ok");
@@ -175,7 +166,7 @@ describe("MetricsSourcePage", () => {
   });
 
   it("says Needs attention when the stored credential was refused", async () => {
-    stubApi(
+    stubStatus(
       connected({
         rejection: {
           reason: "VictoriaMetrics rejected the credential",
@@ -194,7 +185,7 @@ describe("MetricsSourcePage", () => {
   });
 
   it("names what VictoriaMetrics needs before it serves metric metadata", async () => {
-    stubApi(NOT_CONNECTED);
+    stubStatus(NOT_CONNECTED);
     renderPage("victoriametrics");
 
     expect(
@@ -205,7 +196,7 @@ describe("MetricsSourcePage", () => {
   // Grafana Cloud hands out an instance id and a token, so Mimir opens on the
   // pair rather than on a header the user would encode themselves.
   it("opens Mimir on the pair Grafana Cloud gives you", async () => {
-    stubApi(NOT_CONNECTED);
+    stubStatus(NOT_CONNECTED);
     renderPage("mimir");
 
     expect(await screen.findByLabelText("Username")).toBeInTheDocument();
@@ -215,12 +206,12 @@ describe("MetricsSourcePage", () => {
   /* X-Scope-OrgID is Mimir's alone. VictoriaMetrics carries its tenant in the
      URL path, and Prometheus and Thanos have no such concept at all. */
   it("asks for a tenant on Mimir and nowhere else", async () => {
-    stubApi(NOT_CONNECTED);
+    stubStatus(NOT_CONNECTED);
     renderPage("mimir");
     expect(await screen.findByLabelText("Tenant")).toBeInTheDocument();
 
     cleanup();
-    stubApi(NOT_CONNECTED);
+    stubStatus(NOT_CONNECTED);
     renderPage("prometheus");
     await screen.findByLabelText("Query URL");
     expect(screen.queryByLabelText("Tenant")).not.toBeInTheDocument();
@@ -230,7 +221,7 @@ describe("MetricsSourcePage", () => {
      basic pair sent beside it, so the form must never send both. */
   it("sends only the credential the chosen method names", async () => {
     const user = userEvent.setup();
-    const posted = stubApi(NOT_CONNECTED);
+    const posted = stubStatus(NOT_CONNECTED);
     renderPage("mimir");
 
     await user.type(await screen.findByLabelText("Username"), "123456");

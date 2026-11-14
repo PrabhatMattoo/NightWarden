@@ -5,6 +5,7 @@ import { renderApp } from "./renderWithProviders.js";
 import { json, stubApi } from "./stubApi.js";
 import type { ApiRequest } from "./stubApi.js";
 import { MockEventSource } from "./mockEventSource.js";
+import { runnersQuery } from "../features/integrations/queries.js";
 
 const SIGNED_IN = {
   ownerExists: true,
@@ -119,13 +120,17 @@ describe("the session check", () => {
     const { router, queryClient } = renderApp({ path: "/integrations" });
     await screen.findByRole("link", { name: /integrations/i });
 
-    await act(() => queryClient.refetchQueries({ queryKey: ["runners"] }));
+    await act(() =>
+      queryClient.refetchQueries({ queryKey: runnersQuery().queryKey }),
+    );
     await waitFor(() =>
       expect(router.state.location.pathname).toBe("/integrations"),
     );
 
     authenticated = false;
-    await act(() => queryClient.refetchQueries({ queryKey: ["runners"] }));
+    await act(() =>
+      queryClient.refetchQueries({ queryKey: runnersQuery().queryKey }),
+    );
     await waitFor(() => expect(router.state.location.pathname).toBe("/login"));
     expect(
       await screen.findByRole("heading", { name: /^log in$/i }),

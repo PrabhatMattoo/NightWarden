@@ -1,8 +1,7 @@
 import { z } from "zod";
+import type { LokiErrorCode } from "@nightwarden/shared";
 import { fetchRead } from "./http.js";
 import { describeNetworkFailure } from "./reachability.js";
-export type LokiErrorCode =
-  "network" | "unauthorized" | "bad_query" | "bad_response";
 
 export class LokiApiError extends Error {
   constructor(

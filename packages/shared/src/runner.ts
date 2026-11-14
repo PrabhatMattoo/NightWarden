@@ -1,7 +1,6 @@
 import type {
   DockerServiceEntry,
   KubernetesWorkloadEntry,
-  RunnerManifest,
 } from "./schemas/runner-protocol.js";
 
 export type {
@@ -26,18 +25,7 @@ export function isPlatform(value: unknown): value is Platform {
   return typeof value === "string" && PLATFORMS.some((p) => p === value);
 }
 
-export interface RunnerRecord {
-  id: string;
-  platform: Platform;
-  serverName: string;
-  hostname: string | null;
-  createdAt: string;
-  online: boolean;
-  lastSeen: string | null;
-  manifest: RunnerManifest | null;
-}
-
-// No DB-only fields, unlike RunnerRecord, and the platform discriminant is what
+// No DB-only fields, unlike a RunnerRecord, and the platform discriminant is what
 // lets a caller partition the fleet before matching.
 interface FleetRunnerBase {
   runnerId: string;

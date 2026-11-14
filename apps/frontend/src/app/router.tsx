@@ -122,9 +122,9 @@ async function readAuthStatus(queryClient: QueryClient) {
 }
 
 // Read through the cache: fetched when absent, taken as it stands when present.
-async function need<TData, TKey extends QueryKey>(
+async function need<TData, TError, TKey extends QueryKey>(
   queryClient: QueryClient,
-  options: QueryExecuteOptions<TData, Error, TData, TData, TKey>,
+  options: QueryExecuteOptions<TData, TError, TData, TData, TKey>,
 ): Promise<void> {
   await queryClient.query({ ...options, staleTime: "static" });
 }

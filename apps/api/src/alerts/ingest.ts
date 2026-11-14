@@ -1,4 +1,7 @@
 import type { FastifyInstance } from "fastify";
+import type { ZodTypeProvider } from "fastify-type-provider-zod";
+import { z } from "zod";
+import { refusals } from "@nightwarden/shared/schemas";
 import {
   parseAlertmanager,
   type ParsedWebhook,
@@ -22,7 +25,21 @@ import {
 export async function registerAlertRoutes(
   fastify: FastifyInstance,
 ): Promise<void> {
-  fastify.post<{ Body: unknown }>("/alerts/ingest", async (request, reply) => {
+  const app = fastify.withTypeProvider<ZodTypeProvider>();
+  // The body is read in the handler, after the token: a stranger learns nothing
+  // about the shape an authenticated sender must post.
+  const schema = {
+    body: z.unknown(),
+    response: {
+      200: z.object({
+        received: z.number(),
+        stored: z.number(),
+        skipped: z.number(),
+      }),
+      ...refusals(),
+    },
+  };
+  app.post("/alerts/ingest", { schema }, async (request, reply) => {
     const plaintext = extractToken(request.headers);
 
     if (!plaintext) {

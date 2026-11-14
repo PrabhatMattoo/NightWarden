@@ -20,7 +20,7 @@ import { Button } from "@/shared/ui/button";
 import { Section } from "@/shared/ui/Page";
 import { ConfirmDialog } from "@/shared/ui/ConfirmDialog";
 import { ICON_UI } from "@/shared/lib/iconProps";
-import { apiFetch } from "@/shared/api/client";
+import { api, dataOrThrow } from "@/shared/api/client";
 import { INTEGRATION_CATALOG } from "../catalog";
 import { runnersQuery } from "../queries";
 import { connectedOn } from "./connectedOn";
@@ -110,7 +110,7 @@ export function RunnerListPage({
   const [removing, setRemoving] = useState<RunnerRecord | null>(null);
   const remove = useMutation({
     mutationFn: (id: string) =>
-      apiFetch<void>(`/api/tokens/${id}`, { method: "DELETE" }),
+      dataOrThrow(api.DELETE("/api/tokens/{id}", { params: { path: { id } } })),
     onSuccess: () =>
       queryClient.invalidateQueries({ queryKey: runnersQuery().queryKey }),
   });

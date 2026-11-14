@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { FastifyInstance } from "fastify";
+import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import {
   loadConfig,
   loadApiKey,
@@ -16,16 +17,18 @@ import {
 import { maskKey } from "../secrets.js";
 import { requireSession } from "../auth/session.js";
 import { logger } from "../logger.js";
-
-import { readable } from "../request-body.js";
 import type {
   LLMProviderName,
   ModelCatalog,
   ModelOption,
 } from "@nightwarden/shared";
 import {
+  agentConfigSchema,
+  refusals,
   configPatchSchema,
   llmProviderNameSchema,
+  modelCatalogSchema,
+  providerKeySavedSchema,
 } from "@nightwarden/shared/schemas";
 
 // Each field falls back to the stored value, so a half-typed form still asks
@@ -74,24 +77,28 @@ function validLevel(model: ModelOption, level: string | null): string | null {
 export async function registerConfigRoutes(
   fastify: FastifyInstance,
 ): Promise<void> {
-  // gated: config includes provider/model/baseUrl — not for unauthenticated eyes
-  fastify.get("/config", { preHandler: requireSession }, async () => {
-    const config = await loadConfig();
-    // apiKeyMasked is safe to return; apiKeyEncrypted never reaches here
-    return config;
-  });
+  const app = fastify.withTypeProvider<ZodTypeProvider>();
+  const answersConfig = {
+    response: { 200: agentConfigSchema, ...refusals() },
+  };
 
-  fastify.patch(
+  // gated: config includes provider/model/baseUrl — not for unauthenticated eyes
+  app.get(
     "/config",
-    { preHandler: requireSession },
-    async (request, reply) => {
-      const parsed = configPatchSchema.safeParse(request.body);
-      if (!parsed.success) {
-        return reply.code(400).send({ error: readable(parsed.error) });
-      }
+    { onRequest: requireSession, schema: answersConfig },
+    async () => await loadConfig(),
+  );
+
+  app.patch(
+    "/config",
+    {
+      onRequest: requireSession,
+      schema: { body: configPatchSchema, ...answersConfig },
+    },
+    async (request) => {
       // Provider blocks are written per provider so one cannot disturb the other;
       // everything else is global and goes through the single config row.
-      const { providers, ...global } = parsed.data;
+      const { providers, ...global } = request.body;
       for (const name of PROVIDER_OPTIONS.map((p) => p.name)) {
         const block = providers?.[name];
         if (block !== undefined)
@@ -108,21 +115,23 @@ export async function registerConfigRoutes(
 
   // Proxied because the key lives here and must never reach the frontend.
   // Listing verifies too: models coming back prove the endpoint and the key.
-  fastify.post(
+  app.post(
     "/config/models",
-    { preHandler: requireSession },
-    async (request, reply) => {
-      const parsed = CatalogBodySchema.safeParse(request.body);
-      if (!parsed.success) {
-        return reply.code(400).send({ error: readable(parsed.error) });
-      }
-      const { provider, baseUrl, apiKey } = parsed.data;
+    {
+      onRequest: requireSession,
+      schema: {
+        body: CatalogBodySchema,
+        response: { 200: modelCatalogSchema, ...refusals() },
+      },
+    },
+    async (request): Promise<ModelCatalog> => {
+      const { provider, baseUrl, apiKey } = request.body;
 
       const config = await loadConfig();
       const target = provider ?? config.provider;
       // Nothing to list until a provider is chosen.
       if (target === null || target === undefined) {
-        return { ok: true, models: [] } satisfies ModelCatalog;
+        return { ok: true, models: [] };
       }
       const stored = config.providers[target];
       // A typed key wins, otherwise the saved one, so changing a model or an
@@ -139,23 +148,22 @@ export async function registerConfigRoutes(
         "model catalog requested",
       );
       return catalog.ok
-        ? ({
-            ok: true,
-            models: offeredModels(catalog.models),
-          } satisfies ModelCatalog)
+        ? { ok: true, models: offeredModels(catalog.models) }
         : catalog;
     },
   );
 
-  fastify.patch(
+  app.patch(
     "/config/key",
-    { preHandler: requireSession },
-    async (request, reply) => {
-      const parsed = KeyBodySchema.safeParse(request.body);
-      if (!parsed.success) {
-        return reply.code(400).send({ error: readable(parsed.error) });
-      }
-      const { provider, apiKey } = parsed.data;
+    {
+      onRequest: requireSession,
+      schema: {
+        body: KeyBodySchema,
+        response: { 200: providerKeySavedSchema, ...refusals() },
+      },
+    },
+    async (request) => {
+      const { provider, apiKey } = request.body;
       await updateProvider(provider, { apiKey });
       return { provider, apiKeyMasked: maskKey(apiKey) };
     },

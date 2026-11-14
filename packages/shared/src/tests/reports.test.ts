@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 
-import type { Finding, Verdict } from "../reports.js";
+import type { Finding, Verdict } from "../schemas/report.js";
 import {
   openCandidateIds,
   principalFindings,

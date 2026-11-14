@@ -4,6 +4,7 @@ import type {
   CandidateCardItem,
   FrontendEvent,
   ReportCardItem,
+  RespondRequest,
   TranscriptItem,
 } from "@nightwarden/shared";
 import type { ActivityLine } from "@/features/session/transcript/types";
@@ -38,7 +39,7 @@ import {
 import { WorkingIndicator } from "@/features/session/transcript/WorkingIndicator";
 import { RunGroup } from "@/features/session/transcript/RunGroup";
 import { segmentRuns } from "@/features/session/transcript/segmentRuns";
-import { apiFetch } from "@/shared/api/client";
+import { api, dataOrThrow } from "@/shared/api/client";
 
 // A stable empty default, so an unloaded transcript does not remount the column.
 const EMPTY_ITEMS: TranscriptItem[] = [];
@@ -350,12 +351,13 @@ export function SessionView({
   );
 
   const respond = useMutation({
-    mutationFn: (vars: { toolCallId: string; body: Record<string, unknown> }) =>
-      apiFetch<void>(`/api/sessions/${activeSessionId}/respond`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(vars.body),
-      }),
+    mutationFn: (vars: { toolCallId: string; body: RespondRequest }) =>
+      dataOrThrow(
+        api.POST("/api/sessions/{id}/respond", {
+          params: { path: { id: activeSessionId ?? "" } },
+          body: vars.body,
+        }),
+      ),
     onError: (err) => {
       toast.show({
         title: "Response not sent",
@@ -387,10 +389,12 @@ export function SessionView({
    way typing does and the ask stays visible in the transcript in their voice. */
   const finishUp = useMutation({
     mutationFn: (clientMessageId: string) =>
-      apiFetch<void>(`/api/sessions/${activeSessionId}/messages`, {
-        method: "POST",
-        body: JSON.stringify({ message: FINISH_UP_MESSAGE, clientMessageId }),
-      }),
+      dataOrThrow(
+        api.POST("/api/sessions/{id}/messages", {
+          params: { path: { id: activeSessionId ?? "" } },
+          body: { message: FINISH_UP_MESSAGE, clientMessageId },
+        }),
+      ),
     onError: (err) => {
       toast.show({
         title: "Could not resume the investigation",

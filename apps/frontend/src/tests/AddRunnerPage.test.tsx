@@ -11,6 +11,7 @@ import {
   createRouter,
 } from "@tanstack/react-router";
 import { TestProviders } from "./renderWithProviders.js";
+import { json, stubApi } from "./stubApi.js";
 import type { RunnerRecord } from "@nightwarden/shared";
 
 import { AddRunnerPage } from "../features/integrations/runners/AddRunnerPage.js";
@@ -47,18 +48,6 @@ const CONNECTED_RUNNER: RunnerRecord = {
   lastSeen: new Date().toISOString(),
   manifest: null,
 };
-
-function jsonOk(body: unknown, status = 200) {
-  return Promise.resolve({
-    ok: true,
-    status,
-    json: () => Promise.resolve(body),
-  });
-}
-
-function textOk(body: string) {
-  return Promise.resolve({ ok: true, text: () => Promise.resolve(body) });
-}
 
 /* The page is a routed screen with a navigation guard, so the seam is the route:
    a memory router with a stub destination, left through the breadcrumb. */
@@ -122,26 +111,21 @@ function setup(opts: { runners?: RunnerRecord[] } = {}) {
 
   const runners = opts.runners ?? [AWAITING_RUNNER];
 
-  const fetchMock = vi
-    .fn()
-    .mockImplementation((url: string, init?: RequestInit) => {
-      if (url === "/api/runners") return jsonOk(runners);
-      if (url === "/api/tokens" && init?.method === "POST")
-        return jsonOk(GENERATED_TOKEN, 201);
-      if (url.startsWith("/api/tokens/") && init?.method === "DELETE")
-        return jsonOk({}, 204);
-      if (url === "/api/runners/install") return textOk(INSTALL_SCRIPT);
-      if (url === "/api/alerts/test" && init?.method === "POST")
-        return jsonOk({
-          ok: true,
-          runnerId: "runner-web-01",
-          server: "web-01",
-        });
-      return jsonOk({});
-    });
-  vi.stubGlobal("fetch", fetchMock);
+  const api = stubApi(({ path, method }) => {
+    if (path === "/api/runners") return json(runners);
+    if (path === "/api/tokens" && method === "POST")
+      return json(GENERATED_TOKEN, 201);
+    if (path.startsWith("/api/tokens/") && method === "DELETE")
+      return new Response(null, { status: 204 });
+    if (path === "/api/runners/install") return new Response(INSTALL_SCRIPT);
+    return json({});
+  });
+  const mints = () =>
+    api.requests("/api/tokens").filter((r) => r.method === "POST");
+  const revokes = () =>
+    api.requests("/api/tokens/").filter((r) => r.method === "DELETE");
 
-  return { fetchMock, ...renderAddServerRoute() };
+  return { api, mints, revokes, ...renderAddServerRoute() };
 }
 
 // The platform comes from the route, so the first step only asks for a name.
@@ -176,15 +160,12 @@ describe("AddRunnerPage", () => {
   describe("the install command", () => {
     it("mints a runner token and shows the docker run script", async () => {
       const user = userEvent.setup();
-      const { fetchMock } = setup();
+      const { mints } = setup();
 
       await startInstall(user, { name: "web-01" });
 
       await waitFor(() => {
-        expect(fetchMock).toHaveBeenCalledWith(
-          "/api/tokens",
-          expect.objectContaining({ method: "POST" }),
-        );
+        expect(mints()).toHaveLength(1);
       });
       await waitFor(() => {
         expect(screen.getByText(/install-docker/)).toBeInTheDocument();
@@ -193,18 +174,12 @@ describe("AddRunnerPage", () => {
 
     it("includes serverName in the token mint request", async () => {
       const user = userEvent.setup();
-      const { fetchMock } = setup();
+      const { mints } = setup();
 
       await startInstall(user, { name: "prod-web-01" });
 
       await waitFor(() => {
-        expect(fetchMock).toHaveBeenCalledWith(
-          "/api/tokens",
-          expect.objectContaining({
-            method: "POST",
-            body: expect.stringContaining('"prod-web-01"'),
-          }),
-        );
+        expect(mints()[0]?.body).toMatchObject({ serverName: "prod-web-01" });
       });
     });
 
@@ -212,25 +187,19 @@ describe("AddRunnerPage", () => {
     // place that knowledge survives.
     it("mints the token against the platform the route names", async () => {
       const user = userEvent.setup();
-      const { fetchMock } = setup();
+      const { mints } = setup();
 
       await startInstall(user, { name: "web-01" });
 
       await waitFor(() => {
-        const mint = fetchMock.mock.calls.find(
-          ([url, init]) => url === "/api/tokens" && init?.method === "POST",
-        );
-        expect(mint).toBeDefined();
-        expect(JSON.parse(String(mint?.[1]?.body))).toMatchObject({
-          platform: "docker",
-        });
+        expect(mints()[0]?.body).toMatchObject({ platform: "docker" });
       });
     });
 
     // A different name needs a different token, so the minted one is revoked.
     it("revokes the minted token and reopens the name when it is changed", async () => {
       const user = userEvent.setup();
-      const { fetchMock } = setup({ runners: [AWAITING_RUNNER] });
+      const { revokes } = setup({ runners: [AWAITING_RUNNER] });
 
       await startInstall(user, { name: "web-01" });
       await screen.findByText(/install-docker/);
@@ -239,10 +208,9 @@ describe("AddRunnerPage", () => {
       );
 
       await waitFor(() => {
-        expect(fetchMock).toHaveBeenCalledWith(
+        expect(revokes().map((r) => r.path)).toEqual([
           `/api/tokens/${GENERATED_TOKEN.id}`,
-          expect.objectContaining({ method: "DELETE" }),
-        );
+        ]);
       });
       expect(screen.getByRole("textbox", { name: /server name/i })).toHaveValue(
         "web-01",
@@ -251,17 +219,16 @@ describe("AddRunnerPage", () => {
 
     it("fetches the install artifact from the one platform-agnostic endpoint", async () => {
       const user = userEvent.setup();
-      const { fetchMock } = setup();
+      const { api } = setup();
 
       await startInstall(user, { name: "web-01" });
 
       await waitFor(() => {
-        expect(fetchMock).toHaveBeenCalledWith(
-          "/api/runners/install",
-          expect.objectContaining({
-            headers: { Authorization: `Bearer ${GENERATED_TOKEN.token}` },
-          }),
-        );
+        expect(
+          api
+            .requests("/api/runners/install")
+            .map((r) => r.headers.get("authorization")),
+        ).toEqual([`Bearer ${GENERATED_TOKEN.token}`]);
       });
     });
   });
@@ -269,7 +236,7 @@ describe("AddRunnerPage", () => {
   describe("once the runner connects", () => {
     it("lists the identity keys the runner advertises, dispatching nothing", async () => {
       const user = userEvent.setup();
-      const { fetchMock } = setup({
+      const { api } = setup({
         runners: [
           {
             ...CONNECTED_RUNNER,
@@ -293,10 +260,7 @@ describe("AddRunnerPage", () => {
       expect(screen.getByText("prod-1/encodr/cache")).toBeInTheDocument();
 
       // Checking the wiring must not start an investigation or spend a token.
-      expect(fetchMock).not.toHaveBeenCalledWith(
-        "/api/alerts/test",
-        expect.anything(),
-      );
+      expect(api.requests("/api/alerts")).toEqual([]);
     });
 
     it("warns when the runner connected but sees nothing", async () => {
@@ -309,7 +273,7 @@ describe("AddRunnerPage", () => {
 
     it("confirms, deletes the minted token, and navigates when leaving before the runner connects", async () => {
       const user = userEvent.setup();
-      const { fetchMock } = setup({ runners: [AWAITING_RUNNER] });
+      const { revokes } = setup({ runners: [AWAITING_RUNNER] });
 
       await startInstall(user, { name: "web-01" });
       await waitFor(() => {
@@ -326,10 +290,9 @@ describe("AddRunnerPage", () => {
       );
 
       await waitFor(() => {
-        expect(fetchMock).toHaveBeenCalledWith(
+        expect(revokes().map((r) => r.path)).toEqual([
           `/api/tokens/${GENERATED_TOKEN.id}`,
-          expect.objectContaining({ method: "DELETE" }),
-        );
+        ]);
       });
       expect(
         await screen.findByText(/integrations destination/i),
@@ -338,7 +301,7 @@ describe("AddRunnerPage", () => {
 
     it("stays on the page and keeps the token when the leave prompt is declined", async () => {
       const user = userEvent.setup();
-      const { fetchMock } = setup({ runners: [AWAITING_RUNNER] });
+      const { revokes } = setup({ runners: [AWAITING_RUNNER] });
 
       await startInstall(user, { name: "web-01" });
       await waitFor(() => {
@@ -359,15 +322,12 @@ describe("AddRunnerPage", () => {
         screen.queryByText(/integrations destination/i),
       ).not.toBeInTheDocument();
       expect(screen.getByText(/install-docker/)).toBeInTheDocument();
-      expect(fetchMock).not.toHaveBeenCalledWith(
-        expect.stringContaining("/api/tokens/"),
-        expect.objectContaining({ method: "DELETE" }),
-      );
+      expect(revokes()).toEqual([]);
     });
 
     it("leaves without a prompt and keeps the token once the runner has connected", async () => {
       const user = userEvent.setup();
-      const { fetchMock } = setup({ runners: [CONNECTED_RUNNER] });
+      const { revokes } = setup({ runners: [CONNECTED_RUNNER] });
 
       await startInstall(user, { name: "web-01" });
       await screen.findByRole("heading", { name: "What it sees" });
@@ -378,10 +338,7 @@ describe("AddRunnerPage", () => {
         await screen.findByText(/runner servers destination/i),
       ).toBeInTheDocument();
       expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
-      expect(fetchMock).not.toHaveBeenCalledWith(
-        expect.stringContaining("/api/tokens/"),
-        expect.objectContaining({ method: "DELETE" }),
-      );
+      expect(revokes()).toEqual([]);
     });
   });
 });

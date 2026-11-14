@@ -25,7 +25,7 @@ import { Switch } from "@/shared/ui/switch";
 import { ConfirmDialog } from "@/shared/ui/ConfirmDialog";
 import { IconLine } from "@/shared/ui/icon-line";
 import { toast } from "@/shared/lib/toast";
-import { apiFetch } from "@/shared/api/client";
+import { api, dataOrThrow } from "@/shared/api/client";
 import {
   rowLabel,
   SettingsGroup,
@@ -278,11 +278,7 @@ function ConnectForm({
           ),
         }),
       };
-      return apiFetch<MetricsSourceStatus>("/api/integrations/metrics", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
+      return dataOrThrow(api.POST("/api/integrations/metrics", { body }));
     },
     onMutate: () => setError(null),
     onSuccess: async () => {
@@ -471,12 +467,12 @@ export function MetricsSourcePage({
   const disconnect = useDisconnect({
     label: identity.label,
     queryKey: metricsSourceQuery().queryKey,
-    endpoint: () => "/api/integrations/metrics",
+    request: () => dataOrThrow(api.DELETE("/api/integrations/metrics")),
   });
   const test = useTestConnection({
     label: identity.label,
     queryKey: metricsSourceQuery().queryKey,
-    endpoint: "/api/integrations/metrics/test",
+    request: () => dataOrThrow(api.POST("/api/integrations/metrics/test")),
   });
 
   return (

@@ -1,8 +1,6 @@
 // One client, no per-product adapter: what differs is where the rules live,
 // how the credential is presented, and what the source cannot answer.
 
-import type { CredentialRejection } from "./integrations.js";
-
 export const METRICS_SOURCE_KINDS = [
   "prometheus",
   "victoriametrics",
@@ -24,51 +22,3 @@ export interface AmpCredential {
   region: string;
   sessionToken?: string;
 }
-
-/* An Authorization value and a tenant, the shape Loki already uses. The four
-   AMP fields apply only when kind is "amp". */
-export interface MetricsEndpointInput {
-  url: string;
-  authHeader?: string;
-  basicUsername?: string;
-  basicPassword?: string;
-  // Sent as X-Scope-OrgID. Mimir requires it whenever multi-tenancy is on and
-  // ignores it when off, so sending it where configured is always safe.
-  orgId?: string;
-  accessKeyId?: string;
-  secretAccessKey?: string;
-  region?: string;
-  sessionToken?: string;
-}
-
-/* One connect request. A product is connected once, so it is addressed by the
-   product's own name and there is nothing here to name it. */
-export interface MetricsConnectInput {
-  kind: MetricsSourceKind;
-  query: MetricsEndpointInput;
-  rules?: MetricsEndpointInput;
-}
-
-// Never the credential itself: a status says what is configured, not its value.
-export interface MetricsEndpointStatus {
-  url: string;
-  hasAuth: boolean;
-  hasOrgId: boolean;
-}
-
-// One source or none, so every field but `configured` is null when there is
-// none. No id: nothing addresses a source there is only ever one of.
-export interface MetricsSourceStatus {
-  configured: boolean;
-  kind: MetricsSourceKind | null;
-  // The product's own name, for the card that reports the connection.
-  label: string | null;
-  query: MetricsEndpointStatus | null;
-  // Null when no rules endpoint is configured: without one an investigation
-  // cannot ask whether the rule that fired still holds.
-  rules: MetricsEndpointStatus | null;
-  rejection: CredentialRejection | null;
-}
-
-export type MetricsErrorCode =
-  "network" | "unauthorized" | "bad_query" | "bad_response";

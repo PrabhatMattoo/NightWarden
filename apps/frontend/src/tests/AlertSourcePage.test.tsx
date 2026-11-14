@@ -10,6 +10,7 @@ import {
   createRouter,
 } from "@tanstack/react-router";
 import { TestProviders } from "./renderWithProviders.js";
+import { json, stubApi } from "./stubApi.js";
 import type { AlertSourceKind, RunnerRecord } from "@nightwarden/shared";
 
 import { AlertSourcePage } from "../features/integrations/alerting/AlertSourcePage.js";
@@ -33,14 +34,6 @@ function dockerRunner(name: string): RunnerRecord {
       services: [],
     },
   };
-}
-
-function jsonOk(body: unknown, status = 200) {
-  return Promise.resolve({
-    ok: true,
-    status,
-    json: () => Promise.resolve(body),
-  });
 }
 
 function renderAlertmanagerRoute(kind: AlertSourceKind = "alertmanager") {
@@ -98,27 +91,26 @@ function setup(
     configurable: true,
   });
 
-  const fetchMock = vi
-    .fn()
-    .mockImplementation((url: string, init?: RequestInit) => {
-      if (url === "/api/runners") return jsonOk(runners);
-      if (url === `${base}/credential` && init?.method === "POST") {
-        rotated = true;
-        return jsonOk({ token: ROTATED_TOKEN }, 201);
-      }
-      if (url === base && init?.method === "DELETE") return jsonOk({}, 204);
-      if (url === base)
-        return jsonOk({
-          configured: configured || rotated,
-          ingestUrl: INGEST_URL,
-          lastReceivedAt: rotated ? null : lastReceivedAt,
-        });
-      return jsonOk({});
-    });
-  vi.stubGlobal("fetch", fetchMock);
+  const api = stubApi(({ path, method }) => {
+    if (path === "/api/runners") return json(runners);
+    if (path === `${base}/credential` && method === "POST") {
+      rotated = true;
+      return json({ token: ROTATED_TOKEN }, 201);
+    }
+    if (path === base && method === "DELETE") {
+      return new Response(null, { status: 204 });
+    }
+    if (path === base)
+      return json({
+        configured: configured || rotated,
+        ingestUrl: INGEST_URL,
+        lastReceivedAt: rotated ? null : lastReceivedAt,
+      });
+    return json({});
+  });
 
   const view = renderAlertmanagerRoute(kind);
-  return { fetchMock, clipboardWrite, view };
+  return { api, clipboardWrite, view };
 }
 
 afterEach(() => {
@@ -129,7 +121,7 @@ afterEach(() => {
 describe("AlertSourcePage", () => {
   it("shows the whole setup without minting, then reveals the credential once", async () => {
     const user = userEvent.setup();
-    const { fetchMock } = setup({ configured: false });
+    const { api } = setup({ configured: false });
 
     const generateButton = await screen.findByRole("button", {
       name: /generate secret/i,
@@ -138,10 +130,9 @@ describe("AlertSourcePage", () => {
        so is the scheme, which the setup sentence carries. */
     expect(screen.getByText(/alerts\/ingest/)).toBeInTheDocument();
     expect(screen.getByText(/Bearer/)).toBeInTheDocument();
-    expect(fetchMock).not.toHaveBeenCalledWith(
-      "/api/integrations/alerting/alertmanager/credential",
-      expect.objectContaining({ method: "POST" }),
-    );
+    expect(
+      api.requests("/api/integrations/alerting/alertmanager/credential"),
+    ).toEqual([]);
 
     await user.click(generateButton);
 
@@ -265,7 +256,7 @@ describe("AlertSourcePage", () => {
 
   it("disconnects, which is the revoke the page never had", async () => {
     const user = userEvent.setup();
-    const { fetchMock } = setup({ configured: true });
+    const { api } = setup({ configured: true });
 
     await user.click(await screen.findByRole("button", { name: "Disconnect" }));
     const dialog = await screen.findByRole("alertdialog");
@@ -274,10 +265,11 @@ describe("AlertSourcePage", () => {
     );
 
     await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledWith(
-        "/api/integrations/alerting/alertmanager",
-        expect.objectContaining({ method: "DELETE" }),
-      );
+      expect(
+        api
+          .requests("/api/integrations/alerting/alertmanager")
+          .some((request) => request.method === "DELETE"),
+      ).toBe(true);
     });
   });
 });

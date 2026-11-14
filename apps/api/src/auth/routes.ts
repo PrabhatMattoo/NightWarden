@@ -1,6 +1,11 @@
 import { fromNodeHeaders } from "better-auth/node";
 import type { FastifyInstance } from "fastify";
+import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import type { AuthStatusResponse } from "@nightwarden/shared";
+import {
+  authStatusResponseSchema,
+  refusals,
+} from "@nightwarden/shared/schemas";
 import { getAuth } from "./instance.js";
 import { ownerExists } from "./owner-store.js";
 import { currentUser } from "./session.js";
@@ -10,9 +15,11 @@ export async function registerAuthRoutes(
 ): Promise<void> {
   /* Better Auth owns every path beneath /api/auth, which is its own default
      basePath, so sign-in, sign-out and change-password need no route of ours. */
+  const app = fastify.withTypeProvider<ZodTypeProvider>();
   fastify.route({
     method: ["GET", "POST"],
     url: "/auth/*",
+    schema: { hide: true },
     async handler(request, reply) {
       const url = new URL(
         request.url,
@@ -35,17 +42,25 @@ export async function registerAuthRoutes(
   });
 
   // Hyphenated so it cannot be swallowed by the catch-all above.
-  fastify.get("/auth-status", async (request): Promise<AuthStatusResponse> => {
-    if (!(await ownerExists())) return { ownerExists: false };
-    const user = await currentUser(request);
-    if (!user) return { ownerExists: true, authenticated: false };
-    return {
-      ownerExists: true,
-      authenticated: true,
-      email: user.email,
-      name: user.name,
-      image: user.image,
-      theme: user.theme,
-    };
-  });
+  app.get(
+    "/auth-status",
+    {
+      schema: {
+        response: { 200: authStatusResponseSchema, ...refusals() },
+      },
+    },
+    async (request): Promise<AuthStatusResponse> => {
+      if (!(await ownerExists())) return { ownerExists: false };
+      const user = await currentUser(request);
+      if (!user) return { ownerExists: true, authenticated: false };
+      return {
+        ownerExists: true,
+        authenticated: true,
+        email: user.email,
+        name: user.name,
+        image: user.image,
+        theme: user.theme,
+      };
+    },
+  );
 }

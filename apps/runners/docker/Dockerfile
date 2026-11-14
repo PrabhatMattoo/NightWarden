@@ -23,7 +23,7 @@ RUN apt-get update \
 # until a dependency actually changes rather than on every source edit.
 FROM toolchain AS manifests
 
-COPY pnpm-workspace.yaml pnpm-lock.yaml package.json ./
+COPY pnpm-workspace.yaml pnpm-lock.yaml package.json .pnpmfile.cjs ./
 COPY apps/runners/docker/package.json apps/runners/docker/
 COPY packages/shared/package.json packages/shared/
 COPY packages/runner-core/package.json packages/runner-core/

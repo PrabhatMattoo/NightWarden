@@ -1,9 +1,14 @@
 import { probeSignal } from "../reachability.js";
 import { z } from "zod";
-import { readable } from "../../request-body.js";
 import type { FastifyInstance, FastifyReply } from "fastify";
-import { isMetricsSourceKind } from "@nightwarden/shared";
+import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import type { MetricsSourceStatus } from "@nightwarden/shared";
+import {
+  refusals,
+  metricsConnectInputSchema,
+  metricsErrorBodySchema,
+  metricsSourceStatusSchema,
+} from "@nightwarden/shared/schemas";
 import { requireSession } from "../../auth/session.js";
 import {
   deleteMetricsSource,
@@ -20,27 +25,6 @@ import {
 } from "./sources.js";
 import { METRICS_PRESETS } from "./presets.js";
 import { withStoredCredential } from "../credential-health.js";
-
-const EndpointSchema = z.object({
-  url: z.string().min(1),
-  authHeader: z.string().min(1).optional(),
-  basicUsername: z.string().min(1).optional(),
-  basicPassword: z.string().min(1).optional(),
-  orgId: z.string().min(1).optional(),
-  // AMP only: SigV4 request-signing credentials in place of the above.
-  accessKeyId: z.string().min(1).optional(),
-  secretAccessKey: z.string().min(1).optional(),
-  region: z.string().min(1).optional(),
-  sessionToken: z.string().min(1).optional(),
-});
-
-const ConnectSchema = z.object({
-  kind: z.string().refine(isMetricsSourceKind, "unknown metrics source"),
-  query: EndpointSchema,
-  // Absent is a legitimate configuration and a stated limitation, not an
-  // error: without it the investigation can never confirm the alert cleared.
-  rules: EndpointSchema.optional(),
-});
 
 async function statusPayload(): Promise<MetricsSourceStatus> {
   return statusOf(await metricsSourceRow());
@@ -63,24 +47,32 @@ async function sendMetricsError(
 export async function registerMetricsRoutes(
   fastify: FastifyInstance,
 ): Promise<void> {
+  const app = fastify.withTypeProvider<ZodTypeProvider>();
+  const metricsRefusals = refusals(metricsErrorBodySchema);
+  const answersStatus = {
+    response: { 200: metricsSourceStatusSchema, ...metricsRefusals },
+  };
+
   // Status only - like every other integration, no credential rides a response.
-  fastify.get(
+  app.get(
     "/integrations/metrics",
-    { preHandler: requireSession },
+    { onRequest: requireSession, schema: answersStatus },
     async () => await statusPayload(),
   );
 
   // Probed with the calls an investigation makes, so a rules URL answering
   // nothing is refused here rather than found by a run that cannot close.
-  fastify.post(
+  app.post(
     "/integrations/metrics",
-    { preHandler: requireSession },
+    {
+      onRequest: requireSession,
+      schema: {
+        body: metricsConnectInputSchema,
+        response: { 201: metricsSourceStatusSchema, ...metricsRefusals },
+      },
+    },
     async (request, reply) => {
-      const parsed = ConnectSchema.safeParse(request.body);
-      if (!parsed.success) {
-        return reply.code(400).send({ error: readable(parsed.error) });
-      }
-      const { kind, query, rules } = parsed.data;
+      const { kind, query, rules } = request.body;
       const name = METRICS_PRESETS[kind].label;
       // One source, whatever product: what you point at is already an
       // aggregate, so a second is a mistake; the same one reconnects in place.
@@ -121,9 +113,9 @@ export async function registerMetricsRoutes(
     },
   );
 
-  fastify.post(
+  app.post(
     "/integrations/metrics/test",
-    { preHandler: requireSession },
+    { onRequest: requireSession, schema: answersStatus },
     async (_request, reply) => {
       const source = await getMetricsSource();
       if (source === null) {
@@ -146,9 +138,12 @@ export async function registerMetricsRoutes(
   );
 
   // No id, as Loki has none: there is one source to disconnect or none.
-  fastify.delete(
+  app.delete(
     "/integrations/metrics",
-    { preHandler: requireSession },
+    {
+      onRequest: requireSession,
+      schema: { response: { 204: z.undefined(), ...refusals() } },
+    },
     async (_request, reply) => {
       await deleteMetricsSource();
       logger.info({}, "metrics source disconnected");

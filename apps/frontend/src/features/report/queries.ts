@@ -1,15 +1,15 @@
 import { queryOptions } from "@tanstack/react-query";
-import type { SessionReportResponse } from "@nightwarden/shared";
-
-import { apiFetch, ApiError } from "@/shared/api/client";
+import { api, ApiError, dataOrThrow } from "@/shared/api/client";
 
 // A 404 means nothing is recorded yet, never that the session is absent.
 export function reportQuery(sessionId: string) {
   return queryOptions({
     queryKey: ["report", sessionId],
     queryFn: () =>
-      apiFetch<SessionReportResponse>(
-        `/api/sessions/${sessionId}/report`,
+      dataOrThrow(
+        api.GET("/api/sessions/{id}/report", {
+          params: { path: { id: sessionId } },
+        }),
       ).catch((err: unknown) => {
         if (err instanceof ApiError && err.status === 404) return null;
         throw err;
