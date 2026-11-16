@@ -5,9 +5,10 @@ vi.mock("dockerode", () => ({ default: MockDocker }));
 
 import type { DockerLogsResult } from "@nightwarden/shared";
 import { getContainerLogs } from "../docker/commands.js";
+import { listedContainer } from "./docker-fixtures.js";
 
 const SERVICE = {
-  project: "myapp",
+  project: "shop",
   service: "postgres",
 };
 
@@ -31,19 +32,6 @@ function messages(result: unknown): string[] {
   return (result as DockerLogsResult).lines.map((entry) => entry.line);
 }
 
-function containerInfo(id: string, state: string, created: number) {
-  return {
-    Id: id,
-    Names: [`/${id}`],
-    State: state,
-    Created: created,
-    Labels: {
-      "com.docker.compose.project": "myapp",
-      "com.docker.compose.service": "postgres",
-    },
-  };
-}
-
 describe("getContainerLogs", () => {
   function withLogs(text: string) {
     const logs = vi.fn().mockResolvedValue(muxFrame(1, text));
@@ -51,7 +39,9 @@ describe("getContainerLogs", () => {
       return {
         listContainers: vi
           .fn()
-          .mockResolvedValue([containerInfo("live-1", "running", 200)]),
+          .mockResolvedValue([
+            listedContainer({ Id: "live-1", State: "running", Created: 200 }),
+          ]),
         getContainer: vi.fn().mockReturnValue({ logs }),
       };
     });
@@ -95,12 +85,14 @@ describe("getContainerLogs", () => {
     });
     MockDocker.mockImplementation(function () {
       return {
-        listContainers: vi
-          .fn()
-          .mockResolvedValue([
-            containerInfo("stopped-old", "exited", 100),
-            containerInfo("live-1", "running", 200),
-          ]),
+        listContainers: vi.fn().mockResolvedValue([
+          listedContainer({
+            Id: "stopped-old",
+            State: "exited",
+            Created: 100,
+          }),
+          listedContainer({ Id: "live-1", State: "running", Created: 200 }),
+        ]),
         getContainer,
       };
     });
@@ -120,7 +112,9 @@ describe("getContainerLogs", () => {
       return {
         listContainers: vi
           .fn()
-          .mockResolvedValue([containerInfo("live-1", "running", 200)]),
+          .mockResolvedValue([
+            listedContainer({ Id: "live-1", State: "running", Created: 200 }),
+          ]),
         getContainer: vi.fn().mockReturnValue({ logs }),
       };
     });
@@ -158,7 +152,9 @@ describe("getContainerLogs", () => {
       return {
         listContainers: vi
           .fn()
-          .mockResolvedValue([containerInfo("live-1", "running", 200)]),
+          .mockResolvedValue([
+            listedContainer({ Id: "live-1", State: "running", Created: 200 }),
+          ]),
         getContainer: vi.fn().mockReturnValue({ logs }),
       };
     });
@@ -187,7 +183,9 @@ describe("getContainerLogs", () => {
       return {
         listContainers: vi
           .fn()
-          .mockResolvedValue([containerInfo("live-1", "running", 200)]),
+          .mockResolvedValue([
+            listedContainer({ Id: "live-1", State: "running", Created: 200 }),
+          ]),
         getContainer: vi.fn().mockReturnValue({ logs }),
       };
     });
@@ -211,7 +209,9 @@ describe("getContainerLogs", () => {
       return {
         listContainers: vi
           .fn()
-          .mockResolvedValue([containerInfo("live-1", "running", 200)]),
+          .mockResolvedValue([
+            listedContainer({ Id: "live-1", State: "running", Created: 200 }),
+          ]),
         getContainer: vi.fn().mockReturnValue({ logs }),
       };
     });
@@ -234,7 +234,9 @@ describe("getContainerLogs", () => {
       return {
         listContainers: vi
           .fn()
-          .mockResolvedValue([containerInfo("live-1", "running", 200)]),
+          .mockResolvedValue([
+            listedContainer({ Id: "live-1", State: "running", Created: 200 }),
+          ]),
         getContainer: vi.fn().mockReturnValue({
           logs: vi
             .fn()
@@ -263,12 +265,18 @@ describe("getContainerLogs", () => {
     });
     MockDocker.mockImplementation(function () {
       return {
-        listContainers: vi
-          .fn()
-          .mockResolvedValue([
-            containerInfo("older-stopped", "exited", 100),
-            containerInfo("newer-stopped", "exited", 200),
-          ]),
+        listContainers: vi.fn().mockResolvedValue([
+          listedContainer({
+            Id: "older-stopped",
+            State: "exited",
+            Created: 100,
+          }),
+          listedContainer({
+            Id: "newer-stopped",
+            State: "exited",
+            Created: 200,
+          }),
+        ]),
         getContainer,
       };
     });
@@ -292,7 +300,7 @@ describe("getContainerLogs", () => {
 
     expect(result).toEqual({
       found: false,
-      reason: "No running container found for myapp/postgres",
+      reason: "No running container found for shop/postgres",
     });
   });
 
@@ -302,7 +310,9 @@ describe("getContainerLogs", () => {
       return {
         listContainers: vi
           .fn()
-          .mockResolvedValue([containerInfo("live-1", "running", 200)]),
+          .mockResolvedValue([
+            listedContainer({ Id: "live-1", State: "running", Created: 200 }),
+          ]),
         getContainer: vi.fn().mockReturnValue({
           logs: vi.fn().mockRejectedValue(engineError),
         }),

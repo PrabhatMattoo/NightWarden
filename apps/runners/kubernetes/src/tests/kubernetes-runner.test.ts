@@ -1,4 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type {
+  ConfigurationOptions,
+  ObservableMiddleware,
+} from "@kubernetes/client-node";
 import type { K8sLogsResult, NotFoundResult } from "@nightwarden/shared";
 
 // Mock @kubernetes/client-node at the system boundary. vi.mock is hoisted, so
@@ -9,15 +13,16 @@ const { MockKubeConfig, MockMetrics, MockExec } = vi.hoisted(() => ({
   MockExec: vi.fn(),
 }));
 
-vi.mock("@kubernetes/client-node", () => ({
+vi.mock("@kubernetes/client-node", async (importOriginal) => ({
   KubeConfig: MockKubeConfig,
   CoreV1Api: class CoreV1Api {},
   AppsV1Api: class AppsV1Api {},
   Metrics: MockMetrics,
   Exec: MockExec,
-  // setHeaderOptions is used by restartWorkload to pass strategic-merge-patch Content-Type. The mock just
-  // returns its third arg (or {}) since the patch calls are themselves mocked and never inspect the options.
-  setHeaderOptions: vi.fn().mockReturnValue({}),
+  // Real, so the restart's headers are the ones the apiserver would receive.
+  setHeaderOptions: (
+    await importOriginal<typeof import("@kubernetes/client-node")>()
+  ).setHeaderOptions,
   // Real class (not a vi.fn) so `instanceof ApiException` works in the
   // 404-vs-genuine-error distinction every multi-kind read depends on.
   ApiException: class ApiException extends Error {
@@ -81,6 +86,22 @@ const DEPLOYMENT = {
   metadata: { name: "api-server", namespace: "production" },
   spec: { selector: { matchLabels: { app: "api-server" } } },
 };
+
+// The Content-Type a patch call's options set, read through the client's own request pipeline.
+async function patchContentType(
+  patch: ReturnType<typeof vi.fn>,
+): Promise<string | undefined> {
+  const { RequestContext, HttpMethod } = await vi.importActual<
+    typeof import("@kubernetes/client-node")
+  >("@kubernetes/client-node");
+  // vi.fn records its arguments untyped; restartWorkload passes setHeaderOptions' result here.
+  const options = patch.mock.calls[0]?.[1] as
+    ConfigurationOptions<ObservableMiddleware> | undefined;
+  const context = new RequestContext("http://apiserver/apis", HttpMethod.PATCH);
+  for (const step of options?.middleware ?? [])
+    await step.pre(context).toPromise();
+  return context.getHeaders()["Content-Type"];
+}
 
 function notFound(): Error {
   return new ApiException(404, "not found", undefined, {});
@@ -1074,6 +1095,9 @@ describe("Kubernetes runner command handlers", () => {
         }),
         expect.anything(),
       );
+      expect(
+        await patchContentType(mockAppsApi.patchNamespacedDeployment),
+      ).toBe("application/strategic-merge-patch+json");
       expect(result).toMatchObject({
         success: true,
         kind: "Deployment",
@@ -1094,7 +1118,9 @@ describe("Kubernetes runner command handlers", () => {
         estimatedDowntimeSeconds: 5,
       });
 
-      expect(mockAppsApi.patchNamespacedStatefulSet).toHaveBeenCalled();
+      expect(
+        await patchContentType(mockAppsApi.patchNamespacedStatefulSet),
+      ).toBe("application/strategic-merge-patch+json");
       expect(result).toMatchObject({ success: true, kind: "StatefulSet" });
     });
 
@@ -1114,7 +1140,9 @@ describe("Kubernetes runner command handlers", () => {
         estimatedDowntimeSeconds: 5,
       });
 
-      expect(mockAppsApi.patchNamespacedDaemonSet).toHaveBeenCalled();
+      expect(await patchContentType(mockAppsApi.patchNamespacedDaemonSet)).toBe(
+        "application/strategic-merge-patch+json",
+      );
       expect(result).toMatchObject({
         success: true,
         kind: "DaemonSet",

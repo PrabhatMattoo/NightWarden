@@ -217,9 +217,11 @@ export async function getContainerStats(
 
   let blockReadBytes = 0;
   let blockWriteBytes = 0;
+  // cgroup v1 reports "Read" and "Write", and cgroup v2 the same words in lower case.
   for (const entry of raw.blkio_stats?.io_service_bytes_recursive ?? []) {
-    if (entry.op === "Read") blockReadBytes += entry.value;
-    else if (entry.op === "Write") blockWriteBytes += entry.value;
+    const op = entry.op.toLowerCase();
+    if (op === "read") blockReadBytes += entry.value;
+    else if (op === "write") blockWriteBytes += entry.value;
   }
 
   return {

@@ -1,6 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type {
+  V1DaemonSet,
+  V1Deployment,
+  V1StatefulSet,
+} from "@kubernetes/client-node";
 
-// Mock the one system boundary this builder touches: the Kubernetes apps API.
 const { mockListDeployments, mockListStatefulSets, mockListDaemonSets } =
   vi.hoisted(() => ({
     mockListDeployments: vi.fn(),
@@ -8,23 +12,65 @@ const { mockListDeployments, mockListStatefulSets, mockListDaemonSets } =
     mockListDaemonSets: vi.fn(),
   }));
 
-vi.mock("../kubernetes/client.js", () => ({
-  getAppsV1Api: () => ({
-    listDeploymentForAllNamespaces: mockListDeployments,
-    listStatefulSetForAllNamespaces: mockListStatefulSets,
-    listDaemonSetForAllNamespaces: mockListDaemonSets,
+vi.mock("@kubernetes/client-node", () => ({
+  KubeConfig: vi.fn(function () {
+    return {
+      loadFromDefault: vi.fn(),
+      loadFromCluster: vi.fn(),
+      makeApiClient: (Api: { name: string }) => {
+        if (Api.name !== "AppsV1Api") throw new Error(`unexpected ${Api.name}`);
+        return {
+          listDeploymentForAllNamespaces: mockListDeployments,
+          listStatefulSetForAllNamespaces: mockListStatefulSets,
+          listDaemonSetForAllNamespaces: mockListDaemonSets,
+        };
+      },
+    };
   }),
+  AppsV1Api: class AppsV1Api {},
+  CoreV1Api: class CoreV1Api {},
 }));
 
 import { buildKubernetesManifest } from "../manifest/detect.js";
 import { setServerName } from "@nightwarden/runner-core";
 
-function workload(
+// Typed as the client's own models, so a field the API does not send fails to compile.
+function deployment(
   namespace: string,
   name: string,
-  ready: Record<string, number>,
-) {
-  return { metadata: { namespace, name }, status: ready };
+  readyReplicas: number,
+): V1Deployment {
+  return {
+    metadata: { namespace, name },
+    status: { replicas: readyReplicas, readyReplicas },
+  };
+}
+
+function statefulSet(
+  namespace: string,
+  name: string,
+  readyReplicas: number,
+): V1StatefulSet {
+  return {
+    metadata: { namespace, name },
+    status: { replicas: readyReplicas, readyReplicas },
+  };
+}
+
+function daemonSet(
+  namespace: string,
+  name: string,
+  numberReady: number,
+): V1DaemonSet {
+  return {
+    metadata: { namespace, name },
+    status: {
+      currentNumberScheduled: 4,
+      desiredNumberScheduled: 4,
+      numberMisscheduled: 0,
+      numberReady,
+    },
+  };
 }
 
 const SERVER = "prod-cluster";
@@ -50,7 +96,7 @@ describe("buildKubernetesManifest", () => {
 
   it("advertises a three-segment key built from namespace and workload, and carries it", async () => {
     mockListDeployments.mockResolvedValue({
-      items: [workload("production", "api-server", { readyReplicas: 2 })],
+      items: [deployment("production", "api-server", 2)],
     });
 
     const manifest = await buildKubernetesManifest();
@@ -67,13 +113,13 @@ describe("buildKubernetesManifest", () => {
 
   it("advertises all three kinds and stamps the kind the alert resolver needs", async () => {
     mockListDeployments.mockResolvedValue({
-      items: [workload("shop", "api", { readyReplicas: 1 })],
+      items: [deployment("shop", "api", 1)],
     });
     mockListStatefulSets.mockResolvedValue({
-      items: [workload("shop", "db", { readyReplicas: 3 })],
+      items: [statefulSet("shop", "db", 3)],
     });
     mockListDaemonSets.mockResolvedValue({
-      items: [workload("kube-system", "node-exporter", { numberReady: 4 })],
+      items: [daemonSet("kube-system", "node-exporter", 4)],
     });
 
     const manifest = await buildKubernetesManifest();
@@ -90,8 +136,8 @@ describe("buildKubernetesManifest", () => {
   it("reads a DaemonSet's readiness from numberReady, which counts nodes not replicas", async () => {
     mockListDaemonSets.mockResolvedValue({
       items: [
-        workload("kube-system", "ready-agent", { numberReady: 2 }),
-        workload("kube-system", "stuck-agent", { numberReady: 0 }),
+        daemonSet("kube-system", "ready-agent", 2),
+        daemonSet("kube-system", "stuck-agent", 0),
       ],
     });
 

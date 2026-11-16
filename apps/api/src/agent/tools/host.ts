@@ -74,7 +74,7 @@ export const HOST_TOOLS: Tool[] = [
   {
     ...declareTool(
       "GetHostDisk",
-      "Read a Docker host's filesystem usage per mount, and its disk read and write rates per device. A full disk stops containers writing logs and databases accepting writes, so check it early when several services fail at once. tmpfs and udev mounts are left out, so an in-memory filesystem filling up is not visible here." +
+      "Read a Docker host's filesystem usage per mount, and per device its read and write rates and how busy it was, each over the last second. A full disk stops containers writing logs and databases accepting writes, so check it early when several services fail at once. tmpfs and udev mounts are left out, so an in-memory filesystem filling up is not visible here." +
         DOCKER_ONLY,
       HOST_VITALS_INPUT,
     ),

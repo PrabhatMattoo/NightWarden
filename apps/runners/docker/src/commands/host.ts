@@ -34,17 +34,18 @@ export async function getHostMemory(): Promise<HostMemoryResult> {
   const swapTotal = parseKb("SwapTotal");
   const swapFree = parseKb("SwapFree");
 
-  const oomLines = dmesgOut
-    .split("\n")
-    .filter((l) => l.includes("Out of memory") || l.includes("oom-kill"));
-
-  const oomKillerEvents = oomLines.map((line) => {
-    const tsMatch = line.match(/\[([^\]]+)\]/);
-    const procMatch = line.match(/process (\S+)/i) ?? line.match(/comm=(\S+)/i);
-    return {
-      timestamp: tsMatch ? tsMatch[1]! : new Date().toISOString(),
-      processName: procMatch ? procMatch[1]! : "unknown",
-    };
+  // One kill prints several lines, and only "Killed process <pid> (<name>)" names
+  // the victim, for a host-wide and a cgroup out-of-memory alike.
+  const oomKillerEvents = dmesgOut.split("\n").flatMap((line) => {
+    const killed = line.match(/Killed process \d+ \(([^)]+)\)/);
+    if (killed === null) return [];
+    const tsMatch = line.match(/^\[([^\]]+)\]/);
+    return [
+      {
+        timestamp: tsMatch ? tsMatch[1]! : new Date().toISOString(),
+        processName: killed[1]!,
+      },
+    ];
   });
 
   return {
@@ -93,8 +94,9 @@ export async function getHostCpu(): Promise<HostCpuResult> {
       r2.nums.reduce((a, b) => a + b, 0) - r1.nums.reduce((a, b) => a + b, 0);
     const idle = (r2.nums[3] ?? 0) - (r1.nums[3] ?? 0);
     const iowait = (r2.nums[4] ?? 0) - (r1.nums[4] ?? 0);
+    // Waiting on the disk is reported as iowait, so it is not counted as busy too.
     return {
-      usagePercent: total > 0 ? ((total - idle) / total) * 100 : 0,
+      usagePercent: total > 0 ? ((total - idle - iowait) / total) * 100 : 0,
       iowaitPercent: total > 0 ? (iowait / total) * 100 : 0,
     };
   };
@@ -121,7 +123,8 @@ export async function getHostCpu(): Promise<HostCpuResult> {
 export async function getHostDisk(): Promise<HostDiskResult> {
   const [dfOut, iostatOut] = await Promise.all([
     exec("df", ["-Bk"]).then((r) => r.stdout),
-    exec("iostat", ["-x", "1", "1"])
+    // -y drops the since-boot report, so the one printed covers the last second.
+    exec("iostat", ["-x", "-d", "-y", "1", "1"])
       .then((r) => r.stdout)
       .catch(() => ""),
   ]);
@@ -144,33 +147,34 @@ export async function getHostDisk(): Promise<HostDiskResult> {
       };
     });
 
-  const diskIO: HostDiskResult["diskIO"] = [];
-  if (iostatOut) {
-    const lines = iostatOut.split("\n");
-    const headerIdx = lines.findIndex((l) => l.includes("Device"));
-    if (headerIdx >= 0) {
-      lines
-        .slice(headerIdx + 1)
-        .filter(Boolean)
-        .forEach((l) => {
-          const cols = l.trim().split(/\s+/);
-          if (cols.length >= 7) {
-            diskIO.push({
+  const lines = iostatOut.split("\n");
+  const header = lines.find((l) => l.startsWith("Device"))?.split(/\s+/) ?? [];
+  // Columns move between sysstat versions, so each is found by its header.
+  const [read, write, util] = ["rkB/s", "wkB/s", "%util"].map((name) =>
+    header.indexOf(name),
+  );
+  const diskIO: HostDiskResult["diskIO"] =
+    read === -1 || write === -1 || util === -1
+      ? []
+      : lines
+          .slice(lines.findIndex((l) => l.startsWith("Device")) + 1)
+          .filter(Boolean)
+          .map((l) => {
+            const cols = l.trim().split(/\s+/);
+            return {
               device: cols[0] ?? "",
-              readBytesPerSec: parseFloat(cols[5] ?? "0") * 1024,
-              writeBytesPerSec: parseFloat(cols[6] ?? "0") * 1024,
-              iowaitPercent: parseFloat(cols[cols.length - 1] ?? "0"),
-            });
-          }
-        });
-    }
-  }
+              readBytesPerSec: parseFloat(cols[read!] ?? "0") * 1024,
+              writeBytesPerSec: parseFloat(cols[write!] ?? "0") * 1024,
+              utilPercent: parseFloat(cols[util!] ?? "0"),
+            };
+          });
 
   return { filesystems, diskIO };
 }
 
 export async function getHostNetwork(): Promise<HostNetworkResult> {
-  const { stdout } = await exec("ss", ["-tunapl"]);
+  // -a without -l: listening sockets and live connections both, so states can be counted.
+  const { stdout } = await exec("ss", ["-tunap"]);
   const lines = stdout.trim().split("\n").filter(Boolean);
 
   const listeningPorts: HostNetworkResult["listeningPorts"] = [];

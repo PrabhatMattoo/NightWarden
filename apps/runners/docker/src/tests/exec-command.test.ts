@@ -7,22 +7,14 @@ const { MockDocker } = vi.hoisted(() => ({ MockDocker: vi.fn() }));
 vi.mock("dockerode", () => ({ default: MockDocker }));
 
 import { execCommand } from "../docker/commands.js";
+import { listedContainer } from "./docker-fixtures.js";
 
 const SERVICE = {
-  project: "myapp",
-  service: "web-01",
+  project: "shop",
+  service: "postgres",
 };
 
-const LIVE_CONTAINER = {
-  Id: "live-1",
-  Names: ["/web-01"],
-  State: "running",
-  Created: 100,
-  Labels: {
-    "com.docker.compose.project": "myapp",
-    "com.docker.compose.service": "web-01",
-  },
-};
+const LIVE_CONTAINER = listedContainer({ Id: "live-1" });
 
 // Build a Docker multiplexed-stream frame (8-byte header + payload).
 function muxFrame(streamType: 1 | 2, text: string): Buffer {
@@ -112,7 +104,7 @@ describe("execCommand handler", () => {
 
     expect(result).toEqual({
       found: false,
-      reason: "No running container found for myapp/web-01",
+      reason: "No running container found for shop/postgres",
     });
     expect(exec).not.toHaveBeenCalled();
   });

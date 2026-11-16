@@ -1,8 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type Dockerode from "dockerode";
 
-// Mock system boundaries: the Docker client and the filesystem read that
-// recovers the host's own name.
 const { mockListContainers, mockReadFile } = vi.hoisted(() => ({
   mockListContainers: vi.fn(),
   mockReadFile: vi.fn(),
@@ -10,39 +7,16 @@ const { mockListContainers, mockReadFile } = vi.hoisted(() => ({
 
 vi.mock("node:fs/promises", () => ({ readFile: mockReadFile }));
 
-vi.mock("../docker/client.js", () => ({
-  getDocker: () => ({ listContainers: mockListContainers }),
-  // Stands in for the real enumerator, which lists then drops our own containers.
-  listVisibleContainers: (docker: {
-    listContainers: typeof mockListContainers;
-  }) => docker.listContainers({ all: true }),
+vi.mock("dockerode", () => ({
+  default: vi.fn(function () {
+    return { listContainers: mockListContainers };
+  }),
 }));
 
 import { buildDockerManifest } from "../manifest/detect.js";
+import { hideContainer } from "../docker/client.js";
 import { setServerName } from "@nightwarden/runner-core";
-
-function makeContainer(
-  id: string,
-  name: string,
-  state: string,
-  labels: Record<string, string>,
-): Dockerode.ContainerInfo {
-  return {
-    Id: id,
-    Names: [`/${name}`],
-    Image: "img",
-    ImageID: "sha256:abc",
-    Command: "",
-    Created: 0,
-    Ports: [],
-    Labels: labels,
-    State: state,
-    Status: "Up",
-    HostConfig: { NetworkMode: "bridge" },
-    NetworkSettings: { Networks: {} },
-    Mounts: [],
-  } as Dockerode.ContainerInfo;
-}
+import { composeLabels, listedContainer } from "./docker-fixtures.js";
 
 const SERVER = "web-01";
 
@@ -65,11 +39,17 @@ describe("buildDockerManifest", () => {
     expect(manifest.platform).toBe("docker");
   });
 
-  it("advertises a three-segment key built from the Compose labels, and carries it", async () => {
+  it("advertises a three-segment key built from the Compose labels, and never NightWarden's own container", async () => {
+    const ownId = "a".repeat(64);
+    hideContainer(ownId);
     mockListContainers.mockResolvedValue([
-      makeContainer("c1", "myapp_api_1", "running", {
-        "com.docker.compose.project": "myapp",
-        "com.docker.compose.service": "api",
+      listedContainer({
+        Id: "c".repeat(64),
+        Labels: composeLabels("myapp", "api"),
+      }),
+      listedContainer({
+        Id: ownId,
+        Labels: composeLabels("nightwarden", "api"),
       }),
     ]);
 

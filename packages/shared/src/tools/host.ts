@@ -34,7 +34,8 @@ export interface HostDiskResult {
     device: string;
     readBytesPerSec: number;
     writeBytesPerSec: number;
-    iowaitPercent: number;
+    // How busy the device was, as iostat's %util; disks have no iowait of their own.
+    utilPercent: number;
   }>;
 }
 
