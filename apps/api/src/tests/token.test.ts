@@ -23,7 +23,19 @@ async function lastUsedAt(id: string): Promise<string | null | undefined> {
   return row?.last_used_at;
 }
 
-describe("Runner token lifecycle (issue 038)", () => {
+// A socket error is a failure here, so a refusal is only ever read from the close code it sent.
+function closeCodeOf(port: number, authorization?: string): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const ws = new WebSocket(`ws://127.0.0.1:${port}/api/clients/connect`, {
+      headers:
+        authorization === undefined ? {} : { Authorization: authorization },
+    });
+    ws.on("close", (code) => resolve(code));
+    ws.on("error", reject);
+  });
+}
+
+describe("Runner token lifecycle", () => {
   let nw: Harness;
   let port: number;
   let SESSION: string;
@@ -272,16 +284,7 @@ describe("Runner token lifecycle (issue 038)", () => {
         headers: { cookie: `${SESSION}` },
       });
 
-      const code = await new Promise<number>((resolve) => {
-        const ws = new WebSocket(`ws://127.0.0.1:${port}/api/clients/connect`, {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        });
-        ws.on("close", (c) => resolve(c));
-        ws.on("error", () => resolve(4003));
-      });
-      expect(code).toBe(4003);
+      expect(await closeCodeOf(port, `Bearer ${token}`)).toBe(4003);
     });
   });
 
@@ -389,26 +392,16 @@ describe("Runner token lifecycle (issue 038)", () => {
     });
 
     it("closes with 4003 for an unknown token", async () => {
-      const code = await new Promise<number>((resolve) => {
-        const ws = new WebSocket(`ws://127.0.0.1:${port}/api/clients/connect`, {
-          headers: {
-            Authorization:
-              "Bearer nwr_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
-          },
-        });
-        ws.on("close", (c) => resolve(c));
-        ws.on("error", () => resolve(4003));
-      });
-      expect(code).toBe(4003);
+      expect(
+        await closeCodeOf(
+          port,
+          "Bearer nwr_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        ),
+      ).toBe(4003);
     });
 
     it("closes with 4001 when no Authorization header is sent", async () => {
-      const code = await new Promise<number>((resolve) => {
-        const ws = new WebSocket(`ws://127.0.0.1:${port}/api/clients/connect`);
-        ws.on("close", (c) => resolve(c));
-        ws.on("error", () => resolve(4001));
-      });
-      expect(code).toBe(4001);
+      expect(await closeCodeOf(port)).toBe(4001);
     });
 
     it("disconnects live runner sockets immediately on token delete", async () => {

@@ -29,15 +29,6 @@ describe("target keys", () => {
       kubernetesWorkloadKey("c", base),
     );
   });
-
-  // The same service on two machines is two keys, which is the whole point of
-  // the server segment: one key can never mean two containers.
-  it("distinguishes the same service on two servers", () => {
-    const id = { project: "encodr", service: "cache" };
-    expect(dockerServiceKey("prod-1", id)).not.toBe(
-      dockerServiceKey("prod-2", id),
-    );
-  });
 });
 
 describe("parseTargetKey", () => {

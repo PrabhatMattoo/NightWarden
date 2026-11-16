@@ -22,20 +22,23 @@ describe("fitList", () => {
     );
   });
 
-  it("stops at the size budget before the count, never splitting an item", () => {
+  // Each item costs 12 characters as JSON: ten digits and two quotes.
+  it("keeps an item that lands exactly on the size budget, and drops one a character over", () => {
     const items = Array.from({ length: 10 }, (_, i) => `${i}`.repeat(10));
-    const { items: kept, spent } = fitList(items, {
-      ...terms,
-      keep: "start",
-      budget: 40,
-    });
-    expect(kept).toEqual(["0000000000", "1111111111", "2222222222"]);
-    expect(spent).toBeLessThanOrEqual(40);
+    const fit = (budget: number) =>
+      fitList(items, { ...terms, keep: "start", budget });
+    expect(fit(36).items).toEqual(["0000000000", "1111111111", "2222222222"]);
+    expect(fit(36).spent).toBe(36);
+    expect(fit(35).items).toEqual(["0000000000", "1111111111"]);
   });
 
-  it("carries no coverage when nothing was left out", () => {
-    const { items, coverage } = fitList(["a"], { ...terms, keep: "start" });
-    expect(items).toEqual(["a"]);
+  it("carries no coverage when the list holds exactly the count it may show", () => {
+    const { items, coverage } = fitList(["a", "b"], {
+      ...terms,
+      keep: "start",
+      max: 2,
+    });
+    expect(items).toEqual(["a", "b"]);
     expect(coverage).toBeUndefined();
   });
 });

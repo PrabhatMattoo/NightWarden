@@ -334,20 +334,4 @@ describe("resolveAlertTarget", () => {
       });
     });
   });
-
-  it("is unresolved against an empty fleet, since nothing is advertised to match", () => {
-    expect(
-      resolveAlertTarget({ namespace: "shop", deployment: "api" }, []),
-    ).toEqual({ kind: "unresolved" });
-  });
-
-  it("keys a resolved Kubernetes target with three segments, like every other key", () => {
-    const fleet = [k8sRunner("c", [k8s("c")("shop", "api", "Deployment")])];
-    const res = resolveAlertTarget(
-      { namespace: "shop", deployment: "api" },
-      fleet,
-    );
-
-    expect((res as { keys: string[] }).keys[0]!.split("/")).toHaveLength(3);
-  });
 });

@@ -142,17 +142,16 @@ describe("redactSecrets", () => {
 });
 
 describe("capOutput", () => {
-  it("returns short output unchanged", () => {
-    const text = "hello world";
+  it("returns output of exactly 64 KB unchanged", () => {
+    const text = "x".repeat(64 * 1024);
     expect(capOutput(text)).toBe(text);
   });
 
-  it("caps output over 64 KB, naming how much it cut", () => {
-    const big = "x".repeat(70 * 1024);
-    const capped = capOutput(big);
-    expect(capped).toContain("[cut: ");
-    expect(capped).toContain("bytes]");
-    expect(Buffer.byteLength(capped, "utf8")).toBeLessThan(big.length);
+  it("cuts one byte past 64 KB down to its halves, naming the byte it cut", () => {
+    const half = "x".repeat(32 * 1024);
+    expect(capOutput("x".repeat(64 * 1024 + 1))).toBe(
+      `${half}\n[cut: 1 bytes]\n${half}`,
+    );
   });
 
   it("preserves the head and tail of the output", () => {

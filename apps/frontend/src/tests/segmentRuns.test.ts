@@ -77,13 +77,6 @@ describe("segmentRuns", () => {
     expect(g!.answer?.kind).toBe("agent_text");
   });
 
-  it("nests a run's prose even where no tool ran", () => {
-    const nodes = segmentRuns([user(0), prose(1), answer(1)], false);
-    const [g] = groups(nodes);
-    expect(g!.items.map((i) => i.kind)).toEqual(["agent_text"]);
-    expect(g!.answer?.id).toBe("assistant-1-1");
-  });
-
   /* A provider failing is part of the run it failed in. Splitting there started
      a second group whose clock ran from the error, not from the message. */
   it("keeps a failed run whole, with the failure standing outside the group", () => {

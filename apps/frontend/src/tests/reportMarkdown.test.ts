@@ -112,34 +112,14 @@ describe("reportToMarkdown", () => {
     expect(md).not.toContain("e-gone");
   });
 
-  /* The export is read where the frontend is not, so the line that decides
-     whether anyone keeps reading has to survive the trip. */
-  it("carries the headline and who was affected into the export", () => {
-    const md = reportToMarkdown("encodr-worker memory", [], {
-      ...RESPONSE,
-      record: {
-        ...RESPONSE.record,
-        report: {
-          ...RESPONSE.record.report!,
-          headline: "PR #812 doubled the ffmpeg buffer and the worker died",
-          affected: "the transcode queue",
-        },
-      },
-    });
+  it("leads with the write-up, then the record it was composed from", () => {
+    const md = reportToMarkdown("encodr-worker memory", [], RESPONSE);
 
+    // The line that decides whether anyone keeps reading leads, and the deck follows it.
     expect(md).toContain(
       "**PR #812 doubled the ffmpeg buffer and the worker died**",
     );
     expect(md).toContain("Affected: the transcode queue");
-    // The deck still travels: the headline replaced nothing, it leads.
-    expect(md).toContain(
-      "encodr-worker exhausted its limit buffering two large jobs",
-    );
-  });
-
-  it("leads with the write-up, then the record it was composed from", () => {
-    const md = reportToMarkdown("encodr-worker memory", [], RESPONSE);
-
     expect(md).toContain(
       "encodr-worker exhausted its limit buffering two large jobs",
     );

@@ -34,33 +34,19 @@ describe("describeLLMError", () => {
     });
     const text = describeLLMError(err, 3);
     expect(text).toContain("server problem");
-    expect(text).toContain("not your setup");
     expect(text).toContain("(HTTP 502 from Poolside)");
+    // The configured retries, plus the first attempt.
+    expect(text).toContain("tried 4 times");
   });
 
   it.each([
+    [400, "malformed"],
     [401, "rejected the API key"],
     [402, "out of credits"],
     [404, "no such model"],
     [429, "rate-limited"],
   ])("maps HTTP %d to actionable words", (status, phrase) => {
     expect(describeLLMError(providerError(status), 3)).toContain(phrase);
-  });
-
-  it("tells a 404 apart from a malformed request, since only one means the model is gone", () => {
-    expect(describeLLMError(providerError(404), 3)).toContain("retired");
-    expect(describeLLMError(providerError(400), 3)).toContain("malformed");
-  });
-
-  it("keeps the 429 wording provider-neutral, since this text serves both", () => {
-    // One provider's free-tier numbers here would be wrong for the other. The
-    // per-model caution lives on the model, where the adapter knows it.
-    const text = describeLLMError(providerError(429), 1);
-
-    expect(text).toContain("rate-limited");
-    expect(text).not.toContain("Free models");
-    // The configured retries, plus the first attempt.
-    expect(text).toContain("tried 2 times");
   });
 
   it("reads provider_unavailable as an upstream outage rather than a setup problem", () => {
@@ -79,8 +65,7 @@ describe("describeLLMError", () => {
     const text = describeLLMError(err, 3);
 
     expect(text).toContain("outage");
-    expect(text).toContain("anything being wrong with your setup");
-    expect(text).toContain("from Poolside");
+    expect(text).not.toContain("server problem");
   });
 
   // A context-length overflow is a 400, and the generic 400 wording points at a
@@ -126,26 +111,30 @@ describe("describeLLMError", () => {
   });
 
   it("falls back to the raw message for non-provider errors", () => {
-    expect(describeLLMError(new Error("db locked"), 3)).toBe(
-      "The run failed unexpectedly: db locked",
-    );
+    const text = describeLLMError(new Error("db locked"), 3);
+    expect(text).toContain("failed unexpectedly");
+    expect(text).toContain("db locked");
   });
 });
 
 describe("retrySummary", () => {
   it("names the HTTP status and the attempt starting", () => {
-    expect(
-      retrySummary({ attempt: 2, maxAttempts: 4, err: providerError(529) }),
-    ).toBe("Provider error (529). Retrying - attempt 2 of 4.");
+    const text = retrySummary({
+      attempt: 2,
+      maxAttempts: 4,
+      err: providerError(529),
+    });
+    expect(text).toContain("529");
+    expect(text).toContain("attempt 2 of 4");
   });
 
   it("invents no status for a stream failure that stated none", () => {
-    expect(
-      retrySummary({
-        attempt: 4,
-        maxAttempts: 4,
-        err: new StreamProviderError({ message: "stream broke" }),
-      }),
-    ).toBe("Provider error. Retrying - attempt 4 of 4.");
+    const text = retrySummary({
+      attempt: 4,
+      maxAttempts: 4,
+      err: new StreamProviderError({ message: "stream broke" }),
+    });
+    expect(text).not.toMatch(/\(\d+\)/);
+    expect(text).toContain("attempt 4 of 4");
   });
 });

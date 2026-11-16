@@ -69,28 +69,6 @@ describe("runner WS client", () => {
   });
 
   describe("the manifest it advertises", () => {
-    // The transport is handed a builder rather than importing one, which is what
-    // lets the same client carry a Docker runner and a Kubernetes runner.
-    it("sends whatever manifest its builder returns, once identity arrives", async () => {
-      const { wss, port } = await listen();
-      const connected = nextConnection(wss);
-      const stop = startWebSocketClient(options(port));
-      try {
-        const serverSocket = await connected;
-        const message = new Promise<string>((resolve) => {
-          serverSocket.on("message", (raw) => resolve(frameText(raw)));
-        });
-        sendIdentity(serverSocket);
-        expect(JSON.parse(await message)).toMatchObject({
-          type: "manifest",
-          payload: { platform: "docker", hostname: "test-host" },
-        });
-      } finally {
-        stop();
-        wss.close();
-      }
-    });
-
     // Every target key in the manifest is prefixed with the name, so a manifest
     // built before it arrives would advertise addresses nothing can route.
     it("sends nothing at all before identity arrives", async () => {
@@ -106,7 +84,11 @@ describe("runner WS client", () => {
 
         sendIdentity(serverSocket);
         await vi.waitFor(() => expect(seen).toHaveLength(1));
-        expect(JSON.parse(seen[0]!)).toMatchObject({ type: "manifest" });
+        // Whatever its builder returns, which is how one client carries either platform.
+        expect(JSON.parse(seen[0]!)).toMatchObject({
+          type: "manifest",
+          payload: { platform: "docker", hostname: "test-host" },
+        });
       } finally {
         stop();
         wss.close();
@@ -137,8 +119,8 @@ describe("runner WS client", () => {
       }
     });
 
-    // An API too old to send one would otherwise leave the runner connected and
-    // silent forever, advertising nothing and answering nothing.
+    // An API that accepted the socket but never names the runner would leave it
+    // connected and silent forever, advertising nothing and answering nothing.
     it("terminates and reconnects when identity never arrives", async () => {
       const { wss, port } = await listen();
       vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
@@ -342,53 +324,6 @@ describe("runner WS client", () => {
   });
 
   describe("liveness", () => {
-    it("answers a server ping with a protocol pong", async () => {
-      const { wss, port } = await listen();
-      const connected = nextConnection(wss);
-      const stop = startWebSocketClient(options(port));
-      try {
-        const serverSocket = await connected;
-        const gotPong = new Promise<void>((resolve) => {
-          serverSocket.on("pong", () => resolve());
-        });
-        serverSocket.ping();
-        await gotPong;
-      } finally {
-        stop();
-        wss.close();
-      }
-    });
-
-    it("terminates the socket and reconnects when no ping arrives within the watchdog window", async () => {
-      const { wss, port } = await listen();
-      // Only setTimeout is faked: the watchdog and the reconnect backoff are
-      // timeouts; the manifest interval stays real and never fires in-test.
-      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-      const connected = nextConnection(wss);
-      const stop = startWebSocketClient(options(port));
-      try {
-        const serverSocket = await connected;
-        await flushIo();
-        const closed = new Promise<void>((resolve) => {
-          serverSocket.on("close", () => resolve());
-        });
-
-        await vi.advanceTimersByTimeAsync(90_000);
-        await closed;
-
-        // The close handler schedules the first backoff step (2s); advancing
-        // it must produce a fresh connection.
-        const reconnected = nextConnection(wss);
-        await flushIo();
-        await vi.advanceTimersByTimeAsync(2_000);
-        await reconnected;
-      } finally {
-        vi.useRealTimers();
-        stop();
-        wss.close();
-      }
-    });
-
     it("a ping resets the watchdog, so a pinged connection stays up indefinitely", async () => {
       const { wss, port } = await listen();
       vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });

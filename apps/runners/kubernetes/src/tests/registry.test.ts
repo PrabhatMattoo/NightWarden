@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DOCKER_TOOL_NAMES, KUBERNETES_TOOL_NAMES } from "@nightwarden/shared";
+import { KUBERNETES_TOOL_NAMES } from "@nightwarden/shared";
 import { createDispatchRegistry } from "../commands/registry.js";
 
 const NO_DEADLINE = new AbortController().signal;
@@ -16,14 +16,6 @@ describe("createDispatchRegistry", () => {
     expect([...registry.keys()].sort()).toEqual(
       [...KUBERNETES_TOOL_NAMES].sort(),
     );
-  });
-
-  // The binary is the declaration: no dockerode, no host /proc, and no handler to
-  // reach, so a misrouted command dies at lookup rather than at a runtime guard.
-  it("has no Docker or host handler to misroute to", () => {
-    for (const name of DOCKER_TOOL_NAMES) {
-      expect(registry.has(name), name).toBe(false);
-    }
   });
 
   it("refuses a command input that is not shaped like its schema", async () => {

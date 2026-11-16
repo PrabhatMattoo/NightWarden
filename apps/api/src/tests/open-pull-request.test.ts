@@ -283,7 +283,8 @@ describe("OpenPullRequest", () => {
     expect(body).toContain(SESSION_ID);
   });
 
-  it("updates the existing open PR on a later call instead of duplicating", async () => {
+  // A retry after a crash finds the PR by its branch, so no stored attempt is needed.
+  it("updates the PR its branch already opened instead of duplicating it", async () => {
     prState.open = [
       {
         number: 42,
@@ -352,30 +353,6 @@ describe("OpenPullRequest", () => {
     expect(toolOutcome.message).toContain("nothing to propose");
     expect(prState.createPayloads).toHaveLength(requestsBefore);
     expect(gitState.calls.some((a) => a.includes("push"))).toBe(false);
-  });
-
-  // Crash recovery is branch identity rather than a stored attempt: a retry
-  // finds the PR its own branch opened and updates it instead of adding one.
-  it("updates rather than duplicating when a retry follows a PR it already opened", async () => {
-    prState.open = [
-      {
-        number: 42,
-        html_url: "https://github.com/acme/api/pull/42",
-        draft: true,
-      },
-    ];
-    gitState.dirty = true;
-    const before = prState.createPayloads.length;
-
-    const result = await runOpr(
-      { title: "Fix it again" },
-      SESSION_ID,
-      "opr-crash",
-    );
-    prState.open = [];
-
-    expect(parsedContent<{ action: string }>(result).action).toBe("updated");
-    expect(prState.createPayloads).toHaveLength(before);
   });
 
   // A 502 can arrive after GitHub opened the PR, so a second create could duplicate it.

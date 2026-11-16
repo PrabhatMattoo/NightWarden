@@ -32,19 +32,27 @@ describe("runner isolation", () => {
     .filter((e) => e.isDirectory())
     .map((e) => e.name);
 
-  // A relative import out of one platform and into another is the thing this
-  // package replaced. Only the package name may cross that line.
+  const packageName = (platform: string): string =>
+    (
+      JSON.parse(
+        readFileSync(join(RUNNERS, platform, "package.json"), "utf8"),
+      ) as { name: string }
+    ).name;
+
+  // Neither a relative path nor the sibling's package name may cross from one
+  // platform into another: what both need lives here.
   it.each(platforms)("%s reaches no sibling platform", (platform) => {
     const others = platforms.filter((p) => p !== platform);
     for (const file of tsFiles(join(RUNNERS, platform))) {
       for (const spec of importsIn(file)) {
-        if (!spec.startsWith(".")) continue;
-        const resolved = join(file, "..", spec);
         for (const other of others) {
-          expect(
-            resolved.startsWith(join(RUNNERS, other)),
-            `${file} imports ${spec}, which resolves into ${other}`,
-          ).toBe(false);
+          const crosses = spec.startsWith(".")
+            ? join(file, "..", spec).startsWith(join(RUNNERS, other))
+            : spec === packageName(other) ||
+              spec.startsWith(`${packageName(other)}/`);
+          expect(crosses, `${file} imports ${spec}, which is ${other}'s`).toBe(
+            false,
+          );
         }
       }
     }

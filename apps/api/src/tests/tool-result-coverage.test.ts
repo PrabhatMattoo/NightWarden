@@ -78,14 +78,21 @@ describe("a tool result past the ceiling", () => {
     vi.unstubAllEnvs();
   });
 
-  it("passes a result within the ceiling through untouched", async () => {
-    const result = await executeTool(
-      toolReturning({ lines: ["a", "b"] }, true),
+  it("passes a result of exactly the ceiling through untouched, and refuses one a character longer", async () => {
+    const atCeiling = "x".repeat(MAX_TOOL_RESULT_CHARS);
+    const passed = await executeTool(
+      toolReturning(atCeiling, false),
       {},
-      ctx("tu-small"),
+      ctx("tu-at-ceiling"),
     );
-    expect(result.isError).toBeUndefined();
-    expect(JSON.parse(result.content)).toEqual({ lines: ["a", "b"] });
+    expect(passed).toEqual({ content: atCeiling });
+
+    const over = await executeTool(
+      toolReturning(`${atCeiling}x`, false),
+      {},
+      ctx("tu-over-ceiling"),
+    );
+    expect(over.isError).toBe(true);
   });
 
   it("refuses one that is not evidence, naming the size and the move", async () => {

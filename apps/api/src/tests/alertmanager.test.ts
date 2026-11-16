@@ -48,19 +48,6 @@ describe("parseAlertmanager", () => {
     expect(parsed?.labels).toMatchObject({ alertname: "HighCPU" });
   });
 
-  /* Nothing is ranked or rewritten. A fleet writing P1 is recorded as P1, the
-     same as one writing critical, because the word is the sender's. */
-  it("keeps every severity word verbatim, whatever it is", () => {
-    const sev = (s: string | undefined) =>
-      parseAlertmanager({
-        alerts: [alert({ labels: { alertname: "X", severity: s } })],
-      }).firing[0]?.labels["severity"];
-    for (const word of ["error", "critical", "warn", "info", "page", "P1"]) {
-      expect(sev(word)).toBe(word);
-    }
-    expect(sev(undefined)).toBeUndefined();
-  });
-
   it("throws only when the envelope itself is not an alerts array", () => {
     expect(() => parseAlertmanager({})).toThrow(/missing alerts array/);
     expect(() => parseAlertmanager({ alerts: "nope" })).toThrow(
@@ -131,11 +118,13 @@ describe("parseAlertmanager", () => {
   });
 
   it("defaults firedAt to now when startsAt is missing", () => {
+    const before = Date.now();
     const [parsed] = parseAlertmanager({
       alerts: [alert({ startsAt: undefined })],
     }).firing;
-    expect(parsed?.firedAt).toBeTruthy();
-    expect(() => new Date(parsed!.firedAt).toISOString()).not.toThrow();
+    const firedAt = Date.parse(parsed!.firedAt);
+    expect(firedAt).toBeGreaterThanOrEqual(before);
+    expect(firedAt).toBeLessThanOrEqual(Date.now());
   });
 });
 

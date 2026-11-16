@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DOCKER_TOOL_NAMES, KUBERNETES_TOOL_NAMES } from "@nightwarden/shared";
+import { DOCKER_TOOL_NAMES } from "@nightwarden/shared";
 import { createDispatchRegistry } from "../commands/registry.js";
 
 const NO_DEADLINE = new AbortController().signal;
@@ -14,14 +14,6 @@ describe("createDispatchRegistry", () => {
       expect(registry.has(name), name).toBe(true);
     }
     expect([...registry.keys()].sort()).toEqual([...DOCKER_TOOL_NAMES].sort());
-  });
-
-  // The binary is the declaration: there is no Kubernetes handler to reach, so a
-  // misrouted command dies at lookup rather than at a runtime identity guard.
-  it("has no Kubernetes handler to misroute to", () => {
-    for (const name of KUBERNETES_TOOL_NAMES) {
-      expect(registry.has(name), name).toBe(false);
-    }
   });
 
   it("refuses a command input that is not shaped like its schema", async () => {

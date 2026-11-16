@@ -70,14 +70,12 @@ describe("layering", () => {
     }
   });
 
-  it("leaves nothing behind the folders the features replaced", () => {
-    for (const [path, text] of MODULES) {
-      for (const spec of imports(text)) {
-        expect(
-          /^@\/(pages|components|hooks|lib|api|auth)\//.test(spec),
-          `${path} imports ${spec}, a folder that no longer exists`,
-        ).toBe(false);
-      }
+  it("keeps every module in app, features or shared, beside the entry", () => {
+    for (const [path] of MODULES) {
+      expect(
+        path === "main.tsx" || /^(app|features|shared)\//.test(path),
+        `${path} sits outside app/, features/ and shared/`,
+      ).toBe(true);
     }
   });
 

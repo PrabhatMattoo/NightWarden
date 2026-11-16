@@ -57,16 +57,6 @@ describe("ranking what a run concluded", () => {
 /* Position within a candidate decides this, so a run that settles the same
    candidate twice states one verdict rather than two rival ones. */
 describe("what a candidate's findings say now", () => {
-  it("lets the newest finding about a candidate carry its verdict", () => {
-    const claims = [
-      claim("f1", "contributing_factor", "c2"),
-      claim("f2", "disproven", "c2"),
-    ];
-
-    expect(standingFindings(claims).map((f) => f.id)).toEqual(["f2"]);
-    expect([...supersededIds(claims)]).toEqual(["f1"]);
-  });
-
   it("names one root cause per candidate however often each was settled", () => {
     // The ledger a live run wrote: three candidates, nine findings, two claims.
     const claims = [
@@ -87,6 +77,15 @@ describe("what a candidate's findings say now", () => {
       "c1",
       "c2",
       "c3",
+    ]);
+    // Every finding but each candidate's newest is superseded.
+    expect([...supersededIds(claims)].sort()).toEqual([
+      "f1",
+      "f2",
+      "f3",
+      "f5",
+      "f6",
+      "f8",
     ]);
   });
 });

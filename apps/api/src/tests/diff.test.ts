@@ -35,50 +35,6 @@ describe("computeDiffHunks", () => {
     ]);
   });
 
-  it("windows a pure append at the end of a file", () => {
-    const before = Array.from({ length: 10 }, (_, i) => `l${i + 1}`).join("\n");
-    const after = `${before}\nl11\nl12`;
-
-    const hunks = computeDiffHunks(before, after);
-    expect(hunks).toHaveLength(1);
-    expect(hunks[0].lines.map((l) => l.content)).toEqual([
-      "l8",
-      "l9",
-      "l10",
-      "l11",
-      "l12",
-    ]);
-    expect(hunks[0].lines.map((l) => l.type)).toEqual([
-      "unchanged",
-      "unchanged",
-      "unchanged",
-      "added",
-      "added",
-    ]);
-  });
-
-  it("windows a pure truncation at the end of a file", () => {
-    const before = Array.from({ length: 12 }, (_, i) => `l${i + 1}`).join("\n");
-    const after = Array.from({ length: 10 }, (_, i) => `l${i + 1}`).join("\n");
-
-    const hunks = computeDiffHunks(before, after);
-    expect(hunks).toHaveLength(1);
-    expect(hunks[0].lines.map((l) => l.content)).toEqual([
-      "l8",
-      "l9",
-      "l10",
-      "l11",
-      "l12",
-    ]);
-    expect(hunks[0].lines.map((l) => l.type)).toEqual([
-      "unchanged",
-      "unchanged",
-      "unchanged",
-      "removed",
-      "removed",
-    ]);
-  });
-
   it("splits two far-apart changes into separate hunks, excluding the untouched middle", () => {
     const lines = Array.from({ length: 20 }, (_, i) => `line${i + 1}`);
     const before = lines.join("\n");

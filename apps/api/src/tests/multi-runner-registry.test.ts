@@ -1,22 +1,36 @@
-import type { AddressInfo } from "node:net";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import WebSocket from "ws";
-import Fastify from "fastify";
-import FastifyWebSocket from "@fastify/websocket";
-import type { FastifyInstance } from "fastify";
 import type { RunnerManifest, RunnerRecord } from "@nightwarden/shared";
 import { generateRunnerToken } from "../fleet/runners-store.js";
-import { issueTestSession } from "./session-helper.js";
-import { useTempDb } from "./temp-db.js";
+import { harness, type Harness } from "./harness.js";
 import { waitFor } from "./wait.js";
-import { registerWsRoutes } from "../fleet/server.js";
-import { registerRunnerRoutes } from "../fleet/routes.js";
 import { resolveCommand, sendCommand } from "../fleet/transport.js";
 import { within } from "./dispatch-helper.js";
 import { logger } from "../logger.js";
-import { mountApi } from "./api-server.js";
 import { dockerService, manifest } from "./manifest-helper.js";
 import { frameText } from "./wire-helper.js";
+
+let nw: Harness;
+
+async function getRunners(): Promise<RunnerRecord[]> {
+  const res = await nw.server.inject({
+    method: "GET",
+    url: "/api/runners",
+    headers: nw.headers,
+  });
+  expect(res.statusCode).toBe(200);
+  return JSON.parse(res.body) as RunnerRecord[];
+}
+
+async function openHarness(): Promise<number> {
+  nw = await harness();
+  return nw.port;
+}
+
+async function closeHarness(): Promise<void> {
+  await nw.close();
+  vi.unstubAllEnvs();
+}
 
 // The server name is the row's, assigned when the token is issued; the hostname is what the box
 // calls itself. Keys are prefixed with the first, never the second.
@@ -55,37 +69,13 @@ async function connectRunner(
 }
 
 describe("flat runner registry", () => {
-  let server: FastifyInstance;
   let port: number;
-  let cleanupDb: () => void;
-  let SESSION: string;
 
   beforeAll(async () => {
-    cleanupDb = await useTempDb();
-    SESSION = await issueTestSession();
-    server = Fastify({ logger: false });
-    await server.register(FastifyWebSocket);
-    await mountApi(server, registerWsRoutes);
-    await mountApi(server, registerRunnerRoutes);
-    await server.listen({ port: 0, host: "127.0.0.1" });
-    port = (server.server.address() as AddressInfo).port;
+    port = await openHarness();
   });
 
-  afterAll(async () => {
-    await server.close();
-    cleanupDb();
-    vi.unstubAllEnvs();
-  });
-
-  async function getRunners(): Promise<RunnerRecord[]> {
-    const res = await server.inject({
-      method: "GET",
-      url: "/api/runners",
-      headers: { cookie: `${SESSION}` },
-    });
-    expect(res.statusCode).toBe(200);
-    return JSON.parse(res.body) as RunnerRecord[];
-  }
+  afterAll(closeHarness);
 
   it("lists two runners each on their own token with correct manifests", async () => {
     const { plaintext: tokenA, id: tokenAId } = await generateRunnerToken(
@@ -226,45 +216,6 @@ describe("flat runner registry", () => {
     });
   });
 
-  it("two runners on different tokens both appear in the fleet", async () => {
-    const { plaintext: tokenA, id: tokenAId } = await generateRunnerToken(
-      "docker",
-      "cross-a",
-    );
-    const { plaintext: tokenB, id: tokenBId } = await generateRunnerToken(
-      "docker",
-      "cross-b",
-    );
-
-    const a = await connectRunner(
-      port,
-      tokenA,
-      runnerManifest("cross-a", "host-a", ["nginx"]),
-    );
-    const b = await connectRunner(
-      port,
-      tokenB,
-      runnerManifest("cross-b", "host-b", ["postgres"]),
-    );
-
-    const runners = await waitFor(async () => {
-      const list = await getRunners();
-      const mine = list.filter((r) => r.id === tokenAId || r.id === tokenBId);
-      return mine.length === 2 && mine.every((r) => r.manifest !== null)
-        ? mine
-        : undefined;
-    });
-
-    const byId = new Map(runners.map((r) => [r.id, r]));
-    expect(byId.get(tokenAId)?.hostname).toBe("host-a");
-    expect(byId.get(tokenBId)?.hostname).toBe("host-b");
-    expect(byId.get(tokenAId)?.online).toBe(true);
-    expect(byId.get(tokenBId)?.online).toBe(true);
-
-    a.close();
-    b.close();
-  });
-
   describe("in-flight commands on socket close", () => {
     it("rejects an in-flight command promptly when the runner socket closes, and drops the late result", async () => {
       const { plaintext: token, id: tokenId } = await generateRunnerToken(
@@ -401,37 +352,13 @@ async function flushIo(turns = 50): Promise<void> {
 }
 
 describe("protocol ping/pong liveness", () => {
-  let server: FastifyInstance;
   let port: number;
-  let cleanupDb: () => void;
-  let SESSION: string;
 
   beforeAll(async () => {
-    cleanupDb = await useTempDb();
-    SESSION = await issueTestSession();
-    server = Fastify({ logger: false });
-    await server.register(FastifyWebSocket);
-    await mountApi(server, registerWsRoutes);
-    await mountApi(server, registerRunnerRoutes);
-    await server.listen({ port: 0, host: "127.0.0.1" });
-    port = (server.server.address() as AddressInfo).port;
+    port = await openHarness();
   });
 
-  afterAll(async () => {
-    await server.close();
-    cleanupDb();
-    vi.unstubAllEnvs();
-  });
-
-  async function getRunners(): Promise<RunnerRecord[]> {
-    const res = await server.inject({
-      method: "GET",
-      url: "/api/runners",
-      headers: { cookie: `${SESSION}` },
-    });
-    expect(res.statusCode).toBe(200);
-    return JSON.parse(res.body) as RunnerRecord[];
-  }
+  afterAll(closeHarness);
 
   it("terminates a socket that stops answering pings and drops the runner offline", async () => {
     const { plaintext: token, id: tokenId } = await generateRunnerToken(

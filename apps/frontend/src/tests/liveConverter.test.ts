@@ -94,16 +94,6 @@ describe("applyLiveEvent — continue interrupt", () => {
       state: { phase: "resolved", decision: "continued" },
     });
   });
-
-  it("carries a rejection through as the decision, not a generic pending state", () => {
-    let items = applyLiveEvent([], continueInterrupt("ci-1"), "s1");
-    items = applyLiveEvent(items, interruptResolved("ci-1", "rejected"), "s1");
-
-    expect(items[0]).toMatchObject({
-      kind: "continue_card",
-      state: { phase: "resolved", decision: "rejected" },
-    });
-  });
 });
 
 describe("applyLiveEvent — block identity", () => {

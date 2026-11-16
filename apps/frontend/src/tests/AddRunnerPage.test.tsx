@@ -158,41 +158,20 @@ afterEach(() => {
 
 describe("AddRunnerPage", () => {
   describe("the install command", () => {
-    it("mints a runner token and shows the docker run script", async () => {
-      const user = userEvent.setup();
-      const { mints } = setup();
-
-      await startInstall(user, { name: "web-01" });
-
-      await waitFor(() => {
-        expect(mints()).toHaveLength(1);
-      });
-      await waitFor(() => {
-        expect(screen.getByText(/install-docker/)).toBeInTheDocument();
-      });
-    });
-
-    it("includes serverName in the token mint request", async () => {
+    // The platform comes from the route, and the row is the only place it survives.
+    it("mints one token for the typed name on the route's platform, then shows the install command", async () => {
       const user = userEvent.setup();
       const { mints } = setup();
 
       await startInstall(user, { name: "prod-web-01" });
 
       await waitFor(() => {
-        expect(mints()[0]?.body).toMatchObject({ serverName: "prod-web-01" });
+        expect(screen.getByText(/install-docker/)).toBeInTheDocument();
       });
-    });
-
-    // The route already knows which platform this is, and the row is the only
-    // place that knowledge survives.
-    it("mints the token against the platform the route names", async () => {
-      const user = userEvent.setup();
-      const { mints } = setup();
-
-      await startInstall(user, { name: "web-01" });
-
-      await waitFor(() => {
-        expect(mints()[0]?.body).toMatchObject({ platform: "docker" });
+      expect(mints()).toHaveLength(1);
+      expect(mints()[0]?.body).toMatchObject({
+        serverName: "prod-web-01",
+        platform: "docker",
       });
     });
 
