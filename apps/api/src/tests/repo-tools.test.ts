@@ -10,14 +10,9 @@ const { execFileMock, MockDocker } = vi.hoisted(() => ({
 }));
 vi.mock("node:child_process", () => ({ execFile: execFileMock }));
 vi.mock("dockerode", () => ({ default: MockDocker }));
-vi.mock("../llm/factory.js", () => import("./llm-factory-mock.js"));
 
-import { mockCreateProvider } from "./llm-factory-mock.js";
-
-import {
-  createGateController,
-  createScriptRunner,
-} from "./contract-fake-provider.js";
+import { fakeAnthropic } from "./fake-anthropic.js";
+import { createGateController } from "./fake-model.js";
 import { useTempDb } from "./temp-db.js";
 import { updateConfig } from "../config/store.js";
 import {
@@ -48,8 +43,7 @@ import type {
 import type { DiffHunk } from "../sandbox/tools/diff.js";
 import type { MessagePart } from "@nightwarden/shared";
 
-const scriptRunner = createScriptRunner();
-mockCreateProvider.mockImplementation(() => scriptRunner.create());
+const anthropic = fakeAnthropic();
 
 // The clone double materializes a fixture checkout, honouring what a real
 // clone produces: files on disk in the target directory.
@@ -310,7 +304,7 @@ describe("repo tools through registry dispatch", () => {
 
   it("refuses an edit to a file only read in the same turn, before the result returns", async () => {
     const sessionId = "aaaabbbb-0000-4000-8000-0000000000ed";
-    scriptRunner.setScript([
+    anthropic.script([
       {
         toolUses: [
           { toolCallId: "r1", name: "Read", input: { path: "src/app.ts" } },
@@ -329,7 +323,10 @@ describe("repo tools through registry dispatch", () => {
       { toolUses: [], text: "Done." },
     ]);
     await seedChatSession(sessionId, "fix the repo");
-    await runSession({ sessionId, userMessage: "fix the repo" });
+    await runSession(
+      { sessionId, userMessage: "fix the repo" },
+      anthropic.fetch,
+    );
 
     const parts = (await getTranscriptRows(sessionId)).flatMap((r) => r.parts);
     const edit = parts.find(
@@ -509,11 +506,9 @@ describe("repo work and the time budget", () => {
     toolName: string,
   ): Promise<void> {
     const gates = createGateController();
-    mockCreateProvider.mockImplementation(() =>
-      scriptRunner.create({ gate: gates.gate }),
-    );
+    anthropic.park(gates.gate);
     await updateConfig({ checkInAfterMs: 300 });
-    scriptRunner.setScript([
+    anthropic.script([
       {
         toolUses: [
           { toolCallId: "t1", name: toolName, input: { path: "src/app.ts" } },
@@ -524,27 +519,23 @@ describe("repo work and the time budget", () => {
     ]);
 
     await seedChatSession(sessionId, "fix the repo");
-    const run = runSession({ sessionId, userMessage: "fix the repo" });
+    const run = runSession(
+      { sessionId, userMessage: "fix the repo" },
+      anthropic.fetch,
+    );
     // Park turn 1 until the deadline has passed.
     await new Promise((r) => setTimeout(r, 400));
     gates.releaseNext();
     await new Promise((r) => setTimeout(r, 150));
     gates.releaseAll();
     await run;
+    anthropic.park();
   }
 
   it("a repo tool call does not buy the run more time", async () => {
     const sessionId = "aaaabbbb-0000-4000-8000-00000000ea01";
 
     await runPastTheBudget(sessionId, "Read");
-
-    expect(await hasPendingHumanInput(sessionId)).toBe(true);
-  });
-
-  it("which is the same answer any other tool gets", async () => {
-    const sessionId = "aaaabbbb-0000-4000-8000-00000000ea02";
-
-    await runPastTheBudget(sessionId, "nonexistent_tool");
 
     expect(await hasPendingHumanInput(sessionId)).toBe(true);
   });

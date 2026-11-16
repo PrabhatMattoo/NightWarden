@@ -14,12 +14,15 @@ import {
 import { SdkProvider } from "./provider.js";
 import type { LLMProvider, ProviderCallOptions } from "./types.js";
 
-function languageModel(
+// `providerFetch` stands in for the network, so a test serves the provider's own wire.
+export function languageModel(
   config: ResolvedLLMConfig,
   apiKey?: string,
+  providerFetch?: typeof fetch,
 ): LanguageModelV4 {
   const settings = {
     ...(apiKey !== undefined && { apiKey }),
+    ...(providerFetch !== undefined && { fetch: providerFetch }),
     baseURL: config.baseUrl ?? defaultBaseUrl(config.provider),
   };
   switch (config.provider) {
@@ -111,26 +114,15 @@ function compactThreshold(config: ResolvedLLMConfig): number | null {
 // Taking a ResolvedLLMConfig means an unconfigured install cannot reach here:
 // the readiness gate is the only way to obtain one.
 export function createProvider(
+  model: LanguageModelV4,
   system: string,
   config: ResolvedLLMConfig,
-  apiKey?: string,
   opts?: ProviderCallOptions,
 ): LLMProvider {
-  return new SdkProvider(languageModel(config, apiKey), system, {
+  return new SdkProvider(model, system, {
     maxOutputTokens: config.maxOutputTokens,
     maxRetries: config.maxRetries,
     providerOptions: requestOptions(config, opts),
     ...(opts?.onRetry !== undefined && { onRetry: opts.onRetry }),
   });
-}
-
-// Named apart from createProvider so a test can mock the one-shot title call on
-// its own, leaving title generation a harmless no-op when it does not.
-export function createTitleProvider(
-  system: string,
-  config: ResolvedLLMConfig,
-  apiKey?: string,
-  opts?: ProviderCallOptions,
-): LLMProvider {
-  return createProvider(system, config, apiKey, opts);
 }

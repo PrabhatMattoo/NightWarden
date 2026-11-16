@@ -3,27 +3,17 @@ import { messageBody } from "./session-helper.js";
 import { harness, type Harness } from "./harness.js";
 import { vi } from "vitest";
 
-vi.mock("../llm/factory.js", () => import("./llm-factory-mock.js"));
+import { fakeAnthropic } from "./fake-anthropic.js";
+import { type ScriptedTurn } from "./fake-model.js";
 
-import { mockCreateProvider } from "./llm-factory-mock.js";
-
-import {
-  createScriptRunner,
-  type ScriptedTurn,
-} from "./contract-fake-provider.js";
-
-const scriptRunner = createScriptRunner();
-mockCreateProvider.mockImplementation(() => scriptRunner.create());
-const setScript = (turns: ScriptedTurn[]): void =>
-  scriptRunner.setScript(turns);
+const anthropic = fakeAnthropic();
+const setScript = (turns: ScriptedTurn[]): void => anthropic.script(turns);
 
 import { waitFor } from "./wait.js";
-import { registerFrontendEventRoutes } from "../session/events.js";
 import {
   connectFrontendEvents,
   toolCallReached,
 } from "./frontend-events-helper.js";
-import { registerSessionRoutes } from "../session/routes.js";
 import { hasPendingHumanInput } from "../session/gate-store.js";
 import { ELICITATIONS } from "../agent/tools/elicitations.js";
 import { TOOL_REGISTRY } from "../agent/tools/toolset.js";
@@ -120,7 +110,7 @@ describe("policy-gate: gating is driven by tool policy", () => {
 
   beforeAll(async () => {
     nw = await harness({
-      routes: [registerFrontendEventRoutes, registerSessionRoutes],
+      model: anthropic,
       runners: [
         {
           name: "access-gate-host",

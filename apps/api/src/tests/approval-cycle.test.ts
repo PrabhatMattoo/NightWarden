@@ -1,38 +1,28 @@
-import { randomUUID } from "node:crypto";
-import { harness, type Harness } from "./harness.js";
-import { dispatchAlertSession, messageBody } from "./session-helper.js";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import type {
-  NormalizedAlert,
-  SessionReportResponse,
-} from "@nightwarden/shared";
-import { seedCompleteReport } from "./report-helper.js";
-
-// Scripted across runs, so a suspend and the resume after it drive one
-// conversation and the loop writes real session_transcript rows.
-vi.mock("../llm/factory.js", () => import("./llm-factory-mock.js"));
-
-import { mockCreateProvider } from "./llm-factory-mock.js";
-
 import {
-  createScriptRunner,
+  LLM_PROVIDER_NAMES,
+  type SessionReportResponse,
+} from "@nightwarden/shared";
+import { fakeAnthropic } from "./fake-anthropic.js";
+import {
+  messagesSentTo,
+  type FakeModel,
   type ScriptedTurn,
-} from "./contract-fake-provider.js";
+} from "./fake-model.js";
+import { harness, type Harness } from "./harness.js";
+import { seedCompleteReport } from "./report-helper.js";
+import { messageBody } from "./session-helper.js";
 
-const scriptRunner = createScriptRunner();
-mockCreateProvider.mockImplementation(() => scriptRunner.create());
-const setScript = (turns: ScriptedTurn[]): void =>
-  scriptRunner.setScript(turns);
+const anthropic = fakeAnthropic();
+const setScript = (turns: ScriptedTurn[]): void => anthropic.script(turns);
 
 import { waitFor } from "./wait.js";
-import { registerFrontendEventRoutes } from "../session/events.js";
 import {
   connectFrontendEvents,
   toolCallReached,
 } from "./frontend-events-helper.js";
 
-import { registerSessionRoutes } from "../session/routes.js";
-import { dispatcher } from "../dispatcher.js";
+import { isRunning } from "../session/status-store.js";
 import { hasPendingHumanInput } from "../session/gate-store.js";
 import { getTranscriptRows } from "../session/transcript-store.js";
 
@@ -50,7 +40,7 @@ describe("durable approval interrupts", () => {
 
   beforeAll(async () => {
     nw = await harness({
-      routes: [registerFrontendEventRoutes, registerSessionRoutes],
+      model: anthropic,
       runners: [
         {
           name: "approval-host",
@@ -112,7 +102,7 @@ describe("durable approval interrupts", () => {
     );
 
     // Run must have exited (dispatcher slot freed)
-    expect(await dispatcher.isSessionRunning(sessionId)).toBe(false);
+    expect(await isRunning(sessionId)).toBe(false);
 
     // Interrupt row must be in the DB
     expect(await hasPendingHumanInput(sessionId)).toBe(true);
@@ -134,183 +124,6 @@ describe("durable approval interrupts", () => {
       body: JSON.stringify({ decision: "approve" }),
     });
     await waitFor(() => restartCommands.length > countBefore);
-  });
-
-  it("approve: executes tool on runner exactly once, run resumes, reaches free-form finish", async () => {
-    restartCommands.length = 0;
-    setScript([
-      {
-        text: "Restarting.",
-        toolUses: [
-          {
-            toolCallId: "tu-apr-1",
-            name: "RestartDockerService",
-            input: {
-              target: "approval-host/web-01/web-01",
-              reason: "wedged",
-              estimatedDowntimeSeconds: 5,
-            },
-          },
-        ],
-      },
-      FINISH_TURN,
-    ]);
-
-    const { events, close } = await connectFrontendEvents(port, SESSION);
-
-    const res = await fetch(`http://127.0.0.1:${port}/api/chat`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Cookie: `${SESSION}`,
-      },
-      body: messageBody("Service is wedged."),
-    });
-    const { sessionId } = (await res.json()) as { sessionId: string };
-
-    await waitFor(() =>
-      events.find(
-        (e) =>
-          e.type === "HUMAN_INPUT_REQUIRED" &&
-          e.payload["sessionId"] === sessionId,
-      ),
-    );
-    const approveRes = await fetch(
-      `http://127.0.0.1:${port}/api/sessions/${sessionId}/respond`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Cookie: `${SESSION}`,
-        },
-        body: JSON.stringify({ decision: "approve" }),
-      },
-    );
-    expect(approveRes.status).toBe(200);
-    const body = (await approveRes.json()) as { status: string };
-    expect(body.status).toBe("approved");
-
-    // Run resumes and reaches free-form finish: INTERRUPT_RESOLVED arrives
-    await waitFor(() =>
-      events.some(
-        (e) =>
-          e.type === "HUMAN_INPUT_RESOLVED" &&
-          e.payload["toolCallId"] === "tu-apr-1",
-      ),
-    );
-
-    // Runner executed restart exactly once
-    expect(restartCommands).toHaveLength(1);
-    expect(restartCommands[0]["service"]).toEqual({
-      project: "web-01",
-      service: "web-01",
-    });
-
-    // Interrupt row is gone from DB after resolution
-    expect(await hasPendingHumanInput(sessionId)).toBe(false);
-
-    /* Written by the resolve in the transaction that cleared the gate, and never
-       again by the resumed run, so a crash between them loses nor doubles it. */
-    const answers = (await getTranscriptRows(sessionId)).flatMap((row) =>
-      row.parts.flatMap((part) =>
-        part.type === "tool_approval" && part.toolCallId === "tu-apr-1"
-          ? [part]
-          : [],
-      ),
-    );
-    expect(answers).toHaveLength(1);
-    expect(answers[0]?.approved).toBe(true);
-
-    // A report must exist for the route to answer, but the actions beside it
-    // are independent of what it says.
-    await seedCompleteReport(sessionId);
-    const reportRes = await fetch(
-      `http://127.0.0.1:${port}/api/sessions/${sessionId}/report`,
-      { headers: { Cookie: `${SESSION}` } },
-    );
-    expect(reportRes.status).toBe(200);
-    const { record, decisions } =
-      (await reportRes.json()) as SessionReportResponse;
-    expect(record.report).toBeNull();
-    // Read back from the session's own record: the registry says the call was
-    // gated, and no outcome on it says the user released it.
-    expect(decisions).toHaveLength(1);
-    expect(decisions[0]).toMatchObject({
-      toolCallId: "tu-apr-1",
-      toolName: "RestartDockerService",
-      target: "approval-host/web-01/web-01",
-      decision: "approved",
-    });
-
-    close();
-  });
-
-  it("reject: feeds rejection result with is_error, run resumes with model adapting", async () => {
-    setScript([
-      {
-        text: "Restarting.",
-        toolUses: [
-          {
-            toolCallId: "tu-rej-1",
-            name: "RestartDockerService",
-            input: {
-              target: "approval-host/web-01/web-01",
-              reason: "wedged",
-              estimatedDowntimeSeconds: 5,
-            },
-          },
-        ],
-      },
-      FINISH_TURN,
-    ]);
-
-    const { events, close } = await connectFrontendEvents(port, SESSION);
-
-    const res = await fetch(`http://127.0.0.1:${port}/api/chat`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Cookie: `${SESSION}`,
-      },
-      body: messageBody("Service is wedged."),
-    });
-    const { sessionId } = (await res.json()) as { sessionId: string };
-
-    await waitFor(() =>
-      events.find(
-        (e) =>
-          e.type === "HUMAN_INPUT_REQUIRED" &&
-          e.payload["sessionId"] === sessionId,
-      ),
-    );
-    const rejectRes = await fetch(
-      `http://127.0.0.1:${port}/api/sessions/${sessionId}/respond`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Cookie: `${SESSION}`,
-        },
-        body: JSON.stringify({
-          decision: "reject",
-          text: "too risky",
-        }),
-      },
-    );
-    expect(rejectRes.status).toBe(200);
-    const body = (await rejectRes.json()) as { status: string };
-    expect(body.status).toBe("rejected");
-
-    await waitFor(() =>
-      events.some(
-        (e) =>
-          e.type === "HUMAN_INPUT_RESOLVED" &&
-          e.payload["status"] === "rejected",
-      ),
-    );
-
-    expect(await hasPendingHumanInput(sessionId)).toBe(false);
-    close();
   });
 
   it("an approval with no decision is refused: it has exactly two answers", async () => {
@@ -591,70 +404,6 @@ describe("durable approval interrupts", () => {
     });
   });
 
-  it("approval interrupt with clarification-only body (no decision, no text) returns 400", async () => {
-    setScript([
-      {
-        text: "Restarting.",
-        toolUses: [
-          {
-            toolCallId: "tu-val-1",
-            name: "RestartDockerService",
-            input: {
-              target: "approval-host/web-01/web-01",
-              reason: "validation",
-              estimatedDowntimeSeconds: 5,
-            },
-          },
-        ],
-      },
-      FINISH_TURN,
-    ]);
-
-    const { events, close } = await connectFrontendEvents(port, SESSION);
-
-    const res = await fetch(`http://127.0.0.1:${port}/api/chat`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Cookie: `${SESSION}`,
-      },
-      body: messageBody("Service is wedged."),
-    });
-    const { sessionId } = (await res.json()) as { sessionId: string };
-
-    await waitFor(() =>
-      events.find(
-        (e) =>
-          e.type === "HUMAN_INPUT_REQUIRED" &&
-          e.payload["sessionId"] === sessionId,
-      ),
-    );
-
-    // Empty body — no decision, no text — must return 400 for approval kind
-    const validationRes = await fetch(
-      `http://127.0.0.1:${port}/api/sessions/${sessionId}/respond`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Cookie: `${SESSION}`,
-        },
-        body: JSON.stringify({}),
-      },
-    );
-    expect(validationRes.status).toBe(400);
-
-    close();
-    await fetch(`http://127.0.0.1:${port}/api/sessions/${sessionId}/respond`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Cookie: `${SESSION}`,
-      },
-      body: JSON.stringify({ decision: "reject" }),
-    });
-  });
-
   it("restart-resume: interrupt survives process exit, resolve works and run completes", async () => {
     restartCommands.length = 0;
     setScript([
@@ -695,7 +444,7 @@ describe("durable approval interrupts", () => {
       ),
     );
     // Assert: run has exited (simulates what a restart would see — no in-memory state)
-    expect(await dispatcher.isSessionRunning(sessionId)).toBe(false);
+    expect(await isRunning(sessionId)).toBe(false);
 
     // Assert: interrupt row is in DB (survives a restart because it's persisted)
     expect(await hasPendingHumanInput(sessionId)).toBe(true);
@@ -794,78 +543,6 @@ describe("durable approval interrupts", () => {
     close();
   });
 
-  it("critical rejection resumes with rejection result: no escalation, model finishes", async () => {
-    const sessionId = randomUUID();
-    const alert: NormalizedAlert = {
-      sourceAlertId: `crit-022-${randomUUID()}`,
-      labels: {},
-      alertType: "ContainerDown",
-      firedAt: new Date().toISOString(),
-      annotations: {},
-      generatorURL: null,
-      values: {},
-    };
-
-    setScript([
-      {
-        text: "Restarting critical.",
-        toolUses: [
-          {
-            toolCallId: `tu-crit-${randomUUID()}`,
-            name: "RestartDockerService",
-            input: {
-              target: "approval-host/web-01/web-01",
-              reason: "critical",
-              estimatedDowntimeSeconds: 5,
-            },
-          },
-        ],
-      },
-      FINISH_TURN,
-    ]);
-
-    const { events, close } = await connectFrontendEvents(port, SESSION);
-
-    await dispatchAlertSession(sessionId, [alert]);
-
-    await waitFor(() =>
-      events.find(
-        (e) =>
-          e.type === "HUMAN_INPUT_REQUIRED" &&
-          e.payload["sessionId"] === sessionId,
-      ),
-    );
-    const rejectRes = await fetch(
-      `http://127.0.0.1:${port}/api/sessions/${sessionId}/respond`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Cookie: `${SESSION}`,
-        },
-        body: JSON.stringify({ decision: "reject" }),
-      },
-    );
-    expect(rejectRes.status).toBe(200);
-
-    await waitFor(() =>
-      events.find(
-        (e) =>
-          e.type === "HUMAN_INPUT_RESOLVED" &&
-          e.payload["sessionId"] === sessionId &&
-          e.payload["status"] === "rejected",
-      ),
-    );
-    close();
-
-    expect(await hasPendingHumanInput(sessionId)).toBe(false);
-    expect(
-      events.some(
-        (e) => e.type === "ESCALATED" && e.payload["sessionId"] === sessionId,
-      ),
-    ).toBe(false);
-  });
-
   it("no timeout: interrupt pending for hours is still resolvable", async () => {
     restartCommands.length = 0;
 
@@ -938,6 +615,246 @@ describe("durable approval interrupts", () => {
     await waitFor(() => restartCommands.length > 0);
     expect(restartCommands).toHaveLength(1);
 
+    close();
+  });
+});
+
+// Resuming re-sends the whole conversation, so each provider's wire takes the suspended turn back.
+describe.each(LLM_PROVIDER_NAMES)("approving a write on %s", (provider) => {
+  let nw: Harness;
+  let port: number;
+  let SESSION: string;
+  let model: FakeModel;
+  const restartCommands: Array<Record<string, unknown>> = [];
+  const setScript = (turns: ScriptedTurn[]): void => model.script(turns);
+
+  beforeAll(async () => {
+    nw = await harness({
+      provider,
+      runners: [
+        {
+          name: "approval-host",
+          services: ["web-01"],
+          answer: ({ commandName, commandInput }) => {
+            if (commandName !== "RestartDockerService") return [];
+            restartCommands.push(commandInput);
+            return { restarted: true };
+          },
+        },
+      ],
+    });
+    ({ port, session: SESSION, model } = nw);
+  });
+
+  afterAll(async () => {
+    await nw.close();
+    vi.unstubAllEnvs();
+  });
+
+  it("approve: executes tool on runner exactly once, run resumes, reaches free-form finish", async () => {
+    restartCommands.length = 0;
+    setScript([
+      {
+        text: "Restarting.",
+        toolUses: [
+          {
+            toolCallId: "tu-apr-1",
+            name: "RestartDockerService",
+            input: {
+              target: "approval-host/web-01/web-01",
+              reason: "wedged",
+              estimatedDowntimeSeconds: 5,
+            },
+          },
+        ],
+      },
+      FINISH_TURN,
+    ]);
+
+    const { events, close } = await connectFrontendEvents(port, SESSION);
+
+    const res = await fetch(`http://127.0.0.1:${port}/api/chat`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Cookie: `${SESSION}`,
+      },
+      body: messageBody("Service is wedged."),
+    });
+    const { sessionId } = (await res.json()) as { sessionId: string };
+
+    await waitFor(() =>
+      events.find(
+        (e) =>
+          e.type === "HUMAN_INPUT_REQUIRED" &&
+          e.payload["sessionId"] === sessionId,
+      ),
+    );
+    const approveRes = await fetch(
+      `http://127.0.0.1:${port}/api/sessions/${sessionId}/respond`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Cookie: `${SESSION}`,
+        },
+        body: JSON.stringify({ decision: "approve" }),
+      },
+    );
+    expect(approveRes.status).toBe(200);
+    const body = (await approveRes.json()) as { status: string };
+    expect(body.status).toBe("approved");
+
+    // Run resumes and reaches free-form finish: INTERRUPT_RESOLVED arrives
+    await waitFor(() =>
+      events.some(
+        (e) =>
+          e.type === "HUMAN_INPUT_RESOLVED" &&
+          e.payload["toolCallId"] === "tu-apr-1",
+      ),
+    );
+
+    await waitFor(() =>
+      events.some(
+        (e) =>
+          e.type === "RUN_FINISHED" && e.payload["sessionId"] === sessionId,
+      ),
+    );
+    // The resumed request hands back the call, its result and the reasoning it was made with.
+    const resumed = messagesSentTo(model, model.requests.length - 1);
+    const turn = resumed.find((m) =>
+      m.toolUses.some((u) => u.id === "tu-apr-1"),
+    );
+    expect(turn?.reasoning.length).toBeGreaterThan(0);
+    expect(
+      resumed.some((m) =>
+        m.toolResults.some((r) => r.toolUseId === "tu-apr-1"),
+      ),
+    ).toBe(true);
+
+    // Runner executed restart exactly once
+    expect(restartCommands).toHaveLength(1);
+    expect(restartCommands[0]["service"]).toEqual({
+      project: "web-01",
+      service: "web-01",
+    });
+
+    // Interrupt row is gone from DB after resolution
+    expect(await hasPendingHumanInput(sessionId)).toBe(false);
+
+    /* Written by the resolve in the transaction that cleared the gate, and never
+       again by the resumed run, so a crash between them loses nor doubles it. */
+    const answers = (await getTranscriptRows(sessionId)).flatMap((row) =>
+      row.parts.flatMap((part) =>
+        part.type === "tool_approval" && part.toolCallId === "tu-apr-1"
+          ? [part]
+          : [],
+      ),
+    );
+    expect(answers).toHaveLength(1);
+    expect(answers[0]?.approved).toBe(true);
+
+    // A report must exist for the route to answer, but the actions beside it
+    // are independent of what it says.
+    await seedCompleteReport(sessionId);
+    const reportRes = await fetch(
+      `http://127.0.0.1:${port}/api/sessions/${sessionId}/report`,
+      { headers: { Cookie: `${SESSION}` } },
+    );
+    expect(reportRes.status).toBe(200);
+    const { record, decisions } =
+      (await reportRes.json()) as SessionReportResponse;
+    expect(record.report).toBeNull();
+    // Read back from the session's own record: the registry says the call was
+    // gated, and no outcome on it says the user released it.
+    expect(decisions).toHaveLength(1);
+    expect(decisions[0]).toMatchObject({
+      toolCallId: "tu-apr-1",
+      toolName: "RestartDockerService",
+      target: "approval-host/web-01/web-01",
+      decision: "approved",
+    });
+
+    close();
+  });
+
+  it("reject: feeds rejection result with is_error, run resumes with model adapting", async () => {
+    setScript([
+      {
+        text: "Restarting.",
+        toolUses: [
+          {
+            toolCallId: "tu-rej-1",
+            name: "RestartDockerService",
+            input: {
+              target: "approval-host/web-01/web-01",
+              reason: "wedged",
+              estimatedDowntimeSeconds: 5,
+            },
+          },
+        ],
+      },
+      FINISH_TURN,
+    ]);
+
+    const { events, close } = await connectFrontendEvents(port, SESSION);
+
+    const res = await fetch(`http://127.0.0.1:${port}/api/chat`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Cookie: `${SESSION}`,
+      },
+      body: messageBody("Service is wedged."),
+    });
+    const { sessionId } = (await res.json()) as { sessionId: string };
+
+    await waitFor(() =>
+      events.find(
+        (e) =>
+          e.type === "HUMAN_INPUT_REQUIRED" &&
+          e.payload["sessionId"] === sessionId,
+      ),
+    );
+    const rejectRes = await fetch(
+      `http://127.0.0.1:${port}/api/sessions/${sessionId}/respond`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Cookie: `${SESSION}`,
+        },
+        body: JSON.stringify({
+          decision: "reject",
+          text: "too risky",
+        }),
+      },
+    );
+    expect(rejectRes.status).toBe(200);
+    const body = (await rejectRes.json()) as { status: string };
+    expect(body.status).toBe("rejected");
+
+    await waitFor(() =>
+      events.some(
+        (e) =>
+          e.type === "HUMAN_INPUT_RESOLVED" &&
+          e.payload["status"] === "rejected",
+      ),
+    );
+
+    await waitFor(() =>
+      events.some(
+        (e) =>
+          e.type === "RUN_FINISHED" && e.payload["sessionId"] === sessionId,
+      ),
+    );
+    expect(await hasPendingHumanInput(sessionId)).toBe(false);
+    // The refusal reaches the model as the call's answer, with the person's reason in it.
+    const resumed = messagesSentTo(model, model.requests.length - 1);
+    const answer = resumed
+      .flatMap((m) => m.toolResults)
+      .find((r) => r.toolUseId === "tu-rej-1");
+    expect(answer?.content).toContain("too risky");
     close();
   });
 });

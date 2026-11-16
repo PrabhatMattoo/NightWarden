@@ -8,7 +8,11 @@ import type {
 import { messagePartsToText } from "@nightwarden/shared";
 import type { MessagePart, ResolvedLLMConfig } from "@nightwarden/shared";
 import { CHUNK_TIMEOUT_MS } from "../llm/config.js";
-import { createProvider, requestOptions } from "../llm/factory.js";
+import {
+  createProvider,
+  languageModel,
+  requestOptions,
+} from "../llm/factory.js";
 import { isRetryableLLMError } from "../llm/failures.js";
 import { SdkProvider } from "../llm/provider.js";
 import type {
@@ -17,6 +21,7 @@ import type {
   StreamDelta,
   ToolSchema,
 } from "../llm/types.js";
+import { fakeAnthropic } from "./fake-anthropic.js";
 
 /* The vendor's own double, so the adapter is tested against the interface a
    provider package implements. Turns are consumed in order, the last repeating. */
@@ -406,39 +411,6 @@ describe("what the run sends a model, and what it makes of the answer", () => {
     );
   });
 
-  // The report turn offers one tool and cannot come back as prose.
-  it("forces the named tool when one is required", async () => {
-    const model = fakeModel([
-      {
-        type: "tool-call",
-        toolCallId: "tu-1",
-        toolName: "ComposeReport",
-        input: "{}",
-      },
-      finish("tool-calls"),
-    ]);
-    const p = provider(model);
-
-    await p.chat(
-      opening("first"),
-      [
-        {
-          name: "ComposeReport",
-          description: "Files the report.",
-          input_schema: { type: "object", properties: {} },
-        },
-      ],
-      undefined,
-      undefined,
-      "ComposeReport",
-    );
-
-    expect(model.doStreamCalls[0]?.toolChoice).toEqual({
-      type: "tool",
-      toolName: "ComposeReport",
-    });
-  });
-
   it("resumes from a stored transcript, which is all a seed carries", async () => {
     const model = fakeModel([...text("t", "x"), finish("stop")]);
     const parts: MessagePart[] = [
@@ -477,111 +449,37 @@ describe("what the run sends a model, and what it makes of the answer", () => {
 /* The real Anthropic adapter over a stubbed fetch, so the retries, timeouts and
    cache markers under test are the SDK's own, read off the wire it writes. */
 describe("talking to Anthropic over the wire", () => {
-  const sse = (...events: object[]): string =>
-    events
-      .map(
-        (e) =>
-          `event: ${(e as { type: string }).type}\ndata: ${JSON.stringify(e)}\n\n`,
-      )
-      .join("");
-  const start = {
-    type: "message_start",
-    message: {
-      id: "msg_1",
-      type: "message",
-      role: "assistant",
-      model: "claude-test",
-      content: [],
-      stop_reason: null,
-      stop_sequence: null,
-      usage: { input_tokens: 10, output_tokens: 1 },
-    },
-  };
-  const answer = (said: string): string =>
-    sse(
-      start,
-      {
-        type: "content_block_start",
-        index: 0,
-        content_block: { type: "text", text: "" },
-      },
-      {
-        type: "content_block_delta",
-        index: 0,
-        delta: { type: "text_delta", text: said },
-      },
-      { type: "content_block_stop", index: 0 },
-      {
-        type: "message_delta",
-        delta: { stop_reason: "end_turn", stop_sequence: null },
-        usage: { output_tokens: 5 },
-      },
-      { type: "message_stop" },
-    );
-  // What Anthropic sends when it sheds load after the reply has begun.
-  const overloadedAfter = (said: string): string =>
-    sse(
-      start,
-      {
-        type: "content_block_start",
-        index: 0,
-        content_block: { type: "text", text: "" },
-      },
-      {
-        type: "content_block_delta",
-        index: 0,
-        delta: { type: "text_delta", text: said },
-      },
-      {
-        type: "error",
-        error: { type: "overloaded_error", message: "Overloaded" },
-      },
-    );
-
-  const bodies: Record<string, unknown>[] = [];
-  function serve(...replies: string[]): void {
-    let call = 0;
-    vi.stubGlobal(
-      "fetch",
-      vi.fn((_url: string, init: RequestInit) => {
-        // The adapter always posts a JSON string, which is the wire under test.
-        bodies.push(JSON.parse(init.body as string) as Record<string, unknown>);
-        const reply = replies[Math.min(call++, replies.length - 1)] ?? "";
-        return Promise.resolve(
-          new Response(reply, {
-            headers: { "content-type": "text/event-stream" },
-          }),
-        );
-      }),
-    );
-  }
+  let fake = fakeAnthropic();
 
   afterEach(() => {
-    bodies.length = 0;
+    fake = fakeAnthropic();
     vi.useRealTimers();
-    vi.unstubAllGlobals();
   });
 
   function anthropic(maxRetries: number, onRetry?: () => void): LLMProvider {
+    const config: ResolvedLLMConfig = {
+      provider: "anthropic",
+      model: "claude-test",
+      maxOutputTokens: 4096,
+      maxInputTokens: null,
+      compaction: false,
+      maxRetries,
+      reasoningLevel: null,
+      reasoning: null,
+    };
     return createProvider(
+      languageModel(config, "sk-test", fake.fetch),
       "SYSTEM",
-      {
-        provider: "anthropic",
-        model: "claude-test",
-        maxOutputTokens: 4096,
-        maxInputTokens: null,
-        compaction: false,
-        maxRetries,
-        reasoningLevel: null,
-        reasoning: null,
-      },
-      "sk-test",
+      config,
       onRetry === undefined ? undefined : { onRetry },
     );
   }
 
   it("retries a reply that is overloaded part way, and keeps only the attempt that finished", async () => {
-    serve(overloadedAfter("Half an ans"), answer("Whole answer."));
+    fake.script([
+      { text: "Half an ans", overloadedAfter: true },
+      { text: "Whole answer.", toolUses: [] },
+    ]);
     const seen: (StreamDelta | "retry")[] = [];
 
     const turn = await anthropic(2, () => seen.push("retry")).chat(
@@ -600,40 +498,19 @@ describe("talking to Anthropic over the wire", () => {
   });
 
   it("fails retryable once the overload outlasts every retry", async () => {
-    serve(overloadedAfter("Half"));
+    fake.script([{ text: "Half", overloadedAfter: true }]);
 
     const failure: unknown = await anthropic(1)
       .chat(opening("first"), NO_TOOLS)
       .catch((err: unknown) => err);
 
-    expect(bodies).toHaveLength(2);
+    expect(fake.requests).toHaveLength(2);
     expect(isRetryableLLMError(failure)).toBe(true);
   });
 
   it("gives up on a reply that stalls, rather than waiting out the run", async () => {
     vi.useFakeTimers();
-    vi.stubGlobal(
-      "fetch",
-      vi.fn((_url: string, init: RequestInit) =>
-        Promise.resolve(
-          new Response(
-            new ReadableStream({
-              start(controller) {
-                controller.enqueue(
-                  new TextEncoder().encode(
-                    overloadedAfter("Half").split("event: error")[0],
-                  ),
-                );
-                init.signal?.addEventListener("abort", () =>
-                  controller.error(init.signal?.reason),
-                );
-              },
-            }),
-            { headers: { "content-type": "text/event-stream" } },
-          ),
-        ),
-      ),
-    );
+    fake.script([{ text: "Half", stall: true }]);
 
     const pending = anthropic(0)
       .chat(opening("first"), NO_TOOLS)
@@ -646,7 +523,7 @@ describe("talking to Anthropic over the wire", () => {
   });
 
   it("caches a long conversation from its tail within the four markers allowed", async () => {
-    serve(answer("ok"));
+    fake.script([{ text: "ok", toolUses: [] }]);
     const history = Array.from({ length: 12 }, (_, i): ProviderMessage[] => [
       msg("assistant", [
         {
@@ -663,7 +540,7 @@ describe("talking to Anthropic over the wire", () => {
 
     await anthropic(0).chat([...opening("first"), ...history], NO_TOOLS);
 
-    const body = bodies[0] ?? {};
+    const body = fake.requests[0] ?? {};
     expect(body["cache_control"]).toEqual({ type: "ephemeral" });
     const markers = JSON.stringify(body).match(/"cache_control"/g) ?? [];
     expect(markers.length).toBeLessThanOrEqual(4);

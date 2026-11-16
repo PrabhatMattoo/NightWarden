@@ -7,16 +7,8 @@ import {
   describe,
   expect,
   it,
-  vi,
 } from "vitest";
-import { createContractFakeProvider } from "./contract-fake-provider.js";
-
-vi.mock("../llm/factory.js", () => import("./llm-factory-mock.js"));
-
-import { mockCreateProvider } from "./llm-factory-mock.js";
-
 import type { NormalizedAlert } from "@nightwarden/shared";
-import type { ProviderMessage } from "../llm/types.js";
 import { runSession, buildSessionMeta } from "../agent/loop/run-session.js";
 import { getRecord } from "../session/record-store.js";
 import {
@@ -25,16 +17,17 @@ import {
   supersededIds,
 } from "@nightwarden/shared";
 import { buildTranscript } from "../session/transcript.js";
-import { seedAlertSession } from "./session-helper.js";
-import {
-  registerRunner,
-  setRunnerManifest,
-  unregisterRunner,
-} from "../fleet/connections.js";
-import { resolveCommand } from "../fleet/transport.js";
 import { generateRunnerToken } from "../fleet/runners-store.js";
+import { fakeAnthropic } from "./fake-anthropic.js";
+import { messagesSentTo, toolsSentTo } from "./fake-model.js";
+import { fakeRunner, type HarnessRunner } from "./harness.js";
 import { manifest } from "./manifest-helper.js";
+import { seedAlertSession } from "./session-helper.js";
 import { useTempDb } from "./temp-db.js";
+
+const anthropic = fakeAnthropic();
+// Where the current run's requests begin.
+let since = 0;
 
 function alert(sourceAlertId: string): NormalizedAlert {
   return {
@@ -49,38 +42,21 @@ function alert(sourceAlertId: string): NormalizedAlert {
 }
 
 describe("candidates, the frontier and falsification", () => {
-  async function connectRunner() {
-    const runnerId = (await generateRunnerToken("docker", "cand-host")).id;
-    const conn = registerRunner({
-      runnerId,
-      platform: "docker",
-      serverName: "cand-host",
-      send: (raw: string) => {
-        const msg = JSON.parse(raw) as { payload: { correlationId: string } };
-        resolveCommand({
-          correlationId: msg.payload.correlationId,
-          success: true,
-          result: [],
-        });
-      },
-      close: () => {},
-    });
-    setRunnerManifest(runnerId, manifest("cand-host"));
-    return conn;
-  }
-
   let cleanupDb: () => void;
-  let runner: ReturnType<typeof registerRunner>;
+  let runner: HarnessRunner;
 
   beforeAll(async () => {
     cleanupDb = await useTempDb();
   });
   afterAll(() => cleanupDb());
   beforeEach(async () => {
-    mockCreateProvider.mockReset();
-    runner = await connectRunner();
+    runner = fakeRunner({
+      id: (await generateRunnerToken("docker", "cand-host")).id,
+      name: "cand-host",
+      manifest: manifest("cand-host"),
+    });
   });
-  afterEach(() => unregisterRunner(runner));
+  afterEach(() => runner.disconnect());
 
   const readTurn = () => ({
     toolUses: [
@@ -180,38 +156,33 @@ describe("candidates, the frontier and falsification", () => {
     ifFalse: "query p99 stayed flat across the window",
   };
 
-  function harnessMessages(index = 0): string[] {
-    const provider = mockCreateProvider.mock.results[index]!.value as {
-      chat: ReturnType<typeof vi.fn>;
-    };
-    const calls = provider.chat.mock.calls as Array<[ProviderMessage[]]>;
-    const opening = calls[0]?.[0]?.length ?? 0;
-    return (calls.at(-1)?.[0] ?? [])
+  // What the harness said in the run's last request, past what it opened with.
+  function harnessMessages(): string[] {
+    const last = anthropic.requests.length - 1;
+    const opening = messagesSentTo(anthropic, since).length;
+    return messagesSentTo(anthropic, last)
       .slice(opening)
-      .filter(
-        (m) => m.role === "user" && m.parts.every((p) => p.type === "text"),
-      )
-      .map((m) => m.content);
+      .filter((m) => m.role === "user")
+      .flatMap((m) => m.texts);
   }
 
   async function start(id: string): Promise<void> {
     await seedAlertSession(buildSessionMeta(id, null, undefined), [alert(id)]);
-    await runSession({ sessionId: id, alerts: [alert(id)] });
+    since = anthropic.requests.length;
+    await runSession({ sessionId: id, alerts: [alert(id)] }, anthropic.fetch);
   }
 
   it("forces candidates after the first read, and keeps the open ones in view", async () => {
-    mockCreateProvider.mockImplementationOnce(() =>
-      createContractFakeProvider([
-        readTurn(),
-        openTurn([POOL, PG]),
-        readTurn(),
-        findingTurn("root_cause", POOL.statement, { candidate: "c1" }),
-        findingTurn("disproven", PG.statement, { candidate: "c2" }),
-        closeTurn(),
-        submitTurn,
-        closingTurn,
-      ]),
-    );
+    anthropic.script([
+      readTurn(),
+      openTurn([POOL, PG]),
+      readTurn(),
+      findingTurn("root_cause", POOL.statement, { candidate: "c1" }),
+      findingTurn("disproven", PG.statement, { candidate: "c2" }),
+      closeTurn(),
+      submitTurn,
+      closingTurn,
+    ]);
     const id = randomUUID();
     await start(id);
 
@@ -259,28 +230,26 @@ describe("candidates, the frontier and falsification", () => {
       ],
       text: "",
     });
-    mockCreateProvider.mockImplementationOnce(() =>
-      createContractFakeProvider([
-        readTurn(),
-        openTurn([POOL, PG]),
-        readTurn(),
-        findingTurn("root_cause", POOL.statement, { candidate: "c1" }),
-        findingTurn("disproven", PG.statement, { candidate: "c2" }),
-        mixed(),
-        readTurn(),
-        findingTurn("disproven", "the pool ceiling was set too low", {
-          candidate: "c3",
-          evidenceId: "e3",
-        }),
-        findingTurn("disproven", "a client leaked connections", {
-          candidate: "c4",
-          evidenceId: "e3",
-        }),
-        closeTurn(),
-        submitTurn,
-        closingTurn,
-      ]),
-    );
+    anthropic.script([
+      readTurn(),
+      openTurn([POOL, PG]),
+      readTurn(),
+      findingTurn("root_cause", POOL.statement, { candidate: "c1" }),
+      findingTurn("disproven", PG.statement, { candidate: "c2" }),
+      mixed(),
+      readTurn(),
+      findingTurn("disproven", "the pool ceiling was set too low", {
+        candidate: "c3",
+        evidenceId: "e3",
+      }),
+      findingTurn("disproven", "a client leaked connections", {
+        candidate: "c4",
+        evidenceId: "e3",
+      }),
+      closeTurn(),
+      submitTurn,
+      closingTurn,
+    ]);
     const id = randomUUID();
     await start(id);
 
@@ -305,27 +274,22 @@ describe("candidates, the frontier and falsification", () => {
   /* The order the reader needs: the write-up is filed, and only then is the
      model given a turn with no tools to speak in. Silence used to do both. */
   it("files the write-up before it speaks, and speaks with no tools offered", async () => {
-    mockCreateProvider.mockImplementationOnce(() =>
-      createContractFakeProvider([
-        readTurn(),
-        openTurn([POOL, PG]),
-        readTurn(),
-        findingTurn("root_cause", POOL.statement, { candidate: "c1" }),
-        findingTurn("disproven", PG.statement, { candidate: "c2" }),
-        closeTurn(),
-        submitTurn,
-        closingTurn,
-      ]),
-    );
+    anthropic.script([
+      readTurn(),
+      openTurn([POOL, PG]),
+      readTurn(),
+      findingTurn("root_cause", POOL.statement, { candidate: "c1" }),
+      findingTurn("disproven", PG.statement, { candidate: "c2" }),
+      closeTurn(),
+      submitTurn,
+      closingTurn,
+    ]);
     const id = randomUUID();
     await start(id);
 
-    const provider = mockCreateProvider.mock.results[0]!.value as {
-      chat: ReturnType<typeof vi.fn>;
-    };
-    const offered = provider.chat.mock.calls.map((call) =>
-      (call[1] as Array<{ name: string }>).map((t) => t.name),
-    );
+    const offered = anthropic.requests
+      .slice(since)
+      .map((_, i) => toolsSentTo(anthropic, since + i));
     // The write-up turn offers one tool; the turn after it offers none.
     expect(offered.at(-2)).toEqual(["ComposeReport"]);
     expect(offered.at(-1)).toEqual([]);
@@ -339,18 +303,16 @@ describe("candidates, the frontier and falsification", () => {
   });
 
   it("draws the board live and keeps a row for each finding it records", async () => {
-    mockCreateProvider.mockImplementationOnce(() =>
-      createContractFakeProvider([
-        readTurn(),
-        openTurn([POOL, PG]),
-        readTurn(),
-        findingTurn("root_cause", POOL.statement, { candidate: "c1" }),
-        findingTurn("disproven", PG.statement, { candidate: "c2" }),
-        closeTurn(),
-        submitTurn,
-        closingTurn,
-      ]),
-    );
+    anthropic.script([
+      readTurn(),
+      openTurn([POOL, PG]),
+      readTurn(),
+      findingTurn("root_cause", POOL.statement, { candidate: "c1" }),
+      findingTurn("disproven", PG.statement, { candidate: "c2" }),
+      closeTurn(),
+      submitTurn,
+      closingTurn,
+    ]);
     const id = randomUUID();
     await start(id);
 
@@ -375,18 +337,16 @@ describe("candidates, the frontier and falsification", () => {
   });
 
   it("runs a falsification turn naming every candidate before the report", async () => {
-    mockCreateProvider.mockImplementationOnce(() =>
-      createContractFakeProvider([
-        readTurn(),
-        openTurn([POOL, PG]),
-        readTurn(),
-        findingTurn("root_cause", POOL.statement, { candidate: "c1" }),
-        findingTurn("disproven", PG.statement, { candidate: "c2" }),
-        closeTurn(),
-        submitTurn,
-        closingTurn,
-      ]),
-    );
+    anthropic.script([
+      readTurn(),
+      openTurn([POOL, PG]),
+      readTurn(),
+      findingTurn("root_cause", POOL.statement, { candidate: "c1" }),
+      findingTurn("disproven", PG.statement, { candidate: "c2" }),
+      closeTurn(),
+      submitTurn,
+      closingTurn,
+    ]);
     const id = randomUUID();
     await start(id);
 
@@ -400,19 +360,17 @@ describe("candidates, the frontier and falsification", () => {
   });
 
   it("lets a later finding about one candidate carry the verdict that stands", async () => {
-    mockCreateProvider.mockImplementationOnce(() =>
-      createContractFakeProvider([
-        readTurn(),
-        openTurn([POOL, PG]),
-        readTurn(),
-        findingTurn("trigger", POOL.statement, { candidate: "c1" }),
-        findingTurn("disproven", PG.statement, { candidate: "c2" }),
-        findingTurn("root_cause", POOL.statement, { candidate: "c1" }),
-        closeTurn(),
-        submitTurn,
-        closingTurn,
-      ]),
-    );
+    anthropic.script([
+      readTurn(),
+      openTurn([POOL, PG]),
+      readTurn(),
+      findingTurn("trigger", POOL.statement, { candidate: "c1" }),
+      findingTurn("disproven", PG.statement, { candidate: "c2" }),
+      findingTurn("root_cause", POOL.statement, { candidate: "c1" }),
+      closeTurn(),
+      submitTurn,
+      closingTurn,
+    ]);
     const id = randomUUID();
     await start(id);
 
@@ -430,20 +388,18 @@ describe("candidates, the frontier and falsification", () => {
   });
 
   it("stands down without a report when a candidate is never settled", async () => {
-    mockCreateProvider.mockImplementationOnce(() =>
-      createContractFakeProvider([
-        readTurn(),
-        openTurn([POOL, PG]),
-        readTurn(),
-        findingTurn("root_cause", POOL.statement, { candidate: "c1" }),
-        // Asked three times for c2, answering each with prose instead.
-        closeTurn(),
-        closeTurn(),
-        closeTurn(),
-        closeTurn(),
-        closeTurn(),
-      ]),
-    );
+    anthropic.script([
+      readTurn(),
+      openTurn([POOL, PG]),
+      readTurn(),
+      findingTurn("root_cause", POOL.statement, { candidate: "c1" }),
+      // Asked three times for c2, answering each with prose instead.
+      closeTurn(),
+      closeTurn(),
+      closeTurn(),
+      closeTurn(),
+      closeTurn(),
+    ]);
     const id = randomUUID();
     await start(id);
 

@@ -1,20 +1,12 @@
-import { harness, type Harness } from "./harness.js";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-
-vi.mock("../llm/factory.js", () => import("./llm-factory-mock.js"));
-
-import { mockCreateProvider } from "./llm-factory-mock.js";
-import { createContractFakeProvider } from "./contract-fake-provider.js";
-
-mockCreateProvider.mockImplementation(() =>
-  createContractFakeProvider([{ toolUses: [], text: "Done." }]),
-);
-
 import { randomUUID } from "node:crypto";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { fakeAnthropic } from "./fake-anthropic.js";
+import { harness, type Harness } from "./harness.js";
 
-import { registerSessionRoutes } from "../session/routes.js";
+const anthropic = fakeAnthropic();
+
 import { buildSessionMeta } from "../agent/loop/run-session.js";
-import { dispatcher } from "../dispatcher.js";
+import { isRunning } from "../session/status-store.js";
 import { isReopenable } from "../session/reopen.js";
 import { getTranscriptRows } from "../session/transcript-store.js";
 import {
@@ -30,7 +22,7 @@ describe("POST /sessions/:id/reopen", () => {
   let nw: Harness;
 
   beforeAll(async () => {
-    nw = await harness({ routes: [registerSessionRoutes] });
+    nw = await harness({ model: anthropic });
   });
 
   afterAll(async () => {
@@ -65,61 +57,59 @@ describe("POST /sessions/:id/reopen", () => {
   });
 
   async function closedInvestigation(): Promise<string> {
-    mockCreateProvider.mockImplementationOnce(() =>
-      createContractFakeProvider([
-        { toolUses: [], text: "Looking." },
-        {
-          toolUses: [
-            {
-              toolCallId: "tu-open",
-              name: "OpenCandidates",
-              input: {
-                candidates: [
-                  {
-                    statement: "the disk filled",
-                    ifTrue: "full",
-                    ifFalse: "headroom",
-                  },
-                  {
-                    statement: "a writer leaks",
-                    ifTrue: "climbs",
-                    ifFalse: "flat",
-                  },
-                ],
-              },
+    anthropic.script([
+      { toolUses: [], text: "Looking." },
+      {
+        toolUses: [
+          {
+            toolCallId: "tu-open",
+            name: "OpenCandidates",
+            input: {
+              candidates: [
+                {
+                  statement: "the disk filled",
+                  ifTrue: "full",
+                  ifFalse: "headroom",
+                },
+                {
+                  statement: "a writer leaks",
+                  ifTrue: "climbs",
+                  ifFalse: "flat",
+                },
+              ],
             },
-          ],
-          text: "",
-        },
-        { toolUses: [settle("c1"), settle("c2")], text: "" },
-        {
-          toolUses: [
-            { toolCallId: "tu-close", name: "CloseInvestigation", input: {} },
-          ],
-          text: "",
-        },
-        {
-          toolUses: [
-            {
-              toolCallId: "tu-compose",
-              name: "ComposeReport",
-              input: {
-                headline: "the disk could not be checked",
-                affected: "the worker",
-                summary: "no tool could reach the disk",
-                timeline: [],
-                impact: "unknown",
-                recommendation: "add a disk usage metric",
-              },
+          },
+        ],
+        text: "",
+      },
+      { toolUses: [settle("c1"), settle("c2")], text: "" },
+      {
+        toolUses: [
+          { toolCallId: "tu-close", name: "CloseInvestigation", input: {} },
+        ],
+        text: "",
+      },
+      {
+        toolUses: [
+          {
+            toolCallId: "tu-compose",
+            name: "ComposeReport",
+            input: {
+              headline: "the disk could not be checked",
+              affected: "the worker",
+              summary: "no tool could reach the disk",
+              timeline: [],
+              impact: "unknown",
+              recommendation: "add a disk usage metric",
             },
-          ],
-          text: "",
-        },
-        { toolUses: [], text: "The report is ready." },
-      ]),
-    );
+          },
+        ],
+        text: "",
+      },
+      { toolUses: [], text: "The report is ready." },
+    ]);
     const id = randomUUID();
-    await dispatchAlertSession(id, [
+    await dispatchAlertSession(nw.dispatcher, id, [
       {
         sourceAlertId: `reopen-${id}`,
         labels: {},
@@ -131,6 +121,8 @@ describe("POST /sessions/:id/reopen", () => {
       },
     ]);
     await waitFor(() => isReopenable(id));
+    // What the reopened run is answered with: one free-form turn.
+    anthropic.script([]);
     return id;
   }
 
@@ -174,9 +166,7 @@ describe("POST /sessions/:id/reopen", () => {
     expect(response.status).toBe(202);
 
     const rows = await waitFor(async () =>
-      (await dispatcher.isSessionRunning(id))
-        ? null
-        : await getTranscriptRows(id),
+      (await isRunning(id)) ? null : await getTranscriptRows(id),
     );
     const reason = rows.findIndex((row) => row.clientId === clientMessageId);
     expect(rows[reason]).toMatchObject({

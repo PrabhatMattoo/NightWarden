@@ -1,10 +1,9 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import Fastify from "fastify";
 import type { FastifyInstance, FastifySchema } from "fastify";
-
-vi.mock("../llm/factory.js", () => import("./llm-factory-mock.js"));
-
 import { registerApi } from "../api.js";
+import { dispatcherFor } from "../server.js";
+import { fakeAnthropic } from "./fake-anthropic.js";
 import { useTempDb } from "./temp-db.js";
 
 // One walk of the whole surface, so tomorrow's route is covered. A route not
@@ -66,7 +65,10 @@ describe("the route surface", () => {
         routes.push({ method, url: route.url, schema: route.schema });
       }
     });
-    await registerApi(server);
+    // Hooked before the routes register, so it registers them itself.
+    await registerApi(server, {
+      dispatcher: dispatcherFor(fakeAnthropic().fetch),
+    });
     await server.ready();
   });
 

@@ -1,9 +1,8 @@
 import { randomUUID } from "node:crypto";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-
-vi.mock("../llm/factory.js", () => import("./llm-factory-mock.js"));
-
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { dispatcherFor } from "../server.js";
 import { reconcileRecovery } from "../verification/reconciler.js";
+import { fakeAnthropic } from "./fake-anthropic.js";
 import { seedAlertSession } from "./session-helper.js";
 import { useTempDb } from "./temp-db.js";
 
@@ -46,7 +45,7 @@ describe("how often an open condition is asked about", () => {
   }
 
   const asksAt = async (at: number): Promise<number> =>
-    (await reconcileRecovery(at)).asked;
+    (await reconcileRecovery(dispatcherFor(fakeAnthropic().fetch), at)).asked;
 
   it("asks about once a minute while the incident is fresh", async () => {
     const opened = Date.now();

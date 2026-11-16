@@ -1,8 +1,7 @@
 import "dotenv/config";
-import Fastify from "fastify";
 import { initSecrets } from "./secrets.js";
 import { initDb } from "./db.js";
-import { registerApi } from "./api.js";
+import { buildServer } from "./server.js";
 import {
   RECONCILE_TICK_MS,
   reconcileRecovery,
@@ -42,19 +41,11 @@ initSecrets();
 
 const isDev = process.env["NODE_ENV"] !== "production";
 
-const fastify = Fastify({
+const { server: fastify, dispatcher } = await buildServer({
   logger: isDev
     ? { transport: { target: "pino-pretty", options: { colorize: true } } }
     : true,
-  trustProxy: true,
-  // Long-lived frontend SSE streams would otherwise hold close() open forever.
-  forceCloseConnections: true,
 });
-
-await registerApi(fastify);
-
-// Outside /api: a container probe is infrastructure, not API surface.
-fastify.get("/health", async () => ({ status: "ok" }));
 
 // Last, so it can never shadow an API route.
 await registerFrontendRoutes(fastify);
@@ -108,7 +99,7 @@ const start = async (): Promise<void> => {
     // An alert usually clears minutes after the run that fixed it ended, so
     // something has to keep asking. Unref'd: the server holds the loop open.
     setInterval(() => {
-      void reconcileRecovery().catch((err: unknown) => {
+      void reconcileRecovery(dispatcher).catch((err: unknown) => {
         fastify.log.warn({ err }, "recovery reconciler pass failed");
       });
     }, RECONCILE_TICK_MS).unref();

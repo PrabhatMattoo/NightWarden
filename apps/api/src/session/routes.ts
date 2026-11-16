@@ -35,8 +35,8 @@ import { logger } from "../logger.js";
 import { buildSeed } from "./seed.js";
 import { teardown } from "../sandbox/workspace.js";
 import { HumanInputError, respondToPendingHumanInput } from "./human-input.js";
-import { dispatcher } from "../dispatcher.js";
-import { deriveStatus } from "./status-store.js";
+import type { Dispatcher } from "../dispatcher.js";
+import { deriveStatus, isRunning } from "./status-store.js";
 import {
   checkLLMReadiness,
   notConfiguredMessage,
@@ -48,6 +48,7 @@ const accepted = { response: { 202: sessionAcceptedSchema, ...refusals() } };
 
 export async function registerSessionRoutes(
   fastify: FastifyInstance,
+  { dispatcher }: { dispatcher: Dispatcher },
 ): Promise<void> {
   const app = fastify.withTypeProvider<ZodTypeProvider>();
   // Paginated rather than capped, and one kind at a time: the list is served by
@@ -92,7 +93,7 @@ export async function registerSessionRoutes(
         createdAt: session.createdAt,
         lastActivityAt: session.lastActivityAt,
         investigation: session.investigation,
-        running: await dispatcher.isSessionRunning(request.params.id),
+        running: await isRunning(request.params.id),
         reopenable:
           session.investigation && (await isReopenable(request.params.id)),
         alerts: session.alerts,
@@ -136,7 +137,7 @@ export async function registerSessionRoutes(
     },
     async (request, reply) => {
       const sessionId = request.params.id;
-      if (await dispatcher.isSessionRunning(sessionId)) {
+      if (await isRunning(sessionId)) {
         return reply
           .code(409)
           .send({ error: "session is running: stop it before deleting" });
@@ -187,6 +188,7 @@ export async function registerSessionRoutes(
       }
       try {
         const response = await respondToPendingHumanInput(
+          dispatcher,
           request.params.id,
           request.body,
           actorOf(user),

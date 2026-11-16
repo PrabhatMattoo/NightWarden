@@ -1,35 +1,30 @@
-import { harness, type Harness } from "./harness.js";
+import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-
-vi.mock("../llm/factory.js", () => import("./llm-factory-mock.js"));
-
-import { mockCreateProvider } from "./llm-factory-mock.js";
-
+import { fakeAnthropic } from "./fake-anthropic.js";
 import {
-  createContractFakeProvider,
   createGateController,
   messagesSentTo,
-} from "./contract-fake-provider.js";
+  type FakeModel,
+} from "./fake-model.js";
+import { harness, type Harness } from "./harness.js";
 
-mockCreateProvider.mockImplementation(() =>
-  createContractFakeProvider([{ toolUses: [], text: "Done." }]),
-);
-
-import { randomUUID } from "node:crypto";
+const anthropic = fakeAnthropic();
 
 import { connectTestMetrics } from "./temp-db.js";
 import { waitFor } from "./wait.js";
 import { connectFrontendEvents } from "./frontend-events-helper.js";
 import { dispatchAlertSession, messageBody } from "./session-helper.js";
 
-import { registerSessionRoutes } from "../session/routes.js";
-import { registerFrontendEventRoutes } from "../session/events.js";
-import { dispatcher } from "../dispatcher.js";
+import { isRunning } from "../session/status-store.js";
 import { hasPendingHumanInput } from "../session/gate-store.js";
 import { deleteMetricsSource } from "../integrations/metrics/store.js";
 import { listSessionPage } from "../session/list.js";
 import { getTranscriptRows } from "../session/transcript-store.js";
-import type { MessagePart, TranscriptRow } from "@nightwarden/shared";
+import {
+  LLM_PROVIDER_NAMES,
+  type MessagePart,
+  type TranscriptRow,
+} from "@nightwarden/shared";
 
 function resultFor(
   rows: readonly TranscriptRow[],
@@ -49,9 +44,7 @@ describe("POST /sessions/:id/stop", () => {
   let SESSION: string;
 
   beforeAll(async () => {
-    nw = await harness({
-      routes: [registerSessionRoutes, registerFrontendEventRoutes],
-    });
+    nw = await harness({ model: anthropic });
     ({ port } = nw);
     SESSION = nw.session;
   });
@@ -74,11 +67,7 @@ describe("POST /sessions/:id/stop", () => {
 
   it("stops a running session and returns 200", async () => {
     const gateController = createGateController();
-    mockCreateProvider.mockImplementationOnce(() =>
-      createContractFakeProvider([{ toolUses: [], text: "Done." }], {
-        gate: gateController.gate,
-      }),
-    );
+    anthropic.park(gateController.gate);
 
     const chatRes = await fetch(`http://127.0.0.1:${port}/api/chat`, {
       method: "POST",
@@ -89,7 +78,7 @@ describe("POST /sessions/:id/stop", () => {
       body: messageBody("Long running."),
     });
     const { sessionId } = (await chatRes.json()) as { sessionId: string };
-    await waitFor(async () => await dispatcher.isSessionRunning(sessionId));
+    await waitFor(async () => await isRunning(sessionId));
 
     const stopRes = await fetch(
       `http://127.0.0.1:${port}/api/sessions/${sessionId}/stop`,
@@ -100,16 +89,38 @@ describe("POST /sessions/:id/stop", () => {
     );
     expect(stopRes.status).toBe(200);
 
+    anthropic.park();
     gateController.releaseAll();
-    await waitFor(async () => !(await dispatcher.isSessionRunning(sessionId)));
+    await waitFor(async () => !(await isRunning(sessionId)));
   });
 
   // The stop lands while the turn's read is still running, so the run reaches
   // the write already aborted - the only window this can happen in.
-  it("ends a run as stopped when the stop lands on a turn holding a write", async () => {
-    await connectTestMetrics({ queryUrl: "http://prom.test" });
-    mockCreateProvider.mockImplementationOnce(() =>
-      createContractFakeProvider([
+});
+
+// Stop answers every call it cut short, so each provider's wire accepts the resumed run.
+describe.each(LLM_PROVIDER_NAMES)(
+  "stopping a run with calls in flight on %s",
+  (provider) => {
+    let nw: Harness;
+    let port: number;
+    let SESSION: string;
+    let model: FakeModel;
+
+    beforeAll(async () => {
+      nw = await harness({ provider });
+      ({ port, model } = nw);
+      SESSION = nw.session;
+    });
+
+    afterAll(async () => {
+      await nw.close();
+      vi.unstubAllEnvs();
+    });
+
+    it("ends a run as stopped when the stop lands on a turn holding a write", async () => {
+      await connectTestMetrics({ queryUrl: "http://prom.test" });
+      model.script([
         {
           text: "Checking, then I need you.",
           toolUses: [
@@ -128,122 +139,124 @@ describe("POST /sessions/:id/stop", () => {
             },
           ],
         },
-      ]),
-    );
+      ]);
 
-    // Parks the read so the stop has somewhere to land: the loop is inside
-    // processToolUses, past every abort check it currently makes.
-    let releaseRead = (): void => {};
-    let readStarted = false;
-    const reading = new Promise<void>((resolve) => {
-      releaseRead = resolve;
-    });
-    const realFetch = globalThis.fetch;
-    vi.stubGlobal(
-      "fetch",
-      vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
-        const url = String(input instanceof Request ? input.url : input);
-        if (!url.startsWith("http://prom.test")) return realFetch(input, init);
-        readStarted = true;
-        // A real connection is dropped when its signal aborts, as Stop's does.
-        const signal = input instanceof Request ? input.signal : init?.signal;
-        return new Promise<Response>((resolve, reject) => {
-          signal?.addEventListener("abort", () => reject(signal.reason), {
-            once: true,
-          });
-          void reading.then(() =>
-            resolve(
-              new Response(
-                JSON.stringify({
-                  status: "success",
-                  data: { resultType: "vector", result: [] },
-                }),
-                {
-                  status: 200,
-                  headers: { "content-type": "application/json" },
-                },
+      // Parks the read so the stop has somewhere to land: the loop is inside
+      // processToolUses, past every abort check it currently makes.
+      let releaseRead = (): void => {};
+      let readStarted = false;
+      const reading = new Promise<void>((resolve) => {
+        releaseRead = resolve;
+      });
+      const realFetch = globalThis.fetch;
+      vi.stubGlobal(
+        "fetch",
+        vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+          const url = String(input instanceof Request ? input.url : input);
+          if (!url.startsWith("http://prom.test"))
+            return realFetch(input, init);
+          readStarted = true;
+          // A real connection is dropped when its signal aborts, as Stop's does.
+          const signal = input instanceof Request ? input.signal : init?.signal;
+          return new Promise<Response>((resolve, reject) => {
+            signal?.addEventListener("abort", () => reject(signal.reason), {
+              once: true,
+            });
+            void reading.then(() =>
+              resolve(
+                new Response(
+                  JSON.stringify({
+                    status: "success",
+                    data: { resultType: "vector", result: [] },
+                  }),
+                  {
+                    status: 200,
+                    headers: { "content-type": "application/json" },
+                  },
+                ),
               ),
-            ),
-          );
-        });
-      }),
-    );
+            );
+          });
+        }),
+      );
 
-    const frontend = await connectFrontendEvents(port, SESSION);
-    // An alert opens it, which is the only way an investigation starts.
-    const sessionId = randomUUID();
-    await dispatchAlertSession(sessionId, [
-      {
-        sourceAlertId: `stop-${randomUUID()}`,
-        labels: {},
-        alertType: "ContainerDown",
-        firedAt: new Date().toISOString(),
-        annotations: {},
-        generatorURL: null,
-        values: {},
-      },
-    ]);
-    await waitFor(() => readStarted);
+      const frontend = await connectFrontendEvents(port, SESSION);
+      // An alert opens it, which is the only way an investigation starts.
+      const sessionId = randomUUID();
+      await dispatchAlertSession(nw.dispatcher, sessionId, [
+        {
+          sourceAlertId: `stop-${randomUUID()}`,
+          labels: {},
+          alertType: "ContainerDown",
+          firedAt: new Date().toISOString(),
+          annotations: {},
+          generatorURL: null,
+          values: {},
+        },
+      ]);
+      await waitFor(() => readStarted);
 
-    const stopRes = await fetch(
-      `http://127.0.0.1:${port}/api/sessions/${sessionId}/stop`,
-      { method: "POST", headers: { Cookie: `${SESSION}` } },
-    );
-    expect(stopRes.status).toBe(200);
+      const stopRes = await fetch(
+        `http://127.0.0.1:${port}/api/sessions/${sessionId}/stop`,
+        { method: "POST", headers: { Cookie: `${SESSION}` } },
+      );
+      expect(stopRes.status).toBe(200);
 
-    releaseRead();
-    await waitFor(() =>
-      frontend.events.some(
-        (e) => e.type === "RUN_STOPPED" && e.payload["sessionId"] === sessionId,
-      ),
-    );
+      releaseRead();
+      await waitFor(() =>
+        frontend.events.some(
+          (e) =>
+            e.type === "RUN_STOPPED" && e.payload["sessionId"] === sessionId,
+        ),
+      );
 
-    expect(await dispatcher.isSessionRunning(sessionId)).toBe(false);
-    // Nothing to approve: the user stopped the run before the write ran.
-    expect(await hasPendingHumanInput(sessionId)).toBe(false);
-    expect(
-      frontend.events.some(
-        (e) =>
-          e.type === "HUMAN_INPUT_REQUIRED" &&
-          e.payload["sessionId"] === sessionId,
-      ),
-    ).toBe(false);
+      expect(await isRunning(sessionId)).toBe(false);
+      // Nothing to approve: the user stopped the run before the write ran.
+      expect(await hasPendingHumanInput(sessionId)).toBe(false);
+      expect(
+        frontend.events.some(
+          (e) =>
+            e.type === "HUMAN_INPUT_REQUIRED" &&
+            e.payload["sessionId"] === sessionId,
+        ),
+      ).toBe(false);
 
-    // Without the stop recorded this falls through to Completed, which names a
-    // run that ran out of ideas rather than a decision the user made.
-    const row = (await listSessionPage(50, 0, "investigation")).rows.find(
-      (r) => r.sessionId === sessionId,
-    );
-    expect(row?.status).toBe("stopped");
+      // Without the stop recorded this falls through to Completed, which names a
+      // run that ran out of ideas rather than a decision the user made.
+      const row = (await listSessionPage(50, 0, "investigation")).rows.find(
+        (r) => r.sessionId === sessionId,
+      );
+      expect(row?.status).toBe("stopped");
 
-    // Both calls are answered: the read as stopped, not as a source that is down.
-    const rows = await getTranscriptRows(sessionId);
-    const read = resultFor(rows, "tu-read");
-    expect(read?.isError).toBe(true);
-    expect(read?.output).toMatch(/stopped before it answered/);
-    expect(resultFor(rows, "tu-ask")?.isError).toBe(true);
+      // Both calls are answered: the read as stopped, not as a source that is down.
+      const rows = await getTranscriptRows(sessionId);
+      const read = resultFor(rows, "tu-read");
+      expect(read?.isError).toBe(true);
+      expect(read?.output).toMatch(/stopped before it answered/);
+      expect(resultFor(rows, "tu-ask")?.isError).toBe(true);
 
-    // An unanswered call would make the contract fake refuse the resumed run.
-    const resumed = createContractFakeProvider([{ toolUses: [], text: "Ok." }]);
-    mockCreateProvider.mockImplementationOnce(() => resumed);
-    const sent = await fetch(
-      `http://127.0.0.1:${port}/api/sessions/${sessionId}/messages`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Cookie: `${SESSION}` },
-        body: messageBody("Carry on."),
-      },
-    );
-    expect(sent.status).toBe(202);
-    await waitFor(() => resumed.chat.mock.calls.length > 0);
-    await waitFor(async () => !(await dispatcher.isSessionRunning(sessionId)));
-    const history = messagesSentTo(resumed).flatMap((m) => m.parts);
-    expect(history).toContainEqual(
-      expect.objectContaining({ type: "tool_call", toolCallId: "tu-read" }),
-    );
+      // An unanswered call would make the provider refuse the resumed run.
+      const resumed = model.requests.length;
+      model.script([{ toolUses: [], text: "Ok." }]);
+      const sent = await fetch(
+        `http://127.0.0.1:${port}/api/sessions/${sessionId}/messages`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Cookie: `${SESSION}` },
+          body: messageBody("Carry on."),
+        },
+      );
+      expect(sent.status).toBe(202);
+      await waitFor(() => model.requests.length > resumed);
+      await waitFor(async () => !(await isRunning(sessionId)));
+      const history = messagesSentTo(model, resumed).flatMap((m) => m.toolUses);
+      expect(history).toContainEqual(
+        expect.objectContaining({ id: "tu-read" }),
+      );
 
-    frontend.close();
-    vi.unstubAllGlobals();
-    await deleteMetricsSource();
-  });
-});
+      frontend.close();
+      vi.unstubAllGlobals();
+      await deleteMetricsSource();
+    });
+  },
+);

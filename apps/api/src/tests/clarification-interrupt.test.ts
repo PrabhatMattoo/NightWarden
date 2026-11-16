@@ -3,26 +3,21 @@ import { messageBody } from "./session-helper.js";
 import { harness, type Harness } from "./harness.js";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
-vi.mock("../llm/factory.js", () => import("./llm-factory-mock.js"));
-
-import { mockCreateProvider } from "./llm-factory-mock.js";
-
+import { fakeAnthropic } from "./fake-anthropic.js";
 import {
-  createScriptRunner,
+  messagesSentTo,
+  type FakeModel,
   type ScriptedTurn,
-} from "./contract-fake-provider.js";
+} from "./fake-model.js";
+import { LLM_PROVIDER_NAMES } from "@nightwarden/shared";
 
-const scriptRunner = createScriptRunner();
-mockCreateProvider.mockImplementation(() => scriptRunner.create());
-const setScript = (turns: ScriptedTurn[]): void =>
-  scriptRunner.setScript(turns);
+const anthropic = fakeAnthropic();
+const setScript = (turns: ScriptedTurn[]): void => anthropic.script(turns);
 
 import { waitFor } from "./wait.js";
-import { registerFrontendEventRoutes } from "../session/events.js";
 import { connectFrontendEvents } from "./frontend-events-helper.js";
 
-import { registerSessionRoutes } from "../session/routes.js";
-import { dispatcher } from "../dispatcher.js";
+import { isRunning } from "../session/status-store.js";
 import { hasPendingHumanInput } from "../session/gate-store.js";
 import { buildTranscript } from "../session/transcript.js";
 
@@ -48,7 +43,7 @@ describe("clarification interrupts", () => {
 
   beforeAll(async () => {
     nw = await harness({
-      routes: [registerFrontendEventRoutes, registerSessionRoutes],
+      model: anthropic,
       runners: [
         {
           name: "clar-host",
@@ -109,7 +104,7 @@ describe("clarification interrupts", () => {
     );
 
     // Run must have exited
-    expect(await dispatcher.isSessionRunning(sessionId)).toBe(false);
+    expect(await isRunning(sessionId)).toBe(false);
 
     // DB row must have kind=clarification
     expect(await hasPendingHumanInput(sessionId)).toBe(true);
@@ -133,87 +128,6 @@ describe("clarification interrupts", () => {
       body: JSON.stringify({ text: "cleanup" }),
     });
     await waitFor(async () => !(await hasPendingHumanInput(sessionId)));
-  });
-
-  it("answer resolves: resumes run, tool result contains answer, reaches free-form finish", async () => {
-    setScript([
-      {
-        text: "Need clarification.",
-        toolUses: [
-          {
-            toolCallId: "tu-ans-1",
-            name: "AskUserQuestion",
-            input: {
-              question: "Which container is affected?",
-              options: TEST_OPTIONS,
-            },
-          },
-        ],
-      },
-      FINISH_TURN,
-    ]);
-
-    const { events, close } = await connectFrontendEvents(port, SESSION);
-
-    const res = await fetch(`http://127.0.0.1:${port}/api/chat`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Cookie: `${SESSION}`,
-      },
-      body: messageBody("Which container?"),
-    });
-    const { sessionId } = (await res.json()) as { sessionId: string };
-
-    await waitFor(() =>
-      events.find(
-        (e) =>
-          e.type === "HUMAN_INPUT_REQUIRED" &&
-          e.payload["sessionId"] === sessionId,
-      ),
-    );
-    const answerRes = await fetch(
-      `http://127.0.0.1:${port}/api/sessions/${sessionId}/respond`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Cookie: `${SESSION}`,
-        },
-        body: JSON.stringify({
-          text: "Database overloaded",
-        }),
-      },
-    );
-    expect(answerRes.status).toBe(200);
-    const body = (await answerRes.json()) as { status: string };
-    expect(body.status).toBe("answered");
-
-    // INTERRUPT_RESOLVED arrives, run resumes, reaches free-form finish
-    await waitFor(() =>
-      events.some(
-        (e) =>
-          e.type === "HUMAN_INPUT_RESOLVED" &&
-          e.payload["toolCallId"] === "tu-ans-1",
-      ),
-    );
-
-    // Interrupt row gone after resolution
-    expect(await hasPendingHumanInput(sessionId)).toBe(false);
-
-    // One ordinary call carrying what the person said, rather than a question
-    // card that outlives its own answer.
-    const asked = (await buildTranscript(sessionId)).filter(
-      (item) => item.kind === "tool_call" && item.toolCallId === "tu-ans-1",
-    );
-    expect(asked).toHaveLength(1);
-    expect(asked[0]?.kind === "tool_call" && asked[0].state).toMatchObject({
-      phase: "resolved",
-      decision: "answered",
-      result: "Database overloaded",
-    });
-
-    close();
   });
 
   it("multiSelect answer: joins selections as comma-separated string in tool result", async () => {
@@ -316,7 +230,7 @@ describe("clarification interrupts", () => {
     const { sessionId } = (await res.json()) as { sessionId: string };
 
     // It never reaches a person: the run carries on to its next turn instead.
-    await waitFor(async () => !(await dispatcher.isSessionRunning(sessionId)));
+    await waitFor(async () => !(await isRunning(sessionId)));
     expect(await hasPendingHumanInput(sessionId)).toBe(false);
 
     const asked = (await buildTranscript(sessionId)).find(
@@ -429,7 +343,7 @@ describe("clarification interrupts", () => {
       ),
     );
     // Simulate process exit: run has exited, no in-memory state needed
-    expect(await dispatcher.isSessionRunning(sessionId)).toBe(false);
+    expect(await isRunning(sessionId)).toBe(false);
     expect(await hasPendingHumanInput(sessionId)).toBe(true);
 
     // Resolve purely from DB state
@@ -566,6 +480,123 @@ describe("clarification interrupts", () => {
     await waitFor(() => restartCommands.length > 0);
     expect(restartCommands).toHaveLength(1);
     expect(await hasPendingHumanInput(sessionId)).toBe(false);
+
+    close();
+  });
+});
+
+// A question suspends the run, so each provider's wire takes the question and its answer back.
+describe.each(LLM_PROVIDER_NAMES)("answering a question on %s", (provider) => {
+  let nw: Harness;
+  let port: number;
+  let SESSION: string;
+  let model: FakeModel;
+  const setScript = (turns: ScriptedTurn[]): void => model.script(turns);
+
+  beforeAll(async () => {
+    nw = await harness({
+      provider,
+      runners: [{ name: "clar-host", services: ["web-01"] }],
+    });
+    ({ port, session: SESSION, model } = nw);
+  });
+
+  afterAll(async () => {
+    await nw.close();
+    vi.unstubAllEnvs();
+  });
+
+  it("answer resolves: resumes run, tool result contains answer, reaches free-form finish", async () => {
+    setScript([
+      {
+        text: "Need clarification.",
+        toolUses: [
+          {
+            toolCallId: "tu-ans-1",
+            name: "AskUserQuestion",
+            input: {
+              question: "Which container is affected?",
+              options: TEST_OPTIONS,
+            },
+          },
+        ],
+      },
+      FINISH_TURN,
+    ]);
+
+    const { events, close } = await connectFrontendEvents(port, SESSION);
+
+    const res = await fetch(`http://127.0.0.1:${port}/api/chat`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Cookie: `${SESSION}`,
+      },
+      body: messageBody("Which container?"),
+    });
+    const { sessionId } = (await res.json()) as { sessionId: string };
+
+    await waitFor(() =>
+      events.find(
+        (e) =>
+          e.type === "HUMAN_INPUT_REQUIRED" &&
+          e.payload["sessionId"] === sessionId,
+      ),
+    );
+    const answerRes = await fetch(
+      `http://127.0.0.1:${port}/api/sessions/${sessionId}/respond`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Cookie: `${SESSION}`,
+        },
+        body: JSON.stringify({
+          text: "Database overloaded",
+        }),
+      },
+    );
+    expect(answerRes.status).toBe(200);
+    const body = (await answerRes.json()) as { status: string };
+    expect(body.status).toBe("answered");
+
+    // INTERRUPT_RESOLVED arrives, run resumes, reaches free-form finish
+    await waitFor(() =>
+      events.some(
+        (e) =>
+          e.type === "HUMAN_INPUT_RESOLVED" &&
+          e.payload["toolCallId"] === "tu-ans-1",
+      ),
+    );
+
+    await waitFor(() =>
+      events.some(
+        (e) =>
+          e.type === "RUN_FINISHED" && e.payload["sessionId"] === sessionId,
+      ),
+    );
+    // The answer reaches the model as the question's result.
+    const resumed = messagesSentTo(model, model.requests.length - 1);
+    expect(
+      resumed
+        .flatMap((m) => m.toolResults)
+        .find((r) => r.toolUseId === "tu-ans-1")?.content,
+    ).toContain("Database overloaded");
+
+    // Interrupt row gone after resolution
+    expect(await hasPendingHumanInput(sessionId)).toBe(false);
+
+    // One ordinary call carrying what the person said, rather than a question
+    // card that outlives its own answer.
+    const asked = (await buildTranscript(sessionId)).filter(
+      (item) => item.kind === "tool_call" && item.toolCallId === "tu-ans-1",
+    );
+    expect(asked).toHaveLength(1);
+    expect(asked[0]?.kind === "tool_call" && asked[0].state).toMatchObject({
+      phase: "resolved",
+      decision: "answered",
+      result: "Database overloaded",
+    });
 
     close();
   });

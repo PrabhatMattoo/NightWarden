@@ -13,7 +13,7 @@ import { highestEvidenceNumber, resultParts } from "../agent/evidence-id.js";
 import { isCitable } from "../agent/report.js";
 import { stripSystemReminder } from "../agent/system-reminder.js";
 import { loadConfig } from "../config/store.js";
-import { dispatcher } from "../dispatcher.js";
+import type { Dispatcher } from "../dispatcher.js";
 import type { ToolResult } from "../llm/types.js";
 import { logger } from "../logger.js";
 import { publishInterruptResolved, publishTranscriptItem } from "./stream.js";
@@ -145,6 +145,7 @@ async function answeredTurn(
 }
 
 async function unpause(
+  dispatcher: Dispatcher,
   sessionId: string,
   toolCallId: string,
   status: Settled,
@@ -218,6 +219,7 @@ async function unpause(
 }
 
 export async function respondToPendingHumanInput(
+  dispatcher: Dispatcher,
   sessionId: string,
   request: RespondRequest,
   actor: Actor,
@@ -295,6 +297,7 @@ export async function respondToPendingHumanInput(
       "stale claim: a previous attempt died holding it, and whether the call ran is unknown",
     );
     return await unpause(
+      dispatcher,
       sessionId,
       pending.toolCallId,
       "approved",
@@ -314,6 +317,7 @@ export async function respondToPendingHumanInput(
   if (pending.kind === "clarification") {
     logger.info({ sessionId }, "clarification answered");
     return await unpause(
+      dispatcher,
       sessionId,
       pending.toolCallId,
       "answered",
@@ -332,6 +336,7 @@ export async function respondToPendingHumanInput(
     const result = await executeApprovedTool(pending, call);
     logger.info({ sessionId, tool: call.name }, "approved");
     return await unpause(
+      dispatcher,
       sessionId,
       pending.toolCallId,
       "approved",
@@ -358,6 +363,7 @@ export async function respondToPendingHumanInput(
   };
   logger.info({ sessionId, tool: call.name }, "rejected");
   return await unpause(
+    dispatcher,
     sessionId,
     pending.toolCallId,
     "rejected",

@@ -1,24 +1,14 @@
-import { messageBody } from "./session-helper.js";
-import { harness, type Harness } from "./harness.js";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { fakeAnthropic } from "./fake-anthropic.js";
+import { createGateController } from "./fake-model.js";
+import { harness, type Harness } from "./harness.js";
+import { messageBody } from "./session-helper.js";
 
-vi.mock("../llm/factory.js", () => import("./llm-factory-mock.js"));
-
-import { mockCreateProvider } from "./llm-factory-mock.js";
-
-import {
-  createContractFakeProvider,
-  createGateController,
-} from "./contract-fake-provider.js";
-
-mockCreateProvider.mockImplementation(() =>
-  createContractFakeProvider([{ toolUses: [], text: "Done." }]),
-);
+const anthropic = fakeAnthropic();
 
 import { waitFor } from "./wait.js";
 
-import { registerSessionRoutes } from "../session/routes.js";
-import { dispatcher } from "../dispatcher.js";
+import { isRunning } from "../session/status-store.js";
 import { getSession } from "../session/store.js";
 import { seedCompleteReport } from "./report-helper.js";
 
@@ -28,7 +18,7 @@ describe("DELETE /sessions/:id", () => {
   let SESSION: string;
 
   beforeAll(async () => {
-    nw = await harness({ routes: [registerSessionRoutes] });
+    nw = await harness({ model: anthropic });
     ({ port } = nw);
     SESSION = nw.session;
   });
@@ -48,7 +38,7 @@ describe("DELETE /sessions/:id", () => {
       body: messageBody("Quick question."),
     });
     const { sessionId } = (await chatRes.json()) as { sessionId: string };
-    await waitFor(async () => !(await dispatcher.isSessionRunning(sessionId)));
+    await waitFor(async () => !(await isRunning(sessionId)));
 
     const delRes = await fetch(
       `http://127.0.0.1:${port}/api/sessions/${sessionId}`,
@@ -71,7 +61,7 @@ describe("DELETE /sessions/:id", () => {
       body: messageBody("What happened here?"),
     });
     const { sessionId } = (await chatRes.json()) as { sessionId: string };
-    await waitFor(async () => !(await dispatcher.isSessionRunning(sessionId)));
+    await waitFor(async () => !(await isRunning(sessionId)));
     await seedCompleteReport(sessionId);
 
     const before = await fetch(
@@ -94,11 +84,7 @@ describe("DELETE /sessions/:id", () => {
 
   it("returns 409 and does not delete a session that is currently running", async () => {
     const gateController = createGateController();
-    mockCreateProvider.mockImplementationOnce(() =>
-      createContractFakeProvider([{ toolUses: [], text: "Done." }], {
-        gate: gateController.gate,
-      }),
-    );
+    anthropic.park(gateController.gate);
 
     const chatRes = await fetch(`http://127.0.0.1:${port}/api/chat`, {
       method: "POST",
@@ -109,7 +95,7 @@ describe("DELETE /sessions/:id", () => {
       body: messageBody("Long running."),
     });
     const { sessionId } = (await chatRes.json()) as { sessionId: string };
-    await waitFor(async () => await dispatcher.isSessionRunning(sessionId));
+    await waitFor(async () => await isRunning(sessionId));
 
     const delRes = await fetch(
       `http://127.0.0.1:${port}/api/sessions/${sessionId}`,
@@ -121,7 +107,8 @@ describe("DELETE /sessions/:id", () => {
     expect(delRes.status).toBe(409);
     expect(await getSession(sessionId)).toBeDefined();
 
+    anthropic.park();
     gateController.releaseAll();
-    await waitFor(async () => !(await dispatcher.isSessionRunning(sessionId)));
+    await waitFor(async () => !(await isRunning(sessionId)));
   });
 });

@@ -5,17 +5,14 @@ import { subscribeFrontend } from "./bus.js";
 
 // @fastify/sse's types declare ESM exports, but CJS interop puts the runtime
 // fp-wrapped plugin on `default` - only the type is wrong.
-const fastifySSE = fastifySSEModule.default as unknown as FastifyPluginAsync<{
-  heartbeatInterval?: number;
-}>;
+const fastifySSE = fastifySSEModule.default as unknown as FastifyPluginAsync;
 
 // Relays every bus event as an SSE frame; the client routes by type/sessionId. The bus
 // subscription happens before headers flush, so a client that has received headers misses no event.
 export async function registerFrontendEventRoutes(
   fastify: FastifyInstance,
-  opts: { heartbeatInterval?: number } = {},
 ): Promise<void> {
-  await fastify.register(fastifySSE, opts);
+  await fastify.register(fastifySSE);
 
   fastify.get(
     "/frontend/events",

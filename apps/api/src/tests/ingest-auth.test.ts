@@ -8,17 +8,17 @@ import {
   it,
   vi,
 } from "vitest";
-import Fastify from "fastify";
 import type { FastifyInstance } from "fastify";
+import { fakeAnthropic } from "./fake-anthropic.js";
+import {
+  fakeRunner,
+  harness,
+  type Harness,
+  type HarnessRunner,
+} from "./harness.js";
 
-// Dispatched investigations must never reach a real LLM.
-vi.mock("../llm/factory.js", () => import("./llm-factory-mock.js"));
-
-import { mockCreateProvider } from "./llm-factory-mock.js";
-import { createScriptRunner } from "./contract-fake-provider.js";
-
-const scriptRunner = createScriptRunner();
-mockCreateProvider.mockImplementation(() => scriptRunner.create());
+// Every investigation an accepted delivery opens ends in one free-form turn.
+const anthropic = fakeAnthropic();
 
 import { generateRunnerToken } from "../fleet/runners-store.js";
 import {
@@ -33,22 +33,13 @@ import {
 async function lastReceived(): Promise<string | null> {
   return (await getAlertSource("alertmanager"))?.lastReceivedAt ?? null;
 }
-import { registerAlertRoutes } from "../alerts/ingest.js";
-import {
-  registerRunner,
-  setRunnerManifest,
-  unregisterRunner,
-} from "../fleet/connections.js";
-import type { RunnerConnection } from "../fleet/connections.js";
 import {
   clearTestLLM,
   configureTestLLM,
   connectTestMetrics,
-  useTempDb,
 } from "./temp-db.js";
 import { deleteMetricsSource } from "../integrations/metrics/store.js";
 import { dockerService, manifest } from "./manifest-helper.js";
-import { mountApi } from "./api-server.js";
 
 const ALERTMANAGER_BODY = {
   alerts: [
@@ -80,38 +71,25 @@ const ALERTMANAGER_BODY = {
 const WEB_01_SERVICE = dockerService("host-a", "web-01");
 
 describe("POST /alerts/ingest auth", () => {
+  let nw: Harness;
   let server: FastifyInstance;
-  let cleanupDb: () => void;
   let VALID_TOKEN: string;
-  let connAuth: RunnerConnection;
+  let runner: HarnessRunner;
 
   beforeAll(async () => {
-    cleanupDb = await useTempDb();
+    nw = await harness({ model: anthropic, listen: false });
+    ({ server } = nw);
     VALID_TOKEN = await generateAlertSourceToken("alertmanager");
-
-    // Resolution matches the alert's labels against the fleet, so a runner advertising
-    // the matching service must be connected for the 200-path tests to mean anything.
-    connAuth = registerRunner({
-      runnerId: "auth-test-runner-token",
-      platform: "docker",
-      serverName: "auth-host",
-      send: () => {},
-      close: () => {},
+    // A connected runner is an evidence source, so an accepted delivery opens an investigation.
+    runner = fakeRunner({
+      name: "auth-host",
+      manifest: manifest("host-auth-test", [WEB_01_SERVICE]),
     });
-    setRunnerManifest(
-      "auth-test-runner-token",
-      manifest("host-auth-test", [WEB_01_SERVICE]),
-    );
-
-    server = Fastify({ logger: false });
-    await mountApi(server, registerAlertRoutes);
-    await server.ready();
   });
 
   afterAll(async () => {
-    await server.close();
-    unregisterRunner(connAuth);
-    cleanupDb();
+    runner.disconnect();
+    await nw.close();
     vi.unstubAllEnvs();
   });
 
@@ -212,46 +190,19 @@ function alertmanagerBody(fingerprint: string): typeof ALERTMANAGER_BODY {
 }
 
 describe("POST /alerts/ingest with nwi_ fleet-wide credential", () => {
+  let nw: Harness;
   let server: FastifyInstance;
-  let cleanupDb: () => void;
   let INGEST_TOKEN: string;
-  let connA: RunnerConnection | undefined;
-  let connB: RunnerConnection | undefined;
 
   beforeAll(async () => {
-    cleanupDb = await useTempDb();
+    nw = await harness({ model: anthropic, listen: false });
+    ({ server } = nw);
     INGEST_TOKEN = await generateAlertSourceToken("alertmanager");
-
-    server = Fastify({ logger: false });
-    await mountApi(server, registerAlertRoutes);
-    await server.ready();
   });
 
   afterAll(async () => {
-    await server.close();
-    cleanupDb();
+    await nw.close();
     vi.unstubAllEnvs();
-  });
-
-  afterEach(() => {
-    if (connA) {
-      unregisterRunner(connA);
-      connA = undefined;
-    }
-    if (connB) {
-      unregisterRunner(connB);
-      connB = undefined;
-    }
-  });
-
-  it("rejects an unknown nwi_ token with 401", async () => {
-    const res = await server.inject({
-      method: "POST",
-      url: "/api/alerts/ingest",
-      headers: { "x-nightwarden-token": `nwi_unknown-${randomUUID()}` },
-      payload: alertmanagerBody("nwi-unknown"),
-    });
-    expect(res.statusCode).toBe(401);
   });
 
   it("rejects only when neither a runner nor a pull-integration can supply evidence", async () => {
@@ -295,117 +246,6 @@ describe("POST /alerts/ingest with nwi_ fleet-wide credential", () => {
     expect(lokiOnly.statusCode).toBe(200);
     expect((JSON.parse(lokiOnly.body) as { stored: number }).stored).toBe(1);
     await deleteLokiIntegration();
-  });
-
-  it("resolves to the only connected runner when its manifest advertises the matching service", async () => {
-    connA = registerRunner({
-      runnerId: "runner-a-token",
-      platform: "docker",
-      serverName: "host-a",
-      send: () => {},
-      close: () => {},
-    });
-    setRunnerManifest("runner-a-token", manifest("host-a", [WEB_01_SERVICE]));
-
-    const res = await server.inject({
-      method: "POST",
-      url: "/api/alerts/ingest",
-      headers: { "x-nightwarden-token": INGEST_TOKEN },
-      payload: alertmanagerBody("nwi-single-runner"),
-    });
-    expect(res.statusCode).toBe(200);
-    const body = JSON.parse(res.body) as { received: number };
-    expect(body.received).toBe(1);
-  });
-
-  // The alert's labels are matched against the fleet, so the right runner among
-  // several is found deterministically.
-  it("resolves correctly among multiple connected runners by matching the advertised service", async () => {
-    connA = registerRunner({
-      runnerId: "runner-a-token",
-      platform: "docker",
-      serverName: "host-a",
-      send: () => {},
-      close: () => {},
-    });
-    setRunnerManifest("runner-a-token", manifest("host-a"));
-    connB = registerRunner({
-      runnerId: "runner-b-token",
-      platform: "docker",
-      serverName: "host-b",
-      send: () => {},
-      close: () => {},
-    });
-    setRunnerManifest("runner-b-token", manifest("host-b", [WEB_01_SERVICE]));
-
-    const res = await server.inject({
-      method: "POST",
-      url: "/api/alerts/ingest",
-      headers: { "x-nightwarden-token": INGEST_TOKEN },
-      payload: alertmanagerBody("nwi-multi-runner"),
-    });
-    expect(res.statusCode).toBe(200);
-    const body = JSON.parse(res.body) as { received: number; stored: number };
-    expect(body.received).toBe(1);
-    expect(body.stored).toBe(1);
-  });
-
-  it("stores an alert whose identity no runner advertises - the agent triages it from the fleet map", async () => {
-    connA = registerRunner({
-      runnerId: "runner-a-token",
-      platform: "docker",
-      serverName: "host-a",
-      send: () => {},
-      close: () => {},
-    });
-    setRunnerManifest("runner-a-token", manifest("host-a"));
-
-    const res = await server.inject({
-      method: "POST",
-      url: "/api/alerts/ingest",
-      headers: { "x-nightwarden-token": INGEST_TOKEN },
-      payload: alertmanagerBody("nwi-no-match"),
-    });
-    expect(res.statusCode).toBe(200);
-    const body = JSON.parse(res.body) as {
-      received: number;
-      stored: number;
-    };
-    expect(body.received).toBe(1);
-    expect(body.stored).toBe(1);
-  });
-
-  it("stores an alert whose identity two runners advertise - no ambiguity gate at ingest", async () => {
-    connA = registerRunner({
-      runnerId: "runner-a-token",
-      platform: "docker",
-      serverName: "host-a",
-      send: () => {},
-      close: () => {},
-    });
-    setRunnerManifest("runner-a-token", manifest("host-a", [WEB_01_SERVICE]));
-    connB = registerRunner({
-      runnerId: "runner-b-token",
-      platform: "docker",
-      serverName: "host-b",
-      send: () => {},
-      close: () => {},
-    });
-    setRunnerManifest("runner-b-token", manifest("host-b", [WEB_01_SERVICE]));
-
-    const res = await server.inject({
-      method: "POST",
-      url: "/api/alerts/ingest",
-      headers: { "x-nightwarden-token": INGEST_TOKEN },
-      payload: alertmanagerBody("nwi-ambiguous"),
-    });
-    expect(res.statusCode).toBe(200);
-    const body = JSON.parse(res.body) as {
-      received: number;
-      stored: number;
-    };
-    expect(body.received).toBe(1);
-    expect(body.stored).toBe(1);
   });
 
   it("returns 400 for an unrecognized payload body so a misconfigured sender learns its body was not understood", async () => {

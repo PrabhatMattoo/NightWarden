@@ -4,7 +4,7 @@ import type { DeliveryContext } from "../alerts/delivery.js";
 import { getAuth } from "../auth/instance.js";
 import { getDb } from "../db.js";
 import { buildSessionMeta } from "../agent/loop/run-session.js";
-import { dispatcher } from "../dispatcher.js";
+import type { Dispatcher } from "../dispatcher.js";
 import { admitDelivery } from "../session/alerts-store.js";
 import { releaseRun } from "../session/status-store.js";
 import { createSession } from "../session/store.js";
@@ -45,6 +45,7 @@ export async function seedAlertSession(
 // The row and its alerts exist before anything dispatches into it, so a test
 // that skips this is testing a shape ingest cannot reach.
 export async function dispatchAlertSession(
+  dispatcher: Dispatcher,
   sessionId: string,
   alerts: NormalizedAlert[],
   groupKey = `test-group-${randomUUID()}`,

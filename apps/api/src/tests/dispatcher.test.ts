@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, it, expect, vi } from "vitest";
 import { createDispatcher } from "../dispatcher.js";
+import { isRunning } from "../session/status-store.js";
 import type { RunSessionInput, RunOutcome } from "../agent/loop/run-session.js";
 import type { NormalizedAlert } from "@nightwarden/shared";
 import { seedAlertSession } from "./session-helper.js";
@@ -77,11 +78,11 @@ describe("dispatcher", () => {
 
     expect(await dispatcher.dispatch({ sessionId })).toBe(true);
     expect(await dispatcher.dispatch({ sessionId })).toBe(false);
-    expect(await dispatcher.isSessionRunning(sessionId)).toBe(true);
+    expect(await isRunning(sessionId)).toBe(true);
 
     gate.resolve();
     await flush();
-    expect(await dispatcher.isSessionRunning(sessionId)).toBe(false);
+    expect(await isRunning(sessionId)).toBe(false);
     // Released, so the same session can run again - which is what a resume is.
     expect(await dispatcher.dispatch({ sessionId })).toBe(true);
   });

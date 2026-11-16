@@ -1,31 +1,23 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import type { RunnerCommandMessage } from "@nightwarden/shared";
-
-// Scripted provider: drives the loop to a gated tool so the interrupt row is
-// written to the DB, which is what these tests assert against.
-vi.mock("../llm/factory.js", () => import("./llm-factory-mock.js"));
 
 import { messageBody } from "./session-helper.js";
-import { mockCreateProvider } from "./llm-factory-mock.js";
 
-import {
-  createScriptRunner,
-  type ScriptedTurn,
-} from "./contract-fake-provider.js";
+import { fakeAnthropic } from "./fake-anthropic.js";
+import { type ScriptedTurn } from "./fake-model.js";
 
-const scriptRunner = createScriptRunner();
-mockCreateProvider.mockImplementation(() => scriptRunner.create());
-const setScript = (turns: ScriptedTurn[]): void =>
-  scriptRunner.setScript(turns);
+const anthropic = fakeAnthropic();
+const setScript = (turns: ScriptedTurn[]): void => anthropic.script(turns);
 
 import { generateRunnerToken } from "../fleet/runners-store.js";
 import { waitFor } from "./wait.js";
 
-import { registerSessionRoutes } from "../session/routes.js";
-import { harness, type Harness } from "./harness.js";
-import { registerRunner, unregisterRunner } from "../fleet/connections.js";
-import { resolveCommand } from "../fleet/transport.js";
+import {
+  fakeRunner,
+  harness,
+  type Harness,
+  type HarnessRunner,
+} from "./harness.js";
 import type {
   SessionDetail,
   SessionListRow,
@@ -60,7 +52,7 @@ describe("a suspended session serves its pending row with its transcript", async
   let SESSION: string;
 
   beforeAll(async () => {
-    nw = await harness({ routes: [registerSessionRoutes] });
+    nw = await harness({ model: anthropic });
     ({ port, session: SESSION } = nw);
   });
 
@@ -69,26 +61,11 @@ describe("a suspended session serves its pending row with its transcript", async
     vi.unstubAllEnvs();
   });
 
-  async function connectRunner(label: string): Promise<{
-    conn: ReturnType<typeof registerRunner>;
-  }> {
-    const token = (await generateRunnerToken("docker", label)).id;
-    const conn = registerRunner({
-      runnerId: token,
-      platform: "docker",
-      serverName: label,
-      send: (raw: string) => {
-        const msg = JSON.parse(raw) as RunnerCommandMessage;
-        if (msg.type !== "command") return;
-        resolveCommand({
-          correlationId: msg.payload.correlationId,
-          success: true,
-          result: [],
-        });
-      },
-      close: () => {},
-    });
-    return { conn };
+  async function connectRunner(
+    label: string,
+  ): Promise<{ conn: HarnessRunner }> {
+    const id = (await generateRunnerToken("docker", label)).id;
+    return { conn: fakeRunner({ id, name: label }) };
   }
 
   async function startGatedChat(message: string): Promise<void> {
@@ -157,7 +134,7 @@ describe("a suspended session serves its pending row with its transcript", async
     });
 
     await resolvePending(sessionId);
-    unregisterRunner(conn);
+    conn.disconnect();
   });
 
   it("still shows the decision, and what the tool returned, after the wait ends", async () => {
@@ -189,7 +166,7 @@ describe("a suspended session serves its pending row with its transcript", async
       },
     });
 
-    unregisterRunner(conn);
+    conn.disconnect();
   });
 
   it("flags the waiting session user-wide, whichever runner produced it", async () => {
@@ -201,7 +178,7 @@ describe("a suspended session serves its pending row with its transcript", async
     expect(sessionId).toBeTruthy();
 
     await resolvePending(sessionId);
-    unregisterRunner(conn);
+    conn.disconnect();
   });
 
   it("clears pending and the awaiting flag once resolved", async () => {
@@ -222,6 +199,6 @@ describe("a suspended session serves its pending row with its transcript", async
       items.some((i) => "state" in i && i.state.phase === "awaiting_human"),
     ).toBe(false);
 
-    unregisterRunner(conn);
+    conn.disconnect();
   });
 });

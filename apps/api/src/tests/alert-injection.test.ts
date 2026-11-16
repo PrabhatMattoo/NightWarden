@@ -4,40 +4,32 @@ import {
   afterAll,
   afterEach,
   beforeAll,
-  beforeEach,
   describe,
   expect,
   it,
   vi,
 } from "vitest";
+import { LLM_PROVIDER_NAMES, type NormalizedAlert } from "@nightwarden/shared";
+import { fakeAnthropic } from "./fake-anthropic.js";
 import {
-  createContractFakeProvider,
   createGateController,
+  messagesSentTo,
+  type FakeModel,
   type ScriptedTurn,
-} from "./contract-fake-provider.js";
-
-vi.mock("../llm/factory.js", () => import("./llm-factory-mock.js"));
-
-import { mockCreateProvider } from "./llm-factory-mock.js";
-
-import type {
-  NormalizedAlert,
-  RunnerCommandMessage,
-} from "@nightwarden/shared";
-import Fastify from "fastify";
+} from "./fake-model.js";
+import { fakeRunner, harness, type Harness } from "./harness.js";
 import { generateRunnerToken } from "../fleet/runners-store.js";
 
 // One server for the whole file, so every key here names the same machine.
 const SERVER = "inject-host";
 import { generateAlertSourceToken } from "../integrations/alert-sources.js";
-import { useTempDb } from "./temp-db.js";
 import { seedCompleteReport, seedRecommendation } from "./report-helper.js";
 import { dispatchAlertSession, WHOLE_DELIVERY } from "./session-helper.js";
 import { routeDelivery } from "../alerts/route-alert.js";
 import { pendingAlerts } from "../session/alerts-store.js";
+import { isRunning } from "../session/status-store.js";
 import { countInvestigations, listSessionFacts } from "../session/store.js";
 import { waitFor } from "./wait.js";
-import { dispatcher } from "../dispatcher.js";
 import {
   getPendingHumanInputBySessionId,
   hasPendingHumanInput,
@@ -46,24 +38,18 @@ import { getSession } from "../session/store.js";
 import { findToolCall } from "../session/transcript-store.js";
 import { buildTranscript } from "../session/transcript.js";
 import { respondToPendingHumanInput } from "../session/human-input.js";
-import { registerAlertRoutes } from "../alerts/ingest.js";
-import {
-  registerRunner,
-  setRunnerManifest,
-  unregisterRunner,
-} from "../fleet/connections.js";
-import { resolveCommand } from "../fleet/transport.js";
 import { dockerService, manifest } from "./manifest-helper.js";
-import { mountApi } from "./api-server.js";
 
 // Matches the container:"web-01" label alertmanagerBody() carries.
 function webOneManifest() {
   return manifest("host-inject-resume", [dockerService(SERVER, "web-01")]);
 }
 
-// Shared FIFO gate: every chat() parks until released, so an alert can be
+// Shared FIFO gate: every request parks until released, so an alert can be
 // injected (or state asserted) while a run is parked mid-turn.
 const gate = createGateController();
+// The provider this file's runs reach; the mid-run test walks each wire in turn.
+let wire: FakeModel = fakeAnthropic();
 
 // One per scenario: a session covering a group is exactly what a later alert in
 // it should join, so a shared key makes one test capture the next test's alerts.
@@ -78,19 +64,21 @@ const OTHER_GROUP = '{}:{alertname="Unrelated"}';
 async function nothingRunning(): Promise<boolean> {
   const { facts } = await listSessionFacts(100, 0, "investigation");
   for (const s of facts) {
-    if (await dispatcher.isSessionRunning(s.sessionId)) return false;
+    if (await isRunning(s.sessionId)) return false;
   }
   return true;
 }
 
-// Queue one provider per run, in order - a resume/leftover dispatch is a separate run,
-// so chain one script per run. All gated, so each chat() parks until released.
+// One script per run, in the order the runs ask: a resume is a separate run.
 function queueRuns(...scripts: ScriptedTurn[][]): void {
-  for (const script of scripts) {
-    mockCreateProvider.mockImplementationOnce(() =>
-      createContractFakeProvider(script, { gate: gate.gate }),
-    );
-  }
+  wire.script(scripts.flat());
+}
+
+// The text block of the latest request that carries the injected alert.
+function injectionSent(marker: string): string | undefined {
+  return messagesSentTo(wire, wire.requests.length - 1)
+    .flatMap((m) => m.texts)
+    .find((text) => text.includes(marker));
 }
 
 // A free-form text finish: no tool call ends the run successfully.
@@ -158,19 +146,18 @@ function alert(sourceAlertId: string, firedAt?: string): NormalizedAlert {
 }
 
 describe("mid-run alert injection (loop seam)", () => {
-  let cleanupDb: () => void;
+  let nw: Harness;
 
   beforeAll(async () => {
-    cleanupDb = await useTempDb();
+    nw = await harness({ model: wire, listen: false });
+    wire.park(gate.gate);
   });
 
-  afterAll(() => {
-    cleanupDb();
+  afterAll(async () => {
+    gate.releaseAll();
+    wire.park();
+    await nw.close();
     vi.unstubAllEnvs();
-  });
-
-  beforeEach(() => {
-    mockCreateProvider.mockReset();
   });
 
   afterEach(async () => {
@@ -179,140 +166,34 @@ describe("mid-run alert injection (loop seam)", () => {
     await new Promise<void>((resolve) => setImmediate(resolve));
   });
 
-  it("alert injected mid-run reaches the model as its own turn, unseen by the user", async () => {
-    const runnerId = (await generateRunnerToken("docker", "inject-midrun")).id;
-    const conn = registerRunner({
-      runnerId: runnerId,
-      platform: "docker",
-      serverName: SERVER,
-      send: (raw: string) => {
-        const msg = JSON.parse(raw) as RunnerCommandMessage;
-        if (msg.type !== "command") return;
-        resolveCommand({
-          correlationId: msg.payload.correlationId,
-          success: true,
-          result: [{ name: "web-01", status: "running" }],
-        });
-      },
-      close: () => {},
-    });
-
-    // One run, two turns: runner read tool, then free-form finish.
-    queueRuns([READ, FINISH]);
-
-    const sessionId = randomUUID();
-    await dispatchAlertSession(sessionId, [alert("primary-mr")], MIDRUN_GROUP);
-    // Injection mechanics only: a seeded report satisfies the finish gate. It
-    // is a child of the session, and dispatch() creates that row synchronously.
-    await seedCompleteReport(sessionId);
-
-    // The run is dispatched in the background, so wait for it to reach the
-    // provider rather than assuming it was constructed before the first await.
-    const provider = await waitFor(
-      () =>
-        (mockCreateProvider.mock.results[0]?.value as
-          { chat: ReturnType<typeof vi.fn> } | undefined) ?? null,
-    );
-
-    // Inject while parked at turn 1's chat()
-    await routeDelivery(MIDRUN_GROUP, [alert("injected-mr")], WHOLE_DELIVERY);
-
-    // Release turn 1 -> loop executes ListDockerServices, appends the results,
-    // reads the joined alert from its row and sends it as its own turn.
-    await waitFor(() => gate.waiting() > 0);
-    gate.releaseNext();
-
-    // The injected alert rides the next request as its own turn.
-    const injection = await waitFor(() =>
-      (
-        (provider.chat.mock.calls.at(-1)?.[0] ?? []) as Array<{
-          content: string;
-        }>
-      ).find((m) => m.content.includes("injected-mr")),
-    );
-    expect(injection.content).toContain("injected-mr");
-
-    // Release turn 2 and every turn after it: the free-form finish is followed
-    // by the report turn, which parks on this gate like any other.
-    await gate.releaseUntil(
-      async () => !(await dispatcher.isSessionRunning(sessionId)),
-    );
-
-    // The user sees an alert marking where the ground moved, never prose they
-    // appear to have written. The instruction to the model is drawn for nobody.
-    const session = await getSession(sessionId);
-    expect(session?.alerts.map((a) => a.alert.sourceAlertId)).toEqual([
-      "primary-mr",
-      "injected-mr",
-    ]);
-
-    const transcript = await buildTranscript(sessionId);
-    expect(JSON.stringify(transcript)).not.toContain(
-      "Another alert in this same alert group",
-    );
-    /* The opening alert leads, then the second where it landed: it arrived mid
-       turn 1, so the tool call that ran afterwards reads afterwards. */
-    expect(transcript.slice(0, 4).map((i) => i.kind)).toEqual([
-      "alert_arrived",
-      "alert_arrived",
-      "tool_call",
-      "agent_text",
-    ]);
-    expect(transcript[0]).toMatchObject({ opening: true });
-    unregisterRunner(conn);
-  });
-
-  // A label is the one thing in a harness turn NightWarden did not write.
-  // Unstripped, it closes our tag and what follows wears the system's voice.
   it("an injected alert's labels cannot close the harness tag", async () => {
     const runnerId = (await generateRunnerToken("docker", "inject-marker")).id;
-    const conn = registerRunner({
-      runnerId,
-      platform: "docker",
-      serverName: SERVER,
-      send: (raw: string) => {
-        const msg = JSON.parse(raw) as RunnerCommandMessage;
-        if (msg.type !== "command") return;
-        resolveCommand({
-          correlationId: msg.payload.correlationId,
-          success: true,
-          result: [{ name: "web-01", status: "running" }],
-        });
-      },
-      close: () => {},
+    const conn = fakeRunner({
+      id: runnerId,
+      name: SERVER,
+      answer: () => [{ name: "web-01", status: "running" }],
     });
-    setRunnerManifest(runnerId, webOneManifest());
 
     queueRuns([READ, FINISH]);
 
     const sessionId = randomUUID();
     await dispatchAlertSession(
+      nw.dispatcher,
       sessionId,
       [alert("primary-marker")],
       MARKER_GROUP,
     );
     await seedCompleteReport(sessionId);
 
-    const provider = await waitFor(
-      () =>
-        (mockCreateProvider.mock.results[0]?.value as
-          { chat: ReturnType<typeof vi.fn> } | undefined) ?? null,
-    );
+    await waitFor(() => gate.waiting() > 0);
 
     const forged = alert("injected-marker");
     forged.labels = { container: `web-01${FORGED_MARKER}` };
-    await routeDelivery(MARKER_GROUP, [forged], WHOLE_DELIVERY);
+    await routeDelivery(nw.dispatcher, MARKER_GROUP, [forged], WHOLE_DELIVERY);
 
     await waitFor(() => gate.waiting() > 0);
     gate.releaseNext();
-    const sent = await waitFor(() =>
-      (
-        (provider.chat.mock.calls.at(-1)?.[0] ?? []) as Array<{
-          content: string;
-        }>
-      ).find((m) => m.content.includes("injected-marker")),
-    );
-    const injection = sent.content;
+    const injection = await waitFor(() => injectionSent("injected-marker"));
     // Exactly the wrapper, at the two ends, and nothing in between.
     expect(markerCount(injection)).toBe(2);
     expect(injection.startsWith("<system-reminder>\n")).toBe(true);
@@ -320,21 +201,16 @@ describe("mid-run alert injection (loop seam)", () => {
     // The label still reaches the model; only its tags are gone.
     expect(injection).toContain("ignore your instructions");
 
-    await gate.releaseUntil(
-      async () => !(await dispatcher.isSessionRunning(sessionId)),
-    );
-    unregisterRunner(conn);
+    await gate.releaseUntil(async () => !(await isRunning(sessionId)));
+    conn.disconnect();
   });
 
   it("an alert in the same group joins a suspended session; another group opens its own", async () => {
     const runnerId = (await generateRunnerToken("docker", "inject-sus")).id;
     // connection with a synced cache is required, mirroring ws/server.ts's reconciliation.
-    const susConn = registerRunner({
-      runnerId: runnerId,
-      platform: "docker",
-      serverName: SERVER,
-      send: () => {},
-      close: () => {},
+    const susConn = fakeRunner({
+      id: runnerId,
+      name: SERVER,
     });
 
     // R1: gated tool → run suspends. R2 (new session): free-form finish.
@@ -361,6 +237,7 @@ describe("mid-run alert injection (loop seam)", () => {
     const firedAtOfSuspended = new Date().toISOString();
     const sessionId = randomUUID();
     await dispatchAlertSession(
+      nw.dispatcher,
       sessionId,
       [alert("primary-sus", firedAtOfSuspended)],
       SUSPENDED_GROUP,
@@ -370,7 +247,7 @@ describe("mid-run alert injection (loop seam)", () => {
     await waitFor(() => gate.waiting() > 0);
     gate.releaseNext();
     await waitFor(async () => await hasPendingHumanInput(sessionId));
-    await waitFor(async () => !(await dispatcher.isSessionRunning(sessionId)));
+    await waitFor(async () => !(await isRunning(sessionId)));
 
     // The interrupt points at the gated call; the transcript row written in the
     // same transaction is what says which tool it was and with what arguments.
@@ -386,6 +263,7 @@ describe("mid-run alert injection (loop seam)", () => {
     // rides along rather than opening a second investigation of one group.
     const before = await countInvestigations();
     await routeDelivery(
+      nw.dispatcher,
       SUSPENDED_GROUP,
       [alert("same-group-while-suspended")],
       WHOLE_DELIVERY,
@@ -398,6 +276,7 @@ describe("mid-run alert injection (loop seam)", () => {
 
     // A different group is a different incident, whatever this session is doing.
     await routeDelivery(
+      nw.dispatcher,
       OTHER_GROUP,
       [alert("other-group-while-suspended")],
       WHOLE_DELIVERY,
@@ -407,7 +286,7 @@ describe("mid-run alert injection (loop seam)", () => {
     // Drain every run this test started, or the next one inherits a parked
     // provider script and never gets its own.
     await gate.releaseUntil(async () => await nothingRunning());
-    unregisterRunner(susConn);
+    susConn.disconnect();
   });
 
   // A resume dispatch carries no `alert` field, so the dispatcher must recover alert identity
@@ -416,22 +295,13 @@ describe("mid-run alert injection (loop seam)", () => {
     expectDuplicateAlert();
     const runnerId = (await generateRunnerToken("docker", "inject-resume")).id;
     const tokenPlaintext = await generateAlertSourceToken("alertmanager");
-    const conn = registerRunner({
-      runnerId: runnerId,
-      platform: "docker",
-      serverName: SERVER,
-      send: (raw: string) => {
-        const msg = JSON.parse(raw) as RunnerCommandMessage;
-        if (msg.type !== "command") return;
-        resolveCommand({
-          correlationId: msg.payload.correlationId,
-          success: true,
-          result: { restarted: true },
-        });
-      },
-      close: () => {},
+    const conn = fakeRunner({
+      manifest: webOneManifest(),
+      id: runnerId,
+      name: SERVER,
+      answer: () => ({ restarted: true }),
     });
-    setRunnerManifest(runnerId, webOneManifest());
+
     // Sync the DB mode into the connection cache, as reconciliation would.
     // R1: gated tool suspends the run; R2 resumes to a free-form finish.
     queueRuns(
@@ -457,6 +327,7 @@ describe("mid-run alert injection (loop seam)", () => {
     const primaryFiredAt = "2026-07-07T03:00:00.000Z";
     const sessionId = randomUUID();
     await dispatchAlertSession(
+      nw.dispatcher,
       sessionId,
       [alert("primary-resume", primaryFiredAt)],
       RESUME_GROUP,
@@ -469,19 +340,18 @@ describe("mid-run alert injection (loop seam)", () => {
     await waitFor(() => gate.waiting() > 0);
     gate.releaseNext();
     await waitFor(async () => await hasPendingHumanInput(sessionId));
-    await waitFor(async () => !(await dispatcher.isSessionRunning(sessionId)));
+    await waitFor(async () => !(await isRunning(sessionId)));
 
     // Approve: the resume dispatch this issues carries no `alert` field.
     await respondToPendingHumanInput(
+      nw.dispatcher,
       sessionId,
       { decision: "approve" },
       { id: "u1", name: "Tester", email: "tester@nw.local" },
     );
-    await waitFor(async () => await dispatcher.isSessionRunning(sessionId));
+    await waitFor(async () => await isRunning(sessionId));
 
-    const server = Fastify({ logger: false });
-    await mountApi(server, registerAlertRoutes);
-    await server.ready();
+    const { server } = nw;
 
     // A correlated alert from the same server, ingested through the real
     // route, must inject into the resumed session rather than spawn a new one.
@@ -517,10 +387,110 @@ describe("mid-run alert injection (loop seam)", () => {
       skipped: 1,
     });
 
-    await server.close();
-    await gate.releaseUntil(
-      async () => !(await dispatcher.isSessionRunning(sessionId)),
-    );
-    unregisterRunner(conn);
+    await gate.releaseUntil(async () => !(await isRunning(sessionId)));
+    conn.disconnect();
   });
 });
+
+// An alert joins between turns, so each provider's wire carries it after the results it arrived with.
+describe.each(LLM_PROVIDER_NAMES)(
+  "mid-run alert injection on %s",
+  (provider) => {
+    let nw: Harness;
+    const anthropicWire = wire;
+
+    beforeAll(async () => {
+      nw = await harness({ provider, listen: false });
+      wire = nw.model;
+      wire.park(gate.gate);
+    });
+
+    afterAll(async () => {
+      gate.releaseAll();
+      wire.park();
+      await nw.close();
+      wire = anthropicWire;
+      vi.unstubAllEnvs();
+    });
+
+    afterEach(async () => {
+      gate.releaseAll();
+      await new Promise<void>((resolve) => setImmediate(resolve));
+    });
+
+    it("alert injected mid-run reaches the model as its own turn, unseen by the user", async () => {
+      const runnerId = (await generateRunnerToken("docker", "inject-midrun"))
+        .id;
+      const conn = fakeRunner({
+        id: runnerId,
+        name: SERVER,
+        answer: () => [{ name: "web-01", status: "running" }],
+      });
+
+      // One run, two turns: runner read tool, then free-form finish.
+      queueRuns([READ, FINISH]);
+
+      const sessionId = randomUUID();
+      await dispatchAlertSession(
+        nw.dispatcher,
+        sessionId,
+        [alert("primary-mr")],
+        MIDRUN_GROUP,
+      );
+      // Injection mechanics only: a seeded report satisfies the finish gate. It
+      // is a child of the session, and dispatch() creates that row synchronously.
+      await seedCompleteReport(sessionId);
+
+      // The run is dispatched in the background, so wait for it to reach the
+      // provider rather than assuming it was constructed before the first await.
+      await waitFor(() => gate.waiting() > 0);
+
+      // Inject while parked at turn 1's chat()
+      await routeDelivery(
+        nw.dispatcher,
+        MIDRUN_GROUP,
+        [alert("injected-mr")],
+        WHOLE_DELIVERY,
+      );
+
+      // Release turn 1 -> loop executes ListDockerServices, appends the results,
+      // reads the joined alert from its row and sends it as its own turn.
+      await waitFor(() => gate.waiting() > 0);
+      gate.releaseNext();
+
+      // The injected alert rides the next request as its own turn.
+      const injection = await waitFor(() => injectionSent("injected-mr"));
+      expect(injection).toContain("injected-mr");
+
+      // Release turn 2 and every turn after it: the free-form finish is followed
+      // by the report turn, which parks on this gate like any other.
+      await gate.releaseUntil(async () => !(await isRunning(sessionId)));
+
+      // The user sees an alert marking where the ground moved, never prose they
+      // appear to have written. The instruction to the model is drawn for nobody.
+      const session = await getSession(sessionId);
+      expect(session?.alerts.map((a) => a.alert.sourceAlertId)).toEqual([
+        "primary-mr",
+        "injected-mr",
+      ]);
+
+      const transcript = await buildTranscript(sessionId);
+      expect(JSON.stringify(transcript)).not.toContain(
+        "Another alert in this same alert group",
+      );
+      /* The opening alert leads, then the second where it landed: it arrived mid
+       turn 1, so the tool call that ran afterwards reads afterwards. */
+      expect(transcript.slice(0, 4).map((i) => i.kind)).toEqual([
+        "alert_arrived",
+        "alert_arrived",
+        "tool_call",
+        "agent_text",
+      ]);
+      expect(transcript[0]).toMatchObject({ opening: true });
+      conn.disconnect();
+    });
+
+    // A label is the one thing in a harness turn NightWarden did not write.
+    // Unstripped, it closes our tag and what follows wears the system's voice.
+  },
+);

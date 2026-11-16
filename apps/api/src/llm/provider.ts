@@ -12,11 +12,7 @@ import type {
   SharedV4ProviderOptions,
 } from "@ai-sdk/provider";
 import { toolResultText } from "@nightwarden/shared";
-import type {
-  MessagePart,
-  PartProviderOptions,
-  ToolName,
-} from "@nightwarden/shared";
+import type { MessagePart, PartProviderOptions } from "@nightwarden/shared";
 import { logger } from "../logger.js";
 import { CHUNK_TIMEOUT_MS, FIRST_CHUNK_TIMEOUT_MS } from "./config.js";
 import type { RetryNotice } from "./failures.js";
@@ -312,7 +308,6 @@ export class SdkProvider implements LLMProvider {
     tools: ToolSchema[],
     onDelta?: OnDelta,
     signal?: AbortSignal,
-    forceTool?: ToolName,
   ): Promise<ChatResponse> {
     const { maxRetries, onRetry } = this.opts;
     let attempts = 0;
@@ -328,9 +323,6 @@ export class SdkProvider implements LLMProvider {
       },
       messages: modelMessages(messages),
       tools: toolSet(tools),
-      ...(forceTool !== undefined && {
-        toolChoice: { type: "tool" as const, toolName: forceTool },
-      }),
       maxOutputTokens: this.opts.maxOutputTokens,
       providerOptions: this.opts.providerOptions,
       ...(signal !== undefined && { abortSignal: signal }),

@@ -7,17 +7,18 @@ import {
   describe,
   expect,
   it,
-  vi,
+  onTestFinished,
 } from "vitest";
-import { createContractFakeProvider } from "./contract-fake-provider.js";
-
-vi.mock("../llm/factory.js", () => import("./llm-factory-mock.js"));
-
-import { mockCreateProvider } from "./llm-factory-mock.js";
-
-import type { NormalizedAlert, TranscriptRow } from "@nightwarden/shared";
-import type { ProviderMessage } from "../llm/types.js";
-import { runSession } from "../agent/loop/run-session.js";
+import {
+  LLM_PROVIDER_NAMES,
+  type NormalizedAlert,
+  type TranscriptRow,
+} from "@nightwarden/shared";
+import {
+  runSession,
+  type RunOutcome,
+  type RunSessionInput,
+} from "../agent/loop/run-session.js";
 import {
   gatedCalls,
   isCitable,
@@ -44,16 +45,32 @@ import { highestEvidenceNumber, resultParts } from "../agent/evidence-id.js";
 import { buildSessionMeta } from "../agent/loop/run-session.js";
 import { seedAlertSession, seedChatSession } from "./session-helper.js";
 import { seedCandidates, seedCompleteReport } from "./report-helper.js";
-import {
-  registerRunner,
-  setRunnerManifest,
-  unregisterRunner,
-} from "../fleet/connections.js";
-import { resolveCommand } from "../fleet/transport.js";
 import { generateRunnerToken } from "../fleet/runners-store.js";
-import { manifest } from "./manifest-helper.js";
 import { buildTranscript } from "../session/transcript.js";
-import { useTempDb } from "./temp-db.js";
+import { fakeAnthropic } from "./fake-anthropic.js";
+import {
+  messagesSentTo,
+  type FakeModel,
+  type ScriptedTurn,
+} from "./fake-model.js";
+import { fakeModelFor, fakeRunner, type HarnessRunner } from "./harness.js";
+import { manifest } from "./manifest-helper.js";
+import { configureTestLLM, useTempDb } from "./temp-db.js";
+
+// The provider this file's runs reach; the write-up test walks each wire in turn.
+let wire: FakeModel = fakeAnthropic();
+// Where each of the current test's runs began, in the provider's requests.
+const runs: number[] = [];
+
+async function run(input: RunSessionInput): Promise<RunOutcome> {
+  runs.push(wire.requests.length);
+  return await runSession(input, wire.fetch);
+}
+
+// How many requests one of the test's runs made.
+function requestsOf(index: number): number {
+  return (runs[index + 1] ?? wire.requests.length) - (runs[index] ?? 0);
+}
 
 function alert(sourceAlertId: string): NormalizedAlert {
   return {
@@ -70,24 +87,12 @@ function alert(sourceAlertId: string): NormalizedAlert {
 describe("the investigation record", () => {
   // A read only answers if a runner is there to answer it, and a call that
   // failed is issued no handle, so a fixture without one cites nothing.
-  async function connectRunner() {
-    const runnerId = (await generateRunnerToken("docker", "rc-host")).id;
-    const conn = registerRunner({
-      runnerId,
-      platform: "docker",
-      serverName: "rc-host",
-      send: (raw: string) => {
-        const msg = JSON.parse(raw) as { payload: { correlationId: string } };
-        resolveCommand({
-          correlationId: msg.payload.correlationId,
-          success: true,
-          result: [],
-        });
-      },
-      close: () => {},
+  async function connectRunner(): Promise<HarnessRunner> {
+    return fakeRunner({
+      id: (await generateRunnerToken("docker", "rc-host")).id,
+      name: "rc-host",
+      manifest: manifest("rc-host"),
     });
-    setRunnerManifest(runnerId, manifest("rc-host"));
-    return conn;
   }
 
   let cleanupDb: () => void;
@@ -101,7 +106,8 @@ describe("the investigation record", () => {
   });
 
   beforeEach(() => {
-    mockCreateProvider.mockReset();
+    runs.length = 0;
+    wire.script([]);
   });
 
   const METRICS = JSON.stringify({
@@ -773,30 +779,28 @@ describe("the investigation record", () => {
         ],
         text: "",
       };
-      mockCreateProvider.mockImplementationOnce(() =>
-        createContractFakeProvider([
-          {
-            ...barren,
-            toolUses: [{ ...barren.toolUses[0]!, toolCallId: "tu-1" }],
-          },
-          {
-            ...barren,
-            toolUses: [{ ...barren.toolUses[0]!, toolCallId: "tu-2" }],
-          },
-          {
-            ...barren,
-            toolUses: [{ ...barren.toolUses[0]!, toolCallId: "tu-3" }],
-          },
-          // Never reached: the run ends on the third barren turn.
-          { toolUses: [], text: "still going" },
-        ]),
-      );
+      wire.script([
+        {
+          ...barren,
+          toolUses: [{ ...barren.toolUses[0]!, toolCallId: "tu-1" }],
+        },
+        {
+          ...barren,
+          toolUses: [{ ...barren.toolUses[0]!, toolCallId: "tu-2" }],
+        },
+        {
+          ...barren,
+          toolUses: [{ ...barren.toolUses[0]!, toolCallId: "tu-3" }],
+        },
+        // Never reached: the run ends on the third barren turn.
+        { toolUses: [], text: "still going" },
+      ]);
       const sessionId = randomUUID();
       await seedAlertSession(buildSessionMeta(sessionId, null, undefined), [
         alert("barren"),
       ]);
 
-      expect(await runSession({ sessionId, alerts: [alert("barren")] })).toBe(
+      expect(await run({ sessionId, alerts: [alert("barren")] })).toBe(
         "completed",
       );
 
@@ -811,29 +815,27 @@ describe("the investigation record", () => {
     // From a real run with no runner connected: GetK8sLogs exists and was
     // withheld, the rest were invented, and all three got one sentence.
     it("tells a withheld tool from an invented one, and names a near miss", async () => {
-      mockCreateProvider.mockImplementationOnce(() =>
-        createContractFakeProvider([
-          {
-            toolUses: [
-              {
-                toolCallId: "tu-withheld",
-                name: "GetK8sLogs",
-                input: { target: "x" },
-              },
-              { toolCallId: "tu-near", name: "RecordFindings", input: {} },
-              { toolCallId: "tu-far", name: "SendSlackMessage", input: {} },
-            ],
-            text: "",
-          },
-          { toolUses: [], text: "Nothing I can reach." },
-        ]),
-      );
+      wire.script([
+        {
+          toolUses: [
+            {
+              toolCallId: "tu-withheld",
+              name: "GetK8sLogs",
+              input: { target: "x" },
+            },
+            { toolCallId: "tu-near", name: "RecordFindings", input: {} },
+            { toolCallId: "tu-far", name: "SendSlackMessage", input: {} },
+          ],
+          text: "",
+        },
+        { toolUses: [], text: "Nothing I can reach." },
+      ]);
       const sessionId = randomUUID();
       await seedAlertSession(buildSessionMeta(sessionId, null, undefined), [
         alert("refusals"),
       ]);
 
-      await runSession({ sessionId, alerts: [alert("refusals")] });
+      await run({ sessionId, alerts: [alert("refusals")] });
 
       const answerTo = async (toolCallId: string): Promise<string> => {
         const part = (await getTranscriptRows(sessionId))
@@ -871,27 +873,25 @@ describe("the investigation record", () => {
     // The record is built from what the turn did, so a failure reaches disk
     // without being read back out of a provider that cannot carry it.
     it("keeps a refused call's failure on the persisted result", async () => {
-      mockCreateProvider.mockImplementationOnce(() =>
-        createContractFakeProvider([
-          {
-            toolUses: [
-              {
-                toolCallId: "tu-gone",
-                name: "GetK8sLogs",
-                input: { target: "x" },
-              },
-            ],
-            text: "",
-          },
-          { toolUses: [], text: "done" },
-        ]),
-      );
+      wire.script([
+        {
+          toolUses: [
+            {
+              toolCallId: "tu-gone",
+              name: "GetK8sLogs",
+              input: { target: "x" },
+            },
+          ],
+          text: "",
+        },
+        { toolUses: [], text: "done" },
+      ]);
       const sessionId = randomUUID();
       await seedAlertSession(buildSessionMeta(sessionId, null, undefined), [
         alert("stamped"),
       ]);
 
-      await runSession({ sessionId, alerts: [alert("stamped")] });
+      await run({ sessionId, alerts: [alert("stamped")] });
 
       // No Kubernetes runner is connected, so the tool is not in the offered
       // set and the turn answers with a refusal rather than a result.
@@ -1009,20 +1009,17 @@ describe("the investigation record", () => {
       text: "",
     });
     const done = { toolUses: [], text: "Done." };
-    mockCreateProvider
-      .mockImplementationOnce(() =>
-        createContractFakeProvider([read("tu-a"), done]),
-      )
-      .mockImplementationOnce(() =>
-        createContractFakeProvider([read("tu-b"), done]),
-      );
+    const firstRun: ScriptedTurn[] = [read("tu-a"), done];
+    const secondRun: ScriptedTurn[] = [read("tu-b"), done];
+    wire.script(firstRun);
 
     const sessionId = randomUUID();
     await seedChatSession(sessionId, "why is web slow?");
-    await runSession({ sessionId, userMessage: "why is web slow?" });
+    await run({ sessionId, userMessage: "why is web slow?" });
     // A resume always carries a turn of its own, which is what a second
     // message is: a seed alone would end on the assistant and answer nothing.
-    await runSession({
+    wire.script(secondRun);
+    await run({
       sessionId,
       seed: await buildSeed(sessionId),
       userMessage: "check again",
@@ -1036,7 +1033,7 @@ describe("the investigation record", () => {
           : [],
       );
 
-    unregisterRunner(runner);
+    runner.disconnect();
     // A second e1 would leave two different calls answering to one citation.
     expect(issued).toEqual([
       ["tu-a", "e1"],
@@ -1045,28 +1042,24 @@ describe("the investigation record", () => {
   });
 
   describe("the finish gate", () => {
-    let runner: ReturnType<typeof registerRunner>;
+    let runner: HarnessRunner;
     beforeEach(async () => {
       runner = await connectRunner();
     });
     afterEach(() => {
-      unregisterRunner(runner);
+      runner.disconnect();
     });
 
     /* Only what this run added after its opening request, so a resume's seed
-       does not read as turns it wrote, and only its own prose turns. */
+       does not read as turns it wrote, and only the harness's own words. */
     function harnessMessages(index = 0): string[] {
-      const provider = mockCreateProvider.mock.results[index]!.value as {
-        chat: ReturnType<typeof vi.fn>;
-      };
-      const calls = provider.chat.mock.calls as Array<[ProviderMessage[]]>;
-      const opening = calls[0]?.[0]?.length ?? 0;
-      return (calls.at(-1)?.[0] ?? [])
+      const start = runs[index] ?? 0;
+      const last = (runs[index + 1] ?? wire.requests.length) - 1;
+      const opening = messagesSentTo(wire, start).length;
+      return messagesSentTo(wire, last)
         .slice(opening)
-        .filter(
-          (m) => m.role === "user" && m.parts.every((p) => p.type === "text"),
-        )
-        .map((m) => m.content);
+        .filter((m) => m.role === "user")
+        .flatMap((m) => m.texts);
     }
     // Matched on content, not the first character: the <system-reminder> tag is
     // asserted on its own below rather than by each of these.
@@ -1206,20 +1199,18 @@ describe("the investigation record", () => {
     // A harness turn is sent in the user's role, so it is tagged: untagged, the
     // model apologises to the person for something nobody said.
     it("marks every message it writes as its own, never as the user's", async () => {
-      mockCreateProvider.mockImplementationOnce(() =>
-        createContractFakeProvider([
-          ...recordTurn("root_cause"),
-          closeTurn(),
-          submitTurn(),
-          CLOSING_TURN,
-        ]),
-      );
+      wire.script([
+        ...recordTurn("root_cause"),
+        closeTurn(),
+        submitTurn(),
+        CLOSING_TURN,
+      ]);
       const sessionId = randomUUID();
       await seedAlertSession(buildSessionMeta(sessionId, null, undefined), [
         alert("tagged"),
       ]);
 
-      await runSession({ sessionId, alerts: [alert("tagged")] });
+      await run({ sessionId, alerts: [alert("tagged")] });
 
       const written = harnessMessages();
       expect(written.length).toBeGreaterThan(0);
@@ -1232,46 +1223,35 @@ describe("the investigation record", () => {
     /* The handle is stamped on the row and read off the same row, so a claim is
        asked to cite what the model was actually shown. */
     it("hands the model the handle its citations name", async () => {
-      mockCreateProvider.mockImplementationOnce(() =>
-        createContractFakeProvider([
-          ...recordTurn("root_cause"),
-          closeTurn(),
-          submitTurn(),
-          CLOSING_TURN,
-        ]),
-      );
+      wire.script([
+        ...recordTurn("root_cause"),
+        closeTurn(),
+        submitTurn(),
+        CLOSING_TURN,
+      ]);
       const sessionId = randomUUID();
       await seedAlertSession(buildSessionMeta(sessionId, null, undefined), [
         alert("handed"),
       ]);
 
-      await runSession({ sessionId, alerts: [alert("handed")] });
+      await run({ sessionId, alerts: [alert("handed")] });
 
-      const provider = mockCreateProvider.mock.results[0]!.value as {
-        chat: ReturnType<typeof vi.fn>;
-      };
-      const calls = provider.chat.mock.calls as Array<[ProviderMessage[]]>;
-      const handles = (calls.at(-1)?.[0] ?? []).flatMap((m) =>
-        m.parts.flatMap((p) =>
-          p.type === "tool_result" && p.evidenceId !== undefined
-            ? [p.evidenceId]
-            : [],
-        ),
-      );
+      // The handle opens the result the model reads, which is where it cites from.
+      const handles = messagesSentTo(wire, wire.requests.length - 1)
+        .flatMap((m) => m.toolResults)
+        .flatMap((r) => /^Evidence ID: (e\d+)/.exec(r.content)?.slice(1) ?? []);
       expect(handles).toContain("e1");
     });
 
     it("asks a run that calls nothing to close, then ends without a report", async () => {
       // Finishing is an act, so a run that only ever answers in prose has not
       // asked for anything: it is told so three times, then stood down.
-      mockCreateProvider.mockImplementationOnce(() =>
-        createContractFakeProvider([{ toolUses: [], text: "All done." }]),
-      );
+      wire.script([{ toolUses: [], text: "All done." }]);
       const sessionId = randomUUID();
       await seedAlertSession(buildSessionMeta(sessionId, null, undefined), [
         alert("gate"),
       ]);
-      const outcome = await runSession({
+      const outcome = await run({
         sessionId,
         alerts: [alert("gate")],
       });
@@ -1284,10 +1264,7 @@ describe("the investigation record", () => {
       expect(reportRequests()).toHaveLength(0);
       expect((await getRecord(sessionId))?.report ?? null).toBeNull();
       // One gathering turn, three opening nudges, one stand-down, then the closing.
-      const provider = mockCreateProvider.mock.results[0]!.value as {
-        chat: ReturnType<typeof vi.fn>;
-      };
-      expect(provider.chat).toHaveBeenCalledTimes(6);
+      expect(requestsOf(0)).toBe(6);
 
       // Neither the prompts nor the alert briefing NightWarden opened with is
       // drawn: the user sees one conversation, with the agent.
@@ -1369,39 +1346,26 @@ describe("the investigation record", () => {
     /* The allowance counts from the last time a person spoke. An approval answer
        is not a person speaking, so the resume inherits what the run spent. */
     it("carries a spent allowance across an approval resume", async () => {
-      mockCreateProvider.mockImplementationOnce(() =>
-        createContractFakeProvider([
-          openAndClose(),
-          { toolUses: [], text: "Stopping here." },
-        ]),
-      );
+      wire.script([openAndClose(), { toolUses: [], text: "Stopping here." }]);
       const sessionId = await refusedThriceThenApproved();
 
-      const outcome = await runSession({
+      const outcome = await run({
         sessionId,
         seed: await buildSeed(sessionId),
       });
 
       expect(outcome).toBe("completed");
       // The refused close, then the stand-down's closing turn: nothing in between.
-      const provider = mockCreateProvider.mock.results[0]!.value as {
-        chat: ReturnType<typeof vi.fn>;
-      };
-      expect(provider.chat).toHaveBeenCalledTimes(2);
+      expect(requestsOf(0)).toBe(2);
       expect(closePrompts()).toHaveLength(0);
       expect((await getRecord(sessionId))!.report).toBeNull();
     });
 
     it("resets the allowance once a person speaks", async () => {
-      mockCreateProvider.mockImplementationOnce(() =>
-        createContractFakeProvider([
-          openAndClose(),
-          { toolUses: [], text: "Still thinking." },
-        ]),
-      );
+      wire.script([openAndClose(), { toolUses: [], text: "Still thinking." }]);
       const sessionId = await refusedThriceThenApproved();
 
-      await runSession({
+      await run({
         sessionId,
         seed: await buildSeed(sessionId),
         userMessage: "keep going, check the new candidate",
@@ -1485,19 +1449,17 @@ describe("the investigation record", () => {
     // The largest single output of the run, so the ceiling is where it most
     // often dies - and dying into a server log says nothing on screen.
     it("says the report was cut off rather than ending with nothing", async () => {
-      mockCreateProvider.mockImplementationOnce(() =>
-        createContractFakeProvider([
-          ...recordTurn("root_cause"),
-          closeTurn(),
-          { toolUses: [], text: "", stopReason: "length" },
-        ]),
-      );
+      wire.script([
+        ...recordTurn("root_cause"),
+        closeTurn(),
+        { toolUses: [], text: "", stopReason: "length" },
+      ]);
       const sessionId = randomUUID();
       await seedAlertSession(buildSessionMeta(sessionId, null, undefined), [
         alert("cut-off"),
       ]);
 
-      const outcome = await runSession({
+      const outcome = await run({
         sessionId,
         alerts: [alert("cut-off")],
       });
@@ -1512,44 +1474,38 @@ describe("the investigation record", () => {
 
       /* One report turn, not two: the same request against the same ceiling
          truncates identically, so a retry only writes a second failure. */
-      const provider = mockCreateProvider.mock.results[0]!.value as {
-        chat: ReturnType<typeof vi.fn>;
-      };
-      expect(provider.chat).toHaveBeenCalledTimes(6);
+      expect(requestsOf(0)).toBe(6);
       expect(reportRequests()).toHaveLength(1);
     });
 
     // A follow-up writes over the same column, so the request carries what it
     // replaces: without it the model rewrites from a possibly compacted context.
     it("shows a reopened run the report it is replacing, as its own prior work", async () => {
-      mockCreateProvider
-        .mockImplementationOnce(() =>
-          createContractFakeProvider([
-            ...recordTurn("root_cause"),
-            closeTurn(),
-            submitTurn("free up the disk"),
-            CLOSING_TURN,
-          ]),
-        )
-        .mockImplementationOnce(() =>
-          createContractFakeProvider([
-            ...recordTurn("root_cause", false),
-            closeTurn(),
-            submitTurn("add a volume"),
-            CLOSING_TURN,
-          ]),
-        );
+      const firstRun: ScriptedTurn[] = [
+        ...recordTurn("root_cause"),
+        closeTurn(),
+        submitTurn("free up the disk"),
+        CLOSING_TURN,
+      ];
+      const secondRun: ScriptedTurn[] = [
+        ...recordTurn("root_cause", false),
+        closeTurn(),
+        submitTurn("add a volume"),
+        CLOSING_TURN,
+      ];
+      wire.script(firstRun);
       const sessionId = randomUUID();
       await seedAlertSession(buildSessionMeta(sessionId, null, undefined), [
         alert("revise"),
       ]);
 
-      await runSession({ sessionId, alerts: [alert("revise")] });
+      await run({ sessionId, alerts: [alert("revise")] });
       // The first run has nothing to revise, so it is shown nothing.
       expect(reportRequests()[0]).not.toContain("previous-report");
 
       // A reopen, not a plain follow-up, is what returns the run to the record.
-      await runSession({
+      wire.script(secondRun);
+      await run({
         sessionId,
         seed: await buildSeed(sessionId),
         userMessage: "the disk is filling again, check the volume",
@@ -1572,27 +1528,24 @@ describe("the investigation record", () => {
     // Composing is lossy: the request says anything left out is lost, so a run
     // with nothing new must not recompose a write-up that was already right.
     it("keeps the write-up when a follow-up settles nothing new", async () => {
-      mockCreateProvider
-        .mockImplementationOnce(() =>
-          createContractFakeProvider([
-            ...recordTurn("root_cause"),
-            closeTurn(),
-            submitTurn("free up the disk"),
-            CLOSING_TURN,
-          ]),
-        )
-        .mockImplementationOnce(() =>
-          createContractFakeProvider([
-            { toolUses: [], text: "Nothing has changed." },
-          ]),
-        );
+      const firstRun: ScriptedTurn[] = [
+        ...recordTurn("root_cause"),
+        closeTurn(),
+        submitTurn("free up the disk"),
+        CLOSING_TURN,
+      ];
+      const secondRun: ScriptedTurn[] = [
+        { toolUses: [], text: "Nothing has changed." },
+      ];
+      wire.script(firstRun);
       const sessionId = randomUUID();
       await seedAlertSession(buildSessionMeta(sessionId, null, undefined), [
         alert("unchanged"),
       ]);
 
-      await runSession({ sessionId, alerts: [alert("unchanged")] });
-      await runSession({
+      await run({ sessionId, alerts: [alert("unchanged")] });
+      wire.script(secondRun);
+      await run({
         sessionId,
         seed: await buildSeed(sessionId),
         userMessage: "anything else?",
@@ -1609,28 +1562,26 @@ describe("the investigation record", () => {
     // A malformed write-up refuses whole, so the run gives up once its attempts
     // are spent, and the record it settled stands rather than a half report.
     it("gives up the write-up after its attempts are spent, leaving the record", async () => {
-      mockCreateProvider.mockImplementationOnce(() =>
-        createContractFakeProvider([
-          ...recordTurn("root_cause"),
-          closeTurn(),
-          ...Array.from({ length: 5 }, () => ({
-            toolUses: [
-              {
-                toolCallId: `bad-${randomUUID()}`,
-                name: "ComposeReport" as const,
-                input: { headline: "" },
-              },
-            ],
-            text: "",
-          })),
-        ]),
-      );
+      wire.script([
+        ...recordTurn("root_cause"),
+        closeTurn(),
+        ...Array.from({ length: 5 }, () => ({
+          toolUses: [
+            {
+              toolCallId: `bad-${randomUUID()}`,
+              name: "ComposeReport" as const,
+              input: { headline: "" },
+            },
+          ],
+          text: "",
+        })),
+      ]);
       const sessionId = randomUUID();
       await seedAlertSession(buildSessionMeta(sessionId, null, undefined), [
         alert("refused-writeup"),
       ]);
 
-      const outcome = await runSession({
+      const outcome = await run({
         sessionId,
         alerts: [alert("refused-writeup")],
       });
@@ -1669,26 +1620,24 @@ describe("the investigation record", () => {
       }
 
       it("asks when reads pile up with nothing recorded over them", async () => {
-        mockCreateProvider.mockImplementationOnce(() =>
-          createContractFakeProvider([
-            readTurn(),
-            // The forced candidates turn lands here, once the first read answers.
-            openTurn(),
-            readTurn(),
-            readTurn(),
-            readTurn(),
-            ...recordTurn("root_cause"),
-            closeTurn(),
-            submitTurn(),
-            CLOSING_TURN,
-          ]),
-        );
+        wire.script([
+          readTurn(),
+          // The forced candidates turn lands here, once the first read answers.
+          openTurn(),
+          readTurn(),
+          readTurn(),
+          readTurn(),
+          ...recordTurn("root_cause"),
+          closeTurn(),
+          submitTurn(),
+          CLOSING_TURN,
+        ]);
         const sessionId = randomUUID();
         await seedAlertSession(buildSessionMeta(sessionId, null, undefined), [
           alert("record-check"),
         ]);
 
-        await runSession({ sessionId, alerts: [alert("record-check")] });
+        await run({ sessionId, alerts: [alert("record-check")] });
 
         expect(checks()).toHaveLength(1);
         expect(checks()[0]).toContain("answered 8 tool calls");
@@ -1697,55 +1646,50 @@ describe("the investigation record", () => {
       // Recording once buys no exemption: the debt is what has been read since
       // the last claim, so a run that settles early and reads on is asked again.
       it("asks a run that recorded early and then kept reading", async () => {
-        mockCreateProvider.mockImplementationOnce(() =>
-          createContractFakeProvider([
-            ...recordTurn("disproven"),
-            readTurn(),
-            readTurn(),
-            readTurn(),
-            readTurn(),
-            closeTurn(),
-            submitTurn(),
-            CLOSING_TURN,
-          ]),
-        );
+        wire.script([
+          ...recordTurn("disproven"),
+          readTurn(),
+          readTurn(),
+          readTurn(),
+          readTurn(),
+          closeTurn(),
+          submitTurn(),
+          CLOSING_TURN,
+        ]);
         const sessionId = randomUUID();
         await seedAlertSession(buildSessionMeta(sessionId, null, undefined), [
           alert("record-check-quiet"),
         ]);
 
-        await runSession({ sessionId, alerts: [alert("record-check-quiet")] });
+        await run({ sessionId, alerts: [alert("record-check-quiet")] });
 
         expect(checks()).toHaveLength(1);
       });
     });
 
     it("writes the report on a second entry, without speaking as the user", async () => {
-      mockCreateProvider
-        .mockImplementationOnce(() =>
-          createContractFakeProvider([
-            ...recordTurn("root_cause"),
-            { toolUses: [], text: "I am done." },
-            { toolUses: [], text: "Nothing changes my conclusions." },
-            { toolUses: [], text: "", stopReason: "length" },
-          ]),
-        )
-        .mockImplementationOnce(() =>
-          createContractFakeProvider([
-            closeTurn(),
-            submitTurn("free up the disk"),
-            CLOSING_TURN,
-          ]),
-        );
+      const firstRun: ScriptedTurn[] = [
+        ...recordTurn("root_cause"),
+        { toolUses: [], text: "I am done." },
+        { toolUses: [], text: "Nothing changes my conclusions." },
+        { toolUses: [], text: "", stopReason: "length" },
+      ];
+      const secondRun: ScriptedTurn[] = [
+        closeTurn(),
+        submitTurn("free up the disk"),
+        CLOSING_TURN,
+      ];
+      wire.script(firstRun);
       const sessionId = randomUUID();
       await seedAlertSession(buildSessionMeta(sessionId, null, undefined), [
         alert("retry"),
       ]);
 
-      await runSession({ sessionId, alerts: [alert("retry")] });
+      await run({ sessionId, alerts: [alert("retry")] });
       expect((await getRecord(sessionId))!.report).toBeNull();
 
-      await runSession({
+      wire.script(secondRun);
+      await run({
         sessionId,
         seed: await buildSeed(sessionId),
         userMessage:
@@ -1761,30 +1705,27 @@ describe("the investigation record", () => {
 
     // A lost write-up turn must resume into the report phase, not fall back to testing.
     it("resumes into the report phase after the write-up turn was lost", async () => {
-      mockCreateProvider
-        .mockImplementationOnce(() =>
-          createContractFakeProvider([
-            ...recordTurn("root_cause"),
-            // Close, the challenge, close again, then a lost write-up turn.
-            closeTurn(),
-            { toolUses: [], text: "", stopReason: "length" },
-          ]),
-        )
-        .mockImplementationOnce(() =>
-          createContractFakeProvider([
-            submitTurn("free up the disk"),
-            CLOSING_TURN,
-          ]),
-        );
+      const firstRun: ScriptedTurn[] = [
+        ...recordTurn("root_cause"),
+        // Close, the challenge, close again, then a lost write-up turn.
+        closeTurn(),
+        { toolUses: [], text: "", stopReason: "length" },
+      ];
+      const secondRun: ScriptedTurn[] = [
+        submitTurn("free up the disk"),
+        CLOSING_TURN,
+      ];
+      wire.script(firstRun);
       const sessionId = randomUUID();
       await seedAlertSession(buildSessionMeta(sessionId, null, undefined), [
         alert("resume-report"),
       ]);
 
-      await runSession({ sessionId, alerts: [alert("resume-report")] });
+      await run({ sessionId, alerts: [alert("resume-report")] });
       expect((await getRecord(sessionId))!.report).toBeNull();
 
-      await runSession({
+      wire.script(secondRun);
+      await run({
         sessionId,
         seed: await buildSeed(sessionId),
         userMessage: "Write up the investigation.",
@@ -1802,49 +1743,53 @@ describe("the investigation record", () => {
       ).toHaveLength(0);
     });
 
-    it("passes silently once the record holds a settled claim, then writes up", async () => {
-      mockCreateProvider.mockImplementationOnce(() =>
-        createContractFakeProvider([
+    // The record is written and composed over each provider's wire, through to the report.
+    it.each(LLM_PROVIDER_NAMES)(
+      "passes silently once the record holds a settled claim, then writes up on %s",
+      async (provider) => {
+        wire = fakeModelFor(provider);
+        await configureTestLLM(provider);
+        onTestFinished(async () => {
+          wire = fakeAnthropic();
+          await configureTestLLM();
+        });
+        wire.script([
           ...recordTurn("disproven"),
           closeTurn(),
           submitTurn("watch the disk for another day"),
           CLOSING_TURN,
-        ]),
-      );
-      const sessionId = randomUUID();
-      await seedAlertSession(buildSessionMeta(sessionId, null, undefined), [
-        alert("gate-pass"),
-      ]);
-      const outcome = await runSession({
-        sessionId,
-        alerts: [alert("gate-pass")],
-      });
-      expect(outcome).toBe("completed");
+        ]);
+        const sessionId = randomUUID();
+        await seedAlertSession(buildSessionMeta(sessionId, null, undefined), [
+          alert("gate-pass"),
+        ]);
+        const outcome = await run({
+          sessionId,
+          alerts: [alert("gate-pass")],
+        });
+        expect(outcome).toBe("completed");
 
-      expect(recordGapsMessages()).toHaveLength(0);
-      expect(reportRequests()).toHaveLength(1);
-      // The record rides the request, so the timeline can copy ids from nearby.
-      expect(reportRequests()[0]).toContain("RECORDED FINDINGS");
-      // The verdict and the handles, so a timeline can copy an id from nearby.
-      expect(reportRequests()[0]).toContain("[disproven] cites: e2");
+        expect(recordGapsMessages()).toHaveLength(0);
+        expect(reportRequests()).toHaveLength(1);
+        // The record rides the request, so the timeline can copy ids from nearby.
+        expect(reportRequests()[0]).toContain("RECORDED FINDINGS");
+        // The verdict and the handles, so a timeline can copy an id from nearby.
+        expect(reportRequests()[0]).toContain("[disproven] cites: e2");
 
-      const written = (await getRecord(sessionId))!;
-      expect(written.findings[0]!.verdict).toBe("disproven");
-      expect(written.report).toMatchObject({
-        summary: "the worker ran out of memory",
-        recommendation: "watch the disk for another day",
-      });
-    });
+        const written = (await getRecord(sessionId))!;
+        expect(written.findings[0]!.verdict).toBe("disproven");
+        expect(written.report).toMatchObject({
+          summary: "the worker ran out of memory",
+          recommendation: "watch the disk for another day",
+        });
+      },
+    );
 
     it("does not write up a chat, which keeps no record at all", async () => {
-      mockCreateProvider.mockImplementationOnce(() =>
-        createContractFakeProvider([
-          { toolUses: [], text: "Nine containers." },
-        ]),
-      );
+      wire.script([{ toolUses: [], text: "Nine containers." }]);
       const sessionId = randomUUID();
       await seedChatSession(sessionId, "how many containers are running?");
-      const outcome = await runSession({
+      const outcome = await run({
         sessionId,
         userMessage: "how many containers are running?",
       });
@@ -1878,14 +1823,12 @@ describe("the investigation record", () => {
       }
 
       function settledRun(...extra: ReturnType<typeof submitTurn>[]) {
-        mockCreateProvider.mockImplementationOnce(() =>
-          createContractFakeProvider([
-            ...recordTurn("disproven"),
-            closeTurn(),
-            ...extra,
-            CLOSING_TURN,
-          ]),
-        );
+        wire.script([
+          ...recordTurn("disproven"),
+          closeTurn(),
+          ...extra,
+          CLOSING_TURN,
+        ]);
       }
 
       it("is asked for a recommendation when nothing can confirm recovery", async () => {
@@ -1897,7 +1840,7 @@ describe("the investigation record", () => {
         );
         await releasedWrite(sessionId, 0);
 
-        await runSession({ sessionId, alerts: [alert("acted-firing")] });
+        await run({ sessionId, alerts: [alert("acted-firing")] });
 
         const request = reportRequests()[0]!;
         // Never "try again": repeating a write that did not work is the failure
@@ -1917,7 +1860,7 @@ describe("the investigation record", () => {
         );
         await releasedWrite(sessionId, 0);
 
-        await runSession({
+        await run({
           sessionId,
           alerts: [alert("acted-no-recommendation")],
         });
@@ -1937,7 +1880,7 @@ describe("the investigation record", () => {
         await seedAlertSession(buildSessionMeta(sessionId, null, undefined), [
           alert("only-looked"),
         ]);
-        await runSession({ sessionId, alerts: [alert("only-looked")] });
+        await run({ sessionId, alerts: [alert("only-looked")] });
 
         // No write was released, so an ending that names no cause stands even
         // though the alert never cleared.

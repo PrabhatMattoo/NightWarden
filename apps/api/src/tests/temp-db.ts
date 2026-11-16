@@ -1,4 +1,5 @@
 import { vi } from "vitest";
+import type { LLMProviderName } from "@nightwarden/shared";
 import { getDb, resetDb } from "../db.js";
 import { resetAuth } from "../auth/instance.js";
 import {
@@ -8,6 +9,13 @@ import {
 import { updateConfig, updateProvider } from "../config/store.js";
 import { seedCatalog } from "../llm/catalog.js";
 import { createTempFolder } from "./temp-folder.js";
+
+// The OpenAI adapter reads reasoning support from the id, so its model is a reasoning one.
+const TEST_MODELS: Record<LLMProviderName, string> = {
+  anthropic: "test-model",
+  openai: "gpt-5",
+  openrouter: "anthropic/claude-sonnet-4.5",
+};
 
 // Call at the top of beforeAll before anything opens the lazy db; pair the
 // teardown with vi.unstubAllEnvs().
@@ -24,18 +32,32 @@ export async function useTempDb(): Promise<() => void> {
 
 // The run gate refuses without an LLM, so this is the baseline. Re-call after
 // stubbing a new key: the stored one is encrypted with whichever was live.
-export async function configureTestLLM(): Promise<void> {
-  await updateProvider("anthropic", {
-    model: "test-model",
+export async function configureTestLLM(
+  provider: LLMProviderName = "anthropic",
+): Promise<void> {
+  const model = TEST_MODELS[provider];
+  // Anthropic is sent thinking on every request; the others reason once a level is set.
+  const reasons = provider !== "anthropic";
+  await updateProvider(provider, {
+    model,
     apiKey: "test-api-key",
+    ...(reasons && { reasoningLevel: "high" }),
   });
-  await updateConfig({ provider: "anthropic" });
+  await updateConfig({ provider });
   // A run resolves its model from the catalogue, which is seeded rather than
   // fetched so no test reaches a provider to start one.
-  seedCatalog("anthropic", [
+  seedCatalog(provider, [
     {
-      id: "test-model",
-      reasoning: null,
+      id: model,
+      reasoning: reasons
+        ? {
+            levels: [
+              { value: "high", label: "High" },
+              { value: "low", label: "Low" },
+            ],
+            defaultLevel: "high",
+          }
+        : null,
       maxInputTokens: 200_000,
       maxOutputTokens: 32_000,
       compaction: false,

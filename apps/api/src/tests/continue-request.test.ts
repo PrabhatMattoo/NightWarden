@@ -1,27 +1,15 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { messageBody } from "./session-helper.js";
 import { harness, type Harness } from "./harness.js";
+import { fakeAnthropic } from "./fake-anthropic.js";
+import { createGateController, type ScriptedTurn } from "./fake-model.js";
 
-vi.mock("../llm/factory.js", () => import("./llm-factory-mock.js"));
-
-import { mockCreateProvider } from "./llm-factory-mock.js";
-
-import {
-  createGateController,
-  createScriptRunner,
-  type ScriptedTurn,
-} from "./contract-fake-provider.js";
-
-const scriptRunner = createScriptRunner();
-mockCreateProvider.mockImplementation(() => scriptRunner.create());
-const setScript = (turns: ScriptedTurn[]): void =>
-  scriptRunner.setScript(turns);
+const anthropic = fakeAnthropic();
+const setScript = (turns: ScriptedTurn[]): void => anthropic.script(turns);
 
 import { waitFor } from "./wait.js";
-import { registerFrontendEventRoutes } from "../session/events.js";
 import { connectFrontendEvents } from "./frontend-events-helper.js";
-import { registerSessionRoutes } from "../session/routes.js";
-import { dispatcher } from "../dispatcher.js";
+import { isRunning } from "../session/status-store.js";
 import { hasPendingHumanInput } from "../session/gate-store.js";
 import { buildTranscript } from "../session/transcript.js";
 import { updateConfig } from "../config/store.js";
@@ -39,7 +27,7 @@ describe("continue-request interrupts", () => {
 
   beforeAll(async () => {
     nw = await harness({
-      routes: [registerFrontendEventRoutes, registerSessionRoutes],
+      model: anthropic,
       runners: [{ name: "continue-host", services: ["web-01/api"] }],
     });
     ({ port, session: SESSION } = nw);
@@ -59,9 +47,7 @@ describe("continue-request interrupts", () => {
 
     let sessionId = "";
     try {
-      mockCreateProvider.mockImplementation(() =>
-        scriptRunner.create({ gate: gates.gate }),
-      );
+      anthropic.park(gates.gate);
       const res = await fetch(`http://127.0.0.1:${port}/api/chat`, {
         method: "POST",
         headers: {
@@ -78,10 +64,10 @@ describe("continue-request interrupts", () => {
       gates.releaseAll();
 
       await waitFor(async () => await hasPendingHumanInput(sessionId));
-      expect(await dispatcher.isSessionRunning(sessionId)).toBe(false);
+      expect(await isRunning(sessionId)).toBe(false);
     } finally {
       gates.releaseAll();
-      mockCreateProvider.mockImplementation(() => scriptRunner.create());
+      anthropic.park();
     }
 
     await fetch(`http://127.0.0.1:${port}/api/sessions/${sessionId}/respond`, {
@@ -122,7 +108,7 @@ describe("continue-request interrupts", () => {
     );
 
     // Run must have exited
-    expect(await dispatcher.isSessionRunning(sessionId)).toBe(false);
+    expect(await isRunning(sessionId)).toBe(false);
 
     // DB row must have kind=continue
     expect(await hasPendingHumanInput(sessionId)).toBe(true);
@@ -213,8 +199,8 @@ describe("continue-request interrupts", () => {
     // Interrupt row is gone, run completes (FINISH_TURN script)
     await waitFor(async () => !(await hasPendingHumanInput(sessionId)));
     expect(await hasPendingHumanInput(sessionId)).toBe(false);
-    await waitFor(async () => !(await dispatcher.isSessionRunning(sessionId)));
-    expect(await dispatcher.isSessionRunning(sessionId)).toBe(false);
+    await waitFor(async () => !(await isRunning(sessionId)));
+    expect(await isRunning(sessionId)).toBe(false);
 
     close();
   });
@@ -272,8 +258,8 @@ describe("continue-request interrupts", () => {
 
     // Interrupt row gone, closing run completes
     await waitFor(async () => !(await hasPendingHumanInput(sessionId)));
-    await waitFor(async () => !(await dispatcher.isSessionRunning(sessionId)));
-    expect(await dispatcher.isSessionRunning(sessionId)).toBe(false);
+    await waitFor(async () => !(await isRunning(sessionId)));
+    expect(await isRunning(sessionId)).toBe(false);
 
     close();
   });
@@ -304,7 +290,7 @@ describe("continue-request interrupts", () => {
     );
 
     // Simulate process exit: run has exited, interrupt row is in DB
-    expect(await dispatcher.isSessionRunning(sessionId)).toBe(false);
+    expect(await isRunning(sessionId)).toBe(false);
     expect(await hasPendingHumanInput(sessionId)).toBe(true);
 
     // Grant a fresh deadline before responding (mimics user action after restart)

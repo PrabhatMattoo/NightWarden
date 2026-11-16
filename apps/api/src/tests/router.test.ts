@@ -1,22 +1,8 @@
-import { randomUUID } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type {
-  Platform,
-  RunnerManifest,
-  RunnerCommandMessage,
-} from "@nightwarden/shared";
-import {
-  registerRunner,
-  unregisterRunner,
-  setRunnerManifest,
-  getFleetView,
-} from "../fleet/connections.js";
-import type { RunnerConnection } from "../fleet/connections.js";
-import {
-  resolveCommand,
-  sendCommand,
-  sendFleetCommand,
-} from "../fleet/transport.js";
+import type { Platform, RunnerManifest } from "@nightwarden/shared";
+import { getFleetView } from "../fleet/connections.js";
+import { sendCommand, sendFleetCommand } from "../fleet/transport.js";
+import { fakeRunner, type Command, type HarnessRunner } from "./harness.js";
 import { within } from "./dispatch-helper.js";
 import { dockerService, kubernetesWorkload, svc } from "./manifest-helper.js";
 
@@ -53,20 +39,8 @@ function makeManifest(
       };
 }
 
-function makeSend(
-  log: Array<{ commandName: string; commandInput: Record<string, unknown> }>,
-) {
-  return (raw: string): void => {
-    const msg = JSON.parse(raw) as RunnerCommandMessage;
-    if (msg.type !== "command") return;
-    const { commandName, commandInput, correlationId } = msg.payload;
-    log.push({ commandName, commandInput });
-    resolveCommand({ correlationId, success: true, result: { ok: true } });
-  };
-}
-
 describe("router", () => {
-  const conns: RunnerConnection[] = [];
+  const runners: HarnessRunner[] = [];
 
   function connect(
     server: string,
@@ -76,36 +50,20 @@ describe("router", () => {
       // Accepts the command and never answers, so the caller times out.
       silent?: boolean;
     } = {},
-  ): {
-    runnerId: string;
-    commands: Array<{
-      commandName: string;
-      commandInput: Record<string, unknown>;
-    }>;
-  } {
-    const runnerId = randomUUID();
-    const commands: Array<{
-      commandName: string;
-      commandInput: Record<string, unknown>;
-    }> = [];
-    conns.push(
-      registerRunner({
-        runnerId: runnerId,
-        platform: opts.platform ?? "docker",
-        send: opts.silent === true ? () => {} : makeSend(commands),
-        close: () => {},
-        serverName: server,
-      }),
-    );
-    setRunnerManifest(
-      runnerId,
-      makeManifest(server, containers, opts.platform),
-    );
-    return { runnerId, commands };
+  ): { runnerId: string; commands: Command[] } {
+    const runner = fakeRunner({
+      name: server,
+      manifest: makeManifest(server, containers, opts.platform),
+      answer: () => ({ ok: true }),
+      ...(opts.platform !== undefined && { platform: opts.platform }),
+      ...(opts.silent === true && { silent: true }),
+    });
+    runners.push(runner);
+    return { runnerId: runner.id, commands: runner.commands };
   }
 
   afterEach(() => {
-    for (const conn of conns.splice(0)) unregisterRunner(conn);
+    for (const runner of runners.splice(0)) runner.disconnect();
     vi.restoreAllMocks();
   });
 

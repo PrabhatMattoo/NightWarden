@@ -1,42 +1,25 @@
 import { randomUUID } from "node:crypto";
-import type { AddressInfo } from "node:net";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import Fastify from "fastify";
-import type { FastifyInstance } from "fastify";
-import { messageBody } from "./session-helper.js";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { LLM_PROVIDER_NAMES, type SessionDetail } from "@nightwarden/shared";
+import { messagesSentTo, type FakeModel } from "./fake-model.js";
 import { harness, type Harness } from "./harness.js";
-import { mountApi } from "./api-server.js";
-import type { SessionDetail } from "@nightwarden/shared";
-
-vi.mock("../llm/factory.js", () => import("./llm-factory-mock.js"));
-
-import { mockCreateProvider } from "./llm-factory-mock.js";
-
-import {
-  createScriptRunner,
-  messagesSentTo,
-  type ContractFakeProvider,
-} from "./contract-fake-provider.js";
-
-const script = createScriptRunner();
-mockCreateProvider.mockImplementation(() => script.create());
+import { messageBody } from "./session-helper.js";
 
 import { waitFor } from "./wait.js";
 import { connectFrontendEvents } from "./frontend-events-helper.js";
-import { registerFrontendEventRoutes } from "../session/events.js";
-import { registerSessionRoutes } from "../session/routes.js";
 
-describe("frontend SSE pipeline", () => {
+describe.each(LLM_PROVIDER_NAMES)("frontend SSE pipeline on %s", (provider) => {
   let nw: Harness;
   let port: number;
   let SESSION: string;
+  let model: FakeModel;
 
   beforeAll(async () => {
     nw = await harness({
-      routes: [registerFrontendEventRoutes, registerSessionRoutes],
+      provider,
       runners: [{ name: "sse-host", services: ["web-01"] }],
     });
-    ({ port, session: SESSION } = nw);
+    ({ port, session: SESSION, model } = nw);
   });
 
   afterAll(async () => {
@@ -44,7 +27,7 @@ describe("frontend SSE pipeline", () => {
   });
 
   it("delivers delta events then RUN_FINISHED, transcript loadable after", async () => {
-    script.setScript([{ toolUses: [], text: "All looks well." }]);
+    model.script([{ toolUses: [], text: "All looks well." }]);
     const { events, close } = await connectFrontendEvents(port, SESSION);
 
     const res = await fetch(`http://127.0.0.1:${port}/api/chat`, {
@@ -100,8 +83,8 @@ describe("frontend SSE pipeline", () => {
   });
 
   it("resume of ended session seeds provider from persisted transcript", async () => {
-    mockCreateProvider.mockClear();
-    script.setScript([
+    const first = model.requests.length;
+    model.script([
       { toolUses: [], text: "All looks well." },
       { toolUses: [], text: "Still healthy." },
     ]);
@@ -169,21 +152,17 @@ describe("frontend SSE pipeline", () => {
 
     close();
 
-    // createProvider was called once per run.
-    expect(mockCreateProvider.mock.calls.length).toBe(2);
+    // One request per run, each a single turn.
+    expect(model.requests.length - first).toBe(2);
 
     // The resume carries the first run's persisted turns, with the follow-up
     // behind them as its own user turn.
-    const resumeProvider = mockCreateProvider.mock.results[1]
-      ?.value as ContractFakeProvider;
-    const resumed = messagesSentTo(resumeProvider);
-    expect(resumed).toHaveLength(3);
-    expect(resumed[0]).toMatchObject({ role: "user" });
-    expect(resumed[1]).toMatchObject({ role: "assistant" });
-    expect(resumed[2]).toMatchObject({
-      role: "user",
-      content: "Follow-up question.",
-    });
+    const resumed = messagesSentTo(model, first + 1);
+    expect(resumed.map((m) => [m.role, m.texts])).toEqual([
+      ["user", ["Is the system healthy?"]],
+      ["assistant", ["All looks well."]],
+      ["user", ["Follow-up question."]],
+    ]);
 
     // Each person's message is drawn under the id its sender minted.
     const detailRes = await fetch(
@@ -199,22 +178,5 @@ describe("frontend SSE pipeline", () => {
       { id: openingId, text: "Is the system healthy?" },
       { id: followUpId, text: "Follow-up question." },
     ]);
-  });
-
-  it("sends heartbeat comments on the configured interval", async () => {
-    const hb = Fastify({ logger: false, forceCloseConnections: true });
-    await mountApi(
-      hb,
-      async (api: FastifyInstance) =>
-        await registerFrontendEventRoutes(api, { heartbeatInterval: 50 }),
-    );
-    await hb.listen({ port: 0, host: "127.0.0.1" });
-    const hbPort = (hb.server.address() as AddressInfo).port;
-
-    const { comments, close } = await connectFrontendEvents(hbPort, SESSION);
-    await waitFor(() => comments.some((c) => c.includes("heartbeat")));
-
-    close();
-    await hb.close();
   });
 });

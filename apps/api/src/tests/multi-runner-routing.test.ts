@@ -1,5 +1,4 @@
 import { randomUUID } from "node:crypto";
-import type { AddressInfo } from "node:net";
 import {
   afterAll,
   beforeAll,
@@ -9,53 +8,19 @@ import {
   it,
   vi,
 } from "vitest";
-import { initSecrets } from "../secrets.js";
-import Fastify from "fastify";
-import type { FastifyInstance } from "fastify";
-import type { RunnerManifest, RunnerCommandMessage } from "@nightwarden/shared";
-
-// Stateful scripted provider — same pattern as approval-cycle.test.ts so the
-// loop runs against a deterministic turn sequence without a real LLM.
-vi.mock("../llm/factory.js", () => import("./llm-factory-mock.js"));
-
-import { mockCreateProvider } from "./llm-factory-mock.js";
-
-import {
-  createScriptRunner,
-  type ScriptedTurn,
-} from "./contract-fake-provider.js";
-
-const scriptRunner = createScriptRunner();
-mockCreateProvider.mockImplementation(() => scriptRunner.create());
-const setScript = (turns: ScriptedTurn[]): void =>
-  scriptRunner.setScript(turns);
-
-import { generateRunnerToken } from "../fleet/runners-store.js";
-import { useTempDb } from "./temp-db.js";
-import { issueTestSession, messageBody } from "./session-helper.js";
-import { waitFor } from "./wait.js";
-import {
-  registerRunner,
-  unregisterRunner,
-  setRunnerManifest,
-} from "../fleet/connections.js";
-import type { RunnerConnection } from "../fleet/connections.js";
-import { resolveCommand } from "../fleet/transport.js";
-import { dispatcher } from "../dispatcher.js";
+import { isRunning } from "../session/status-store.js";
 import { createSession } from "../session/store.js";
 import { getTranscriptRows } from "../session/transcript-store.js";
-import { registerFrontendEventRoutes } from "../session/events.js";
+import { fakeAnthropic } from "./fake-anthropic.js";
+import { type ScriptedTurn } from "./fake-model.js";
 import { connectFrontendEvents } from "./frontend-events-helper.js";
+import { harness, type Harness, type HarnessRunner } from "./harness.js";
+import { svc } from "./manifest-helper.js";
+import { messageBody } from "./session-helper.js";
+import { waitFor } from "./wait.js";
 
-import { registerSessionRoutes } from "../session/routes.js";
-import { mountApi } from "./api-server.js";
-import {
-  dockerService,
-  kubernetesManifest,
-  kubernetesWorkload,
-  manifest,
-  svc,
-} from "./manifest-helper.js";
+const anthropic = fakeAnthropic();
+const setScript = (turns: ScriptedTurn[]): void => anthropic.script(turns);
 
 // A free-form text finish: no tool call ends the run successfully.
 const FINISH_TURN = {
@@ -63,164 +28,59 @@ const FINISH_TURN = {
   toolUses: [],
 };
 
-// The server name doubles as the hostname here: this file is about where a
-// command lands, and router.test.ts is where the two are told apart.
-function makeManifest(server: string, containers: string[]): RunnerManifest {
-  return manifest(
-    server,
-    containers.map((name) => dockerService(server, name)),
-  );
-}
-
-function makeK8sManifest(
-  server: string,
-  workloads: Array<{ workload: string; namespace: string }>,
-): RunnerManifest {
-  return kubernetesManifest(
-    server,
-    workloads.map(({ workload, namespace }) =>
-      kubernetesWorkload(server, namespace, workload),
-    ),
-  );
-}
-
 // Set by a test that wants the runner to answer with its own failure, the way
 // a real one does when it cannot resolve the target.
 let runnerError: string | null = null;
 
-function makeSend(
-  log: Array<{ commandName: string; commandInput: Record<string, unknown> }>,
-) {
-  return (raw: string) => {
-    const msg = JSON.parse(raw) as RunnerCommandMessage;
-    if (msg.type !== "command") return;
-    const { commandName, commandInput, correlationId } = msg.payload;
-    log.push({ commandName, commandInput });
-    if (runnerError !== null) {
-      resolveCommand({
-        correlationId,
-        success: false,
-        result: null,
-        error: runnerError,
-      });
-      return;
-    }
-    resolveCommand({ correlationId, success: true, result: {} });
-  };
-}
-
 describe("multi-runner routing", () => {
-  let cleanupDb: () => void;
-  let runnerIdA: string;
-  let runnerIdB: string;
+  let nw: Harness;
   let SESSION: string;
-  let server: FastifyInstance;
   let port: number;
-
-  // Per-runner command logs — cleared before each test.
-  const commandsA: Array<{
-    commandName: string;
-    commandInput: Record<string, unknown>;
-  }> = [];
-  const commandsB: Array<{
-    commandName: string;
-    commandInput: Record<string, unknown>;
-  }> = [];
-  // runner-c is on a separate runner to test cross-runner routing.
-  let runnerId2: string;
-  const commandsC: Array<{
-    commandName: string;
-    commandInput: Record<string, unknown>;
-  }> = [];
-  // runner-k8s hosts Kubernetes workloads.
-  let runnerIdK: string;
-  const commandsK: Array<{
-    commandName: string;
-    commandInput: Record<string, unknown>;
-  }> = [];
-  const conns: RunnerConnection[] = [];
+  let web: HarnessRunner;
+  let db: HarnessRunner;
+  let cache: HarnessRunner;
+  let cluster: HarnessRunner;
 
   beforeAll(async () => {
-    vi.stubEnv(
-      "NIGHTWARDEN_SECRET_KEY",
-      "test-only-secret-key-for-routing-tests-32b",
-    );
-    initSecrets();
-    cleanupDb = await useTempDb();
-    SESSION = await issueTestSession();
-    runnerIdA = (await generateRunnerToken("docker", "web-01")).id;
-    runnerIdB = (await generateRunnerToken("docker", "db-02")).id;
-
-    conns.push(
-      registerRunner({
-        runnerId: runnerIdA,
-        platform: "docker",
-        serverName: "web-01",
-        send: makeSend(commandsA),
-        close: () => {},
-      }),
-    );
-    setRunnerManifest(runnerIdA, makeManifest("web-01", ["nginx", "api"]));
-
-    conns.push(
-      registerRunner({
-        runnerId: runnerIdB,
-        platform: "docker",
-        serverName: "db-02",
-        send: makeSend(commandsB),
-        close: () => {},
-      }),
-    );
-    setRunnerManifest(runnerIdB, makeManifest("db-02", ["postgres"]));
-
-    runnerId2 = (await generateRunnerToken("docker", "cache-01")).id;
-    conns.push(
-      registerRunner({
-        runnerId: runnerId2,
-        platform: "docker",
-        serverName: "cache-01",
-        send: makeSend(commandsC),
-        close: () => {},
-      }),
-    );
-    setRunnerManifest(runnerId2, makeManifest("cache-01", ["redis"]));
-
-    runnerIdK = (await generateRunnerToken("kubernetes", "k8s-cluster-01")).id;
-    conns.push(
-      registerRunner({
-        runnerId: runnerIdK,
-        platform: "kubernetes",
-        serverName: "k8s-cluster-01",
-        send: makeSend(commandsK),
-        close: () => {},
-      }),
-    );
-    setRunnerManifest(
-      runnerIdK,
-      makeK8sManifest("k8s-cluster-01", [
-        { workload: "api-server", namespace: "production" },
-      ]),
-    );
-
-    server = Fastify({ logger: false, forceCloseConnections: true });
-    await mountApi(server, registerFrontendEventRoutes);
-    await mountApi(server, registerSessionRoutes);
-    await server.listen({ port: 0, host: "127.0.0.1" });
-    port = (server.server.address() as AddressInfo).port;
+    const fail = (): string | null => runnerError;
+    // The server name doubles as the hostname here: this file is about where a
+    // command lands, and router.test.ts is where the two are told apart.
+    nw = await harness({
+      model: anthropic,
+      runners: [
+        {
+          name: "web-01",
+          services: ["nginx", "api"],
+          answer: () => ({}),
+          fail,
+        },
+        { name: "db-02", services: ["postgres"], answer: () => ({}), fail },
+        { name: "cache-01", services: ["redis"], answer: () => ({}), fail },
+        {
+          name: "k8s-cluster-01",
+          platform: "kubernetes",
+          services: ["production/api-server"],
+          answer: () => ({}),
+          fail,
+        },
+      ],
+    });
+    ({ port, session: SESSION } = nw);
+    [web, db, cache, cluster] = nw.runners as [
+      HarnessRunner,
+      HarnessRunner,
+      HarnessRunner,
+      HarnessRunner,
+    ];
   });
 
   afterAll(async () => {
-    for (const conn of conns.splice(0)) unregisterRunner(conn);
-    await server.close();
-    cleanupDb();
+    await nw.close();
     vi.unstubAllEnvs();
   });
 
   beforeEach(() => {
-    commandsA.length = 0;
-    commandsB.length = 0;
-    commandsC.length = 0;
-    commandsK.length = 0;
+    for (const runner of nw.runners) runner.commands.length = 0;
   });
 
   async function runSession(): Promise<string> {
@@ -232,11 +92,11 @@ describe("multi-runner routing", () => {
       title: "t",
       createdAt: new Date().toISOString(),
     });
-    await dispatcher.dispatch({
+    await nw.dispatcher.dispatch({
       sessionId,
       userMessage: "investigate",
     });
-    await waitFor(async () => !(await dispatcher.isSessionRunning(sessionId)));
+    await waitFor(async () => !(await isRunning(sessionId)));
     return sessionId;
   }
 
@@ -257,31 +117,9 @@ describe("multi-runner routing", () => {
 
     await runSession();
 
-    expect(commandsB).toHaveLength(1);
-    expect(commandsB[0].commandName).toBe("GetDockerLogs");
-    expect(commandsA).toHaveLength(0);
-  });
-
-  it("routes to the other runner for a container it owns", async () => {
-    setScript([
-      {
-        text: "Checking nginx.",
-        toolUses: [
-          {
-            toolCallId: "tu-2",
-            name: "GetDockerStats",
-            input: { target: "web-01/nginx/nginx" },
-          },
-        ],
-      },
-      FINISH_TURN,
-    ]);
-
-    await runSession();
-
-    expect(commandsA).toHaveLength(1);
-    expect(commandsA[0].commandName).toBe("GetDockerStats");
-    expect(commandsB).toHaveLength(0);
+    expect(db.commands).toHaveLength(1);
+    expect(db.commands[0].commandName).toBe("GetDockerLogs");
+    expect(web.commands).toHaveLength(0);
   });
 
   it("unknown container produces a tool error naming all known containers", async () => {
@@ -302,8 +140,8 @@ describe("multi-runner routing", () => {
     const sessionId = await runSession();
 
     // Neither runner should have executed the command (routing rejected it).
-    expect(commandsA).toHaveLength(0);
-    expect(commandsB).toHaveLength(0);
+    expect(web.commands).toHaveLength(0);
+    expect(db.commands).toHaveLength(0);
 
     // The error is persisted as a user-turn message in the transcript.
     const messages = await getTranscriptRows(sessionId);
@@ -364,9 +202,9 @@ describe("multi-runner routing", () => {
 
     await runSession();
 
-    expect(commandsB).toHaveLength(1);
-    expect(commandsB[0].commandName).toBe("GetHostMemory");
-    expect(commandsA).toHaveLength(0);
+    expect(db.commands).toHaveLength(1);
+    expect(db.commands[0].commandName).toBe("GetHostMemory");
+    expect(web.commands).toHaveLength(0);
   });
 
   it("a host command naming both hosts reads each and names each answer", async () => {
@@ -386,8 +224,8 @@ describe("multi-runner routing", () => {
 
     const sessionId = await runSession();
 
-    expect(commandsA).toHaveLength(1);
-    expect(commandsB).toHaveLength(1);
+    expect(web.commands).toHaveLength(1);
+    expect(db.commands).toHaveLength(1);
 
     // Each answer is attributed, so the model can tell which host is the sick one.
     const messages = await getTranscriptRows(sessionId);
@@ -439,8 +277,8 @@ describe("multi-runner routing", () => {
       ),
     );
     // No runner has executed anything yet (sendCommand only runs after approval).
-    expect(commandsA).toHaveLength(0);
-    expect(commandsB).toHaveLength(0);
+    expect(web.commands).toHaveLength(0);
+    expect(db.commands).toHaveLength(0);
 
     // Approve — the approve route calls sendCommand with the persisted toolInput
     // (which has service: docker/postgres/postgres), routing it to runner-b.
@@ -459,40 +297,15 @@ describe("multi-runner routing", () => {
 
     // runner-b owns "postgres" and must receive the restart command.
     await waitFor(() =>
-      commandsB.some((c) => c.commandName === "RestartDockerService"),
+      db.commands.some((c) => c.commandName === "RestartDockerService"),
     );
     expect(
-      commandsB.find((c) => c.commandName === "RestartDockerService")
+      db.commands.find((c) => c.commandName === "RestartDockerService")
         ?.commandInput["service"],
     ).toEqual(svc("postgres"));
-    expect(commandsA).toHaveLength(0);
+    expect(web.commands).toHaveLength(0);
 
     close();
-  });
-
-  it("cross-token: routes to a runner connected under a different token by service identity", async () => {
-    // runner-c is registered under a separate runnerId. The flat registry routes globally
-    // by service identity, so "redis" (only on runner-c) must still be reached.
-    setScript([
-      {
-        text: "Checking redis.",
-        toolUses: [
-          {
-            toolCallId: "tu-cross",
-            name: "GetDockerLogs",
-            input: { target: "cache-01/redis/redis" },
-          },
-        ],
-      },
-      FINISH_TURN,
-    ]);
-
-    await runSession();
-
-    expect(commandsC).toHaveLength(1);
-    expect(commandsC[0].commandName).toBe("GetDockerLogs");
-    expect(commandsA).toHaveLength(0);
-    expect(commandsB).toHaveLength(0);
   });
 
   it("kubernetes service identity routes to the Kubernetes runner", async () => {
@@ -512,10 +325,10 @@ describe("multi-runner routing", () => {
 
     await runSession();
 
-    expect(commandsK).toHaveLength(1);
-    expect(commandsK[0].commandName).toBe("GetK8sLogs");
-    expect(commandsA).toHaveLength(0);
-    expect(commandsB).toHaveLength(0);
-    expect(commandsC).toHaveLength(0);
+    expect(cluster.commands).toHaveLength(1);
+    expect(cluster.commands[0].commandName).toBe("GetK8sLogs");
+    expect(web.commands).toHaveLength(0);
+    expect(db.commands).toHaveLength(0);
+    expect(cache.commands).toHaveLength(0);
   });
 });

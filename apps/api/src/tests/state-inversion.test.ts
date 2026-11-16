@@ -8,31 +8,19 @@ import type {
   SessionListPage,
 } from "@nightwarden/shared";
 
-// A stateful provider: snapshot() reflects everything accumulated, so the loop's
-// per-turn persistence writes real transcript rows.
-vi.mock("../llm/factory.js", () => import("./llm-factory-mock.js"));
+import { fakeAnthropic } from "./fake-anthropic.js";
+import { type ScriptedTurn } from "./fake-model.js";
 
-import { mockCreateProvider } from "./llm-factory-mock.js";
-
-import {
-  createScriptRunner,
-  type ScriptedTurn,
-} from "./contract-fake-provider.js";
-
-const scriptRunner = createScriptRunner();
-mockCreateProvider.mockImplementation(() => scriptRunner.create());
-const setScript = (turns: ScriptedTurn[]): void =>
-  scriptRunner.setScript(turns);
+const anthropic = fakeAnthropic();
+const setScript = (turns: ScriptedTurn[]): void => anthropic.script(turns);
 
 import { useTempDb } from "./temp-db.js";
 import { waitFor } from "./wait.js";
-import { registerFrontendEventRoutes } from "../session/events.js";
 import {
   connectFrontendEvents,
   type FrontendEventFrame,
 } from "./frontend-events-helper.js";
 
-import { registerSessionRoutes } from "../session/routes.js";
 import { getSession } from "../session/store.js";
 import { getRecord } from "../session/record-store.js";
 import { buildInitialContext } from "../agent/context.js";
@@ -44,7 +32,7 @@ describe("state inversion: persistence and reads are API-local", () => {
 
   beforeAll(async () => {
     nw = await harness({
-      routes: [registerFrontendEventRoutes, registerSessionRoutes],
+      model: anthropic,
     });
     ({ port } = nw);
     SESSION = nw.session;
@@ -188,7 +176,7 @@ describe("state inversion: persistence and reads are API-local", () => {
     const { events, close } = await connectFrontendEvents(port, SESSION);
 
     const sessionId = randomUUID();
-    await dispatchAlertSession(sessionId, [
+    await dispatchAlertSession(nw.dispatcher, sessionId, [
       {
         sourceAlertId: `si-${randomUUID()}`,
         labels: {},

@@ -8,7 +8,7 @@ import { stripSystemReminder } from "../system-reminder.js";
 import { connectedPlatforms } from "../policy.js";
 import { retrySummary } from "../../llm/failures.js";
 import type { RetryNotice } from "../../llm/failures.js";
-import { createProvider } from "../../llm/factory.js";
+import { createProvider, languageModel } from "../../llm/factory.js";
 import {
   checkLLMReadiness,
   notConfiguredMessage,
@@ -89,7 +89,10 @@ export interface RunSessionInput {
 
 // The driver: it sets the run up, then loops runOneTurn until a turn ends the
 // run or the time budget runs out and it parks a continue-request.
-export async function runSession(input: RunSessionInput): Promise<RunOutcome> {
+export async function runSession(
+  input: RunSessionInput,
+  providerFetch?: typeof fetch,
+): Promise<RunOutcome> {
   const { sessionId, signal } = input;
 
   const stored = await getSession(sessionId);
@@ -122,6 +125,7 @@ export async function runSession(input: RunSessionInput): Promise<RunOutcome> {
   // loop and sandbox budgets, which are provider-independent.
   const { config: llm, apiKey } = readiness;
   const config = await loadConfig();
+  const model = languageModel(llm, apiKey, providerFetch);
 
   const chat = async (
     provider: LLMProvider,
@@ -194,7 +198,7 @@ export async function runSession(input: RunSessionInput): Promise<RunOutcome> {
     );
     log.info("time budget ended: user chose to end, running closing turn");
     return await standDownTurn(
-      createProvider(systemPrompt, llm, apiKey, { onRetry }),
+      createProvider(model, systemPrompt, llm, { onRetry }),
       "investigation ended after user declined to continue",
     );
   }
@@ -233,7 +237,7 @@ export async function runSession(input: RunSessionInput): Promise<RunOutcome> {
           ),
         })
       : buildChatContext(fleetView, promptOptions, opensInvestigation);
-  const provider = createProvider(systemPrompt, llm, apiKey, { onRetry });
+  const provider = createProvider(model, systemPrompt, llm, { onRetry });
 
   if (seeded.length > 0) {
     // Written immediately so the frontend shows the turn the moment it is sent,
@@ -265,7 +269,7 @@ export async function runSession(input: RunSessionInput): Promise<RunOutcome> {
     // Brand-new session only: refine the title in the background. Chat uses the
     // message; an alert, a compact summary.
     const titleSource = input.userMessage ?? buildAlertTitleSource(allAlerts);
-    void generateSessionTitle(sessionId, titleSource, llm, apiKey);
+    void generateSessionTitle(sessionId, titleSource, model, llm);
   }
 
   // Computed once and never moved, so a run cannot outrun its own clock: every

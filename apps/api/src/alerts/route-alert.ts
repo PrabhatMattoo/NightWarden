@@ -4,7 +4,7 @@ import type { DeliveryContext } from "./delivery.js";
 import { buildSessionMeta } from "../agent/loop/run-session.js";
 import { loadConfig } from "../config/store.js";
 import { admitDelivery } from "../session/alerts-store.js";
-import { dispatcher } from "../dispatcher.js";
+import type { Dispatcher } from "../dispatcher.js";
 import { logger } from "../logger.js";
 import { publishSessionOpened } from "../session/stream.js";
 
@@ -16,6 +16,7 @@ interface Routed {
 // One webhook is one group, routed whole: regrouping on our own clock would
 // replace the user's group_by with a guess.
 export async function routeDelivery(
+  dispatcher: Dispatcher,
   groupKey: string,
   firing: NormalizedAlert[],
   // Required, not defaulted: a caller that forgets it silently tells every

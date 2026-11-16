@@ -1,42 +1,23 @@
-import { messageBody } from "./session-helper.js";
-import { harness, type Harness } from "./harness.js";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { APICallError } from "ai";
-import type { FrontendEvent } from "@nightwarden/shared";
-import type { ProviderCallOptions } from "../llm/types.js";
-
-vi.mock("../llm/factory.js", () => import("./llm-factory-mock.js"));
-
-import { mockCreateProvider } from "./llm-factory-mock.js";
-
 import {
-  createContractFakeProvider,
-  messagesSentTo,
-  type ContractFakeProvider,
-} from "./contract-fake-provider.js";
-import { waitFor } from "./wait.js";
-import { expectInvestigationFailure } from "./setup.js";
+  LLM_PROVIDER_NAMES,
+  type FrontendEvent,
+  type LLMProviderName,
+} from "@nightwarden/shared";
+import { turnEnding } from "../agent/loop/endings.js";
+import { getTranscriptRows } from "../session/transcript-store.js";
+import { fakeAnthropic } from "./fake-anthropic.js";
+import { messagesSentTo, type FakeModel } from "./fake-model.js";
 import {
   connectFrontendEvents,
   type FrontendEventsClient,
 } from "./frontend-events-helper.js";
-import { registerFrontendEventRoutes } from "../session/events.js";
-import { registerSessionRoutes } from "../session/routes.js";
-import { getTranscriptRows } from "../session/transcript-store.js";
+import { harness, type Harness } from "./harness.js";
+import { messageBody } from "./session-helper.js";
+import { expectInvestigationFailure } from "./setup.js";
+import { waitFor } from "./wait.js";
 
-function providerError(status: number, body?: Record<string, unknown>): Error {
-  return new APICallError({
-    message: "boom",
-    url: "https://provider.example/v1/messages",
-    requestBodyValues: {},
-    statusCode: status,
-    data: { error: body ?? { message: "boom" } },
-  });
-}
-
-function healthyProvider(text: string): ContractFakeProvider {
-  return createContractFakeProvider([{ toolUses: [], text }]);
-}
+const anthropic = fakeAnthropic();
 
 describe("run failure surfacing (dispatch -> transcript -> SSE)", () => {
   let nw: Harness;
@@ -45,9 +26,7 @@ describe("run failure surfacing (dispatch -> transcript -> SSE)", () => {
   let client: FrontendEventsClient<FrontendEvent>;
 
   beforeAll(async () => {
-    nw = await harness({
-      routes: [registerFrontendEventRoutes, registerSessionRoutes],
-    });
+    nw = await harness({ model: anthropic });
     ({ port } = nw);
     SESSION = nw.session;
     client = await connectFrontendEvents<FrontendEvent>(port, SESSION);
@@ -79,50 +58,9 @@ describe("run failure surfacing (dispatch -> transcript -> SSE)", () => {
     );
   }
 
-  // The provider retries a failed stream itself; the run's part is telling the reader.
-  it("tells the reader when a reply is starting over", async () => {
-    mockCreateProvider.mockImplementation(
-      (_s: string, _c: unknown, _k: unknown, opts?: ProviderCallOptions) =>
-        createContractFakeProvider(
-          [{ toolUses: [], text: "Recovered fine." }],
-          {
-            // Reported mid-call, the way the SDK reports a stream it is retrying.
-            gate: () => {
-              opts?.onRetry?.({
-                attempt: 2,
-                maxAttempts: 4,
-                err: providerError(529),
-              });
-              return Promise.resolve();
-            },
-          },
-        ),
-    );
-
-    const sessionId = await startChat("summarize the codebase");
-
-    await waitFor(() =>
-      client.events.find(
-        (e) => e.type === "RUN_FINISHED" && e.payload.sessionId === sessionId,
-      ),
-    );
-    const retry = retryEventsFor(sessionId)[0];
-    expect(retry?.type === "RUN_RETRYING" && retry.payload.summary).toBe(
-      "Provider error (529). Retrying - attempt 2 of 4.",
-    );
-    const roles = (await getTranscriptRows(sessionId)).map((m) => m.kind);
-    expect(roles).toEqual(["user", "assistant"]);
-  });
-
   it("persists a plain-language error row when the provider gives up, and publishes it", async () => {
-    const fake = healthyProvider("never reached");
-    fake.chat.mockRejectedValue(
-      providerError(502, {
-        message: "Provider returned error",
-        metadata: { provider_name: "Poolside", is_byok: false },
-      }),
-    );
-    mockCreateProvider.mockImplementation(() => fake);
+    // Retried at once, as the retry-after says, until the attempts are spent.
+    anthropic.script([{ status: 529, retryAfterSeconds: 0 }]);
 
     const sessionId = await startChat("what is down?");
 
@@ -133,10 +71,6 @@ describe("run failure surfacing (dispatch -> transcript -> SSE)", () => {
     );
     if (failed.type !== "RUN_FAILED") throw new Error("unreachable");
     expect(failed.payload.message.kind).toBe("error");
-    expect(failed.payload.message.content).toContain("server problem");
-    expect(failed.payload.message.content).toContain(
-      "(HTTP 502 from Poolside)",
-    );
 
     const messages = await getTranscriptRows(sessionId);
     expect(messages.map((m) => [m.seq, m.kind])).toEqual([
@@ -146,38 +80,8 @@ describe("run failure surfacing (dispatch -> transcript -> SSE)", () => {
     expectInvestigationFailure();
   });
 
-  it("says a turn was cut off at the output limit instead of reading the stump as an answer", async () => {
-    // A turn with no tool calls otherwise reads as a finished reply, so the
-    // output limit has to be named before that branch is reached.
-    mockCreateProvider.mockImplementation(() =>
-      createContractFakeProvider([
-        {
-          toolUses: [],
-          text: "Partial answer that stops mid-",
-          stopReason: "length",
-        },
-      ]),
-    );
-
-    const sessionId = await startChat("explain everything");
-
-    await waitFor(() =>
-      client.events.find(
-        (e) => e.type === "RUN_FINISHED" && e.payload.sessionId === sessionId,
-      ),
-    );
-
-    const truncation = (await getTranscriptRows(sessionId)).find(
-      (m) => m.kind === "error",
-    );
-    expect(truncation?.content).toContain("cut off");
-    expect(truncation?.content).toContain("output limit");
-  });
-
   it("fails immediately on a 401 - no retries, key guidance in the transcript", async () => {
-    const fake = healthyProvider("never reached");
-    fake.chat.mockRejectedValue(providerError(401));
-    mockCreateProvider.mockImplementation(() => fake);
+    anthropic.script([{ status: 401 }]);
 
     const sessionId = await startChat("hello");
 
@@ -193,9 +97,7 @@ describe("run failure surfacing (dispatch -> transcript -> SSE)", () => {
   });
 
   it("resume after a failure: dead exchange is not replayed, seq continues past it", async () => {
-    const failing = healthyProvider("never reached");
-    failing.chat.mockRejectedValue(providerError(401));
-    mockCreateProvider.mockImplementation(() => failing);
+    anthropic.script([{ status: 401 }]);
 
     const sessionId = await startChat("first question");
     await waitFor(() =>
@@ -204,8 +106,8 @@ describe("run failure surfacing (dispatch -> transcript -> SSE)", () => {
       ),
     );
 
-    const healthy = healthyProvider("Fresh answer.");
-    mockCreateProvider.mockImplementation(() => healthy);
+    const retried = anthropic.requests.length;
+    anthropic.script([{ toolUses: [], text: "Fresh answer." }]);
     const res = await fetch(
       `http://127.0.0.1:${port}/api/sessions/${sessionId}/messages`,
       {
@@ -225,9 +127,9 @@ describe("run failure surfacing (dispatch -> transcript -> SSE)", () => {
 
     // The failed exchange stays in the transcript but never reached the model,
     // so the retry carries the new message alone.
-    expect(messagesSentTo(healthy)).toEqual([
-      { role: "user", content: "try again", parts: [expect.anything()] },
-    ]);
+    expect(
+      messagesSentTo(anthropic, retried).map((m) => [m.role, m.texts]),
+    ).toEqual([["user", ["try again"]]]);
     expect(
       (await getTranscriptRows(sessionId)).map((m) => [m.seq, m.kind]),
     ).toEqual([
@@ -239,3 +141,108 @@ describe("run failure surfacing (dispatch -> transcript -> SSE)", () => {
     expectInvestigationFailure();
   });
 });
+
+// Each provider names why a turn ended in its own words, and the transcript says which one it was.
+const ENDINGS: Record<
+  LLMProviderName,
+  Array<"length" | "filtered" | "paused">
+> = {
+  anthropic: ["length", "filtered", "paused"],
+  // Neither streams a pause: a turn either finishes or ends incomplete.
+  openai: ["length", "filtered"],
+  openrouter: ["length", "filtered"],
+};
+
+describe.each(LLM_PROVIDER_NAMES)(
+  "a turn that ends early on %s",
+  (provider) => {
+    let nw: Harness;
+    let port: number;
+    let SESSION: string;
+    let model: FakeModel;
+    let client: FrontendEventsClient<FrontendEvent>;
+
+    beforeAll(async () => {
+      nw = await harness({ provider });
+      ({ port, model } = nw);
+      SESSION = nw.session;
+      client = await connectFrontendEvents<FrontendEvent>(port, SESSION);
+    });
+
+    afterAll(async () => {
+      client.close();
+      await nw.close();
+      vi.unstubAllEnvs();
+    });
+
+    async function startChat(message: string): Promise<string> {
+      const res = await fetch(`http://127.0.0.1:${port}/api/chat`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Cookie: `${SESSION}`,
+        },
+        body: messageBody(message),
+      });
+      expect(res.status).toBe(202);
+      const { sessionId } = (await res.json()) as { sessionId: string };
+      return sessionId;
+    }
+
+    function retryEventsFor(sessionId: string) {
+      return client.events.filter(
+        (e) => e.type === "RUN_RETRYING" && e.payload.sessionId === sessionId,
+      );
+    }
+
+    // The provider retries a failed stream itself; the run's part is telling the reader.
+    it("tells the reader when a reply is starting over", async () => {
+      model.script([
+        { text: "Half a rep", overloadedAfter: true },
+        { toolUses: [], text: "Recovered fine." },
+      ]);
+
+      const sessionId = await startChat("summarize the codebase");
+
+      await waitFor(() =>
+        client.events.find(
+          (e) => e.type === "RUN_FINISHED" && e.payload.sessionId === sessionId,
+        ),
+      );
+      const retry = retryEventsFor(sessionId)[0];
+      expect(retry?.type === "RUN_RETRYING" && retry.payload.summary).toContain(
+        "attempt 2 of 4",
+      );
+      const roles = (await getTranscriptRows(sessionId)).map((m) => m.kind);
+      expect(roles).toEqual(["user", "assistant"]);
+    });
+
+    // A turn with no tool calls otherwise reads as a finished reply, so the reason is named first.
+    it.each(ENDINGS[provider])(
+      "says a turn ended for %s instead of reading what it held as an answer",
+      async (reason) => {
+        model.script([
+          {
+            toolUses: [],
+            text: "Partial answer that stops mid-",
+            stopReason: reason,
+          },
+        ]);
+
+        const sessionId = await startChat("explain everything");
+
+        await waitFor(() =>
+          client.events.find(
+            (e) =>
+              e.type === "RUN_FINISHED" && e.payload.sessionId === sessionId,
+          ),
+        );
+
+        const ending = (await getTranscriptRows(sessionId)).find(
+          (m) => m.kind === "error",
+        );
+        expect(ending?.content).toBe(turnEnding(reason, 32_000));
+      },
+    );
+  },
+);

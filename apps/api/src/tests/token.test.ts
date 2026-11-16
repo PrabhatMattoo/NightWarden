@@ -3,8 +3,6 @@ import { harness, type Harness } from "./harness.js";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import WebSocket from "ws";
 
-import { registerTokenRoutes } from "../auth/token.js";
-import { registerWsRoutes } from "../fleet/server.js";
 import { getFleetView } from "../fleet/connections.js";
 import { getDb } from "../db.js";
 import { generateRunnerToken, touchLastUsed } from "../fleet/runners-store.js";
@@ -31,7 +29,7 @@ describe("Runner token lifecycle (issue 038)", () => {
   let SESSION: string;
 
   beforeAll(async () => {
-    nw = await harness({ routes: [registerTokenRoutes, registerWsRoutes] });
+    nw = await harness();
     ({ port } = nw);
     SESSION = nw.session;
   });

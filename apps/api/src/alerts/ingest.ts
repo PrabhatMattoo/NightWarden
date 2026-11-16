@@ -7,6 +7,7 @@ import {
   type ParsedWebhook,
 } from "./parsers/alertmanager.js";
 import { routeDelivery } from "./route-alert.js";
+import type { Dispatcher } from "../dispatcher.js";
 import {
   findAlertSourceKindByToken,
   setAlertSourceReceived,
@@ -24,6 +25,7 @@ import {
 
 export async function registerAlertRoutes(
   fastify: FastifyInstance,
+  { dispatcher }: { dispatcher: Dispatcher },
 ): Promise<void> {
   const app = fastify.withTypeProvider<ZodTypeProvider>();
   // The body is read in the handler, after the token: a stranger learns nothing
@@ -101,6 +103,7 @@ export async function registerAlertRoutes(
     }
 
     const { stored, skipped } = await routeDelivery(
+      dispatcher,
       parsed.groupKey,
       parsed.firing,
       parsed.delivery,

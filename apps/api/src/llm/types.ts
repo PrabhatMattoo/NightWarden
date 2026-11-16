@@ -81,13 +81,10 @@ export interface ProviderCallOptions {
 /* What the investigation domain talks to. The conversation is passed in rather
    than held, so the transcript the run keeps is the only copy of it. */
 export interface LLMProvider {
-  // `forceTool` is the provider's own tool_choice, so the turn cannot come
-  // back as prose. The report turn depends on that.
   chat(
     messages: readonly ProviderMessage[],
     tools: ToolSchema[],
     onDelta?: OnDelta,
     signal?: AbortSignal,
-    forceTool?: ToolName,
   ): Promise<ChatResponse>;
 }

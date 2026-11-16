@@ -1,6 +1,7 @@
+import type { LanguageModelV4 } from "@ai-sdk/provider";
 import { z } from "zod";
 import type { ResolvedLLMConfig, NormalizedAlert } from "@nightwarden/shared";
-import { createTitleProvider } from "../llm/factory.js";
+import { createProvider } from "../llm/factory.js";
 import { updateSessionTitle } from "./store.js";
 import { publishSessionTitleUpdated } from "./stream.js";
 import { TITLE_SYSTEM_PROMPT } from "../agent/prompts/title.js";
@@ -31,9 +32,8 @@ export function buildAlertTitleSource(alerts: NormalizedAlert[]): string {
     .join("\n");
 }
 
-/* The one tool the title provider is offered. A title in a field cannot carry
-   the preamble a model writes before it, which is what "Here's a thinking
-   process" was: the first four words of a reply that had not started yet. */
+/* The one tool the title call is offered: a title in a field cannot carry the
+   preamble a model writes first, such as "Here's a thinking process". */
 const SET_TITLE = toolSchema(
   "SetTitle",
   `Set the session's title. Call SetTitle once, with the title as its only argument, and write nothing else.`,
@@ -74,13 +74,13 @@ function refine(raw: string): string {
   );
 }
 
-// Fire-and-forget on its own provider, so it cannot block or corrupt the
+// Fire-and-forget on a provider of its own, so it cannot block or corrupt the
 // investigation's stream. A failure leaves the temporary title in place.
 export async function generateSessionTitle(
   sessionId: string,
   source: string,
+  model: LanguageModelV4,
   config: ResolvedLLMConfig,
-  apiKey?: string,
 ): Promise<void> {
   try {
     const trimmed = source.trim();
@@ -91,12 +91,9 @@ export async function generateSessionTitle(
       ...config,
       maxOutputTokens: 1024,
     };
-    const provider = createTitleProvider(
-      TITLE_SYSTEM_PROMPT,
-      titleConfig,
-      apiKey,
-      { minimalReasoning: true },
-    );
+    const provider = createProvider(model, TITLE_SYSTEM_PROMPT, titleConfig, {
+      minimalReasoning: true,
+    });
     // Framed as quoted material inside an instruction: a bare conversational
     // message in the user slot pulls the model into answering it instead.
     const text = `Title this session. Its opening content:\n<content>\n${trimmed}\n</content>`;

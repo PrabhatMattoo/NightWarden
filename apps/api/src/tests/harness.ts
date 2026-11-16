@@ -1,9 +1,14 @@
+import { randomUUID } from "node:crypto";
 import type { AddressInfo } from "node:net";
-import Fastify from "fastify";
-import FastifyWebSocket from "@fastify/websocket";
 import type { FastifyInstance } from "fastify";
-import { dockerServiceKey, type Platform } from "@nightwarden/shared";
+import {
+  dockerServiceKey,
+  type Platform,
+  type LLMProviderName,
+  type RunnerManifest,
+} from "@nightwarden/shared";
 import { parseRunnerMessage } from "@nightwarden/shared/schemas";
+import type { Dispatcher } from "../dispatcher.js";
 import { generateRunnerToken } from "../fleet/runners-store.js";
 import {
   registerRunner,
@@ -12,7 +17,12 @@ import {
 } from "../fleet/connections.js";
 import type { RunnerConnection } from "../fleet/connections.js";
 import { resolveCommand } from "../fleet/transport.js";
-import { mountApi } from "./api-server.js";
+import { buildServer } from "../server.js";
+import { runningSessionIds } from "../session/status-store.js";
+import { fakeAnthropic } from "./fake-anthropic.js";
+import type { FakeModel } from "./fake-model.js";
+import { fakeOpenAI } from "./fake-openai.js";
+import { fakeOpenRouter } from "./fake-openrouter.js";
 import {
   dockerService,
   kubernetesManifest,
@@ -20,12 +30,11 @@ import {
   manifest,
 } from "./manifest-helper.js";
 import { issueTestSession } from "./session-helper.js";
-import { useTempDb } from "./temp-db.js";
+import { configureTestLLM, useTempDb } from "./temp-db.js";
+import { waitFor } from "./wait.js";
 
 // It decides nothing: what a runner replies is the test's own, passed in as
 // `answer`, so a test still reads as what it is asserting.
-
-type Registrar = (instance: FastifyInstance) => Promise<void>;
 
 export interface Command {
   commandName: string;
@@ -36,11 +45,17 @@ export interface RunnerSpec {
   platform?: Platform;
   // Also the runner's address in a `runner` argument and in the fleet summary.
   name?: string;
+  // The runner row's id; a fresh one when the test needs no row behind it.
+  id?: string;
   /* Docker target names, or "namespace/workload" for Kubernetes. Advertised
      exactly as the real manifest would, so a target key resolves. */
   services?: string[];
+  // Advertised in place of the one `services` builds.
+  manifest?: RunnerManifest;
   // What the fake socket sends back. Omitted answers every command with [].
   answer?: (command: Command) => unknown;
+  // The error the runner reports instead of an answer, or null to answer.
+  fail?: (command: Command) => string | null;
   // Records each command and never answers, as a runner that hung would.
   silent?: boolean;
 }
@@ -51,10 +66,14 @@ export interface HarnessRunner {
   connection: RunnerConnection;
   // Every command this runner was sent, in order, so no test keeps its own array.
   commands: Command[];
+  disconnect(): void;
 }
 
 export interface Harness {
   server: FastifyInstance;
+  dispatcher: Dispatcher;
+  // The model provider every run of this server reaches.
+  model: FakeModel;
   port: number;
   // Ready to spread into a request: { headers: harness.headers }.
   headers: { cookie: string };
@@ -66,15 +85,29 @@ export interface Harness {
 }
 
 export interface HarnessOptions {
-  routes?: Registrar[];
   runners?: RunnerSpec[];
+  // Which provider runs reach, configured as a person would; Anthropic unless named.
+  provider?: LLMProviderName;
+  // A fake the test keeps a handle on, speaking that provider's wire.
+  model?: FakeModel;
   // Off for a test that only needs inject(), which needs no open port.
   listen?: boolean;
 }
 
+const FAKES: Record<LLMProviderName, () => FakeModel> = {
+  anthropic: fakeAnthropic,
+  openai: fakeOpenAI,
+  openrouter: fakeOpenRouter,
+};
+
+// A fake speaking `provider`'s wire, for a test that builds its own dispatcher.
+export function fakeModelFor(provider: LLMProviderName): FakeModel {
+  return FAKES[provider]();
+}
+
 function manifestFor(
   spec: Required<Pick<RunnerSpec, "platform" | "name">> & RunnerSpec,
-) {
+): RunnerManifest {
   const services = spec.services ?? [];
   const server = spec.name;
   if (spec.platform === "kubernetes") {
@@ -107,6 +140,61 @@ function manifestFor(
   );
 }
 
+// A connected runner on a fake socket, parsing what it is sent as a runner does.
+export function fakeRunner(spec: RunnerSpec = {}): HarnessRunner {
+  const platform = spec.platform ?? "docker";
+  const name = spec.name ?? `test-runner-${randomUUID().slice(0, 8)}`;
+  const id = spec.id ?? randomUUID();
+  const commands: Command[] = [];
+  const connection = registerRunner({
+    runnerId: id,
+    platform,
+    serverName: name,
+    send: (raw: string) => {
+      // Parsed as the runner parses it, so a command the API built wrongly fails the test.
+      const parsed = parseRunnerMessage(raw);
+      if (!parsed.ok)
+        throw new Error(`malformed runner message: ${parsed.reason}`);
+      const msg = parsed.message;
+      if (msg.type !== "command") return;
+      const { payload } = msg;
+      const command = {
+        commandName: payload.commandName,
+        commandInput: payload.commandInput,
+      };
+      commands.push(command);
+      if (spec.silent === true) return;
+      const error = spec.fail?.(command) ?? null;
+      resolveCommand(
+        error === null
+          ? {
+              correlationId: payload.correlationId,
+              success: true,
+              result: spec.answer ? spec.answer(command) : [],
+            }
+          : {
+              correlationId: payload.correlationId,
+              success: false,
+              result: null,
+              error,
+            },
+      );
+    },
+    close: () => {},
+  });
+  setRunnerManifest(
+    id,
+    spec.manifest ?? manifestFor({ ...spec, platform, name }),
+  );
+  return {
+    id,
+    name,
+    connection,
+    commands,
+    disconnect: () => unregisterRunner(connection),
+  };
+}
+
 export async function harness(options: HarnessOptions = {}): Promise<Harness> {
   const cleanupDb = await useTempDb();
   const session = await issueTestSession();
@@ -116,48 +204,16 @@ export async function harness(options: HarnessOptions = {}): Promise<Harness> {
       const platform = spec.platform ?? "docker";
       const name = spec.name ?? `test-runner-${index + 1}`;
       const id = (await generateRunnerToken(platform, name)).id;
-      const commands: Command[] = [];
-      const connection = registerRunner({
-        runnerId: id,
-        platform,
-        serverName: name,
-        send: (raw: string) => {
-          // Parsed as the runner parses it, so a command the API built wrongly fails the test.
-          const parsed = parseRunnerMessage(raw);
-          if (!parsed.ok)
-            throw new Error(`malformed runner message: ${parsed.reason}`);
-          const msg = parsed.message;
-          if (msg.type !== "command") return;
-          const { payload } = msg;
-          const command = {
-            commandName: payload.commandName,
-            commandInput: payload.commandInput,
-          };
-          commands.push(command);
-          if (spec.silent === true) return;
-          resolveCommand({
-            correlationId: payload.correlationId,
-            success: true,
-            result: spec.answer ? spec.answer(command) : [],
-          });
-        },
-        close: () => {},
-      });
-      setRunnerManifest(id, manifestFor({ ...spec, platform, name }));
-      return { id, name, connection, commands };
+      return fakeRunner({ ...spec, platform, name, id });
     }),
   );
 
-  // trustProxy as index.ts sets it, so x-forwarded-proto behaves as in production.
-  const server = Fastify({
-    logger: false,
-    trustProxy: true,
-    forceCloseConnections: true,
+  const provider = options.provider ?? "anthropic";
+  if (provider !== "anthropic") await configureTestLLM(provider);
+  const model = options.model ?? FAKES[provider]();
+  const { server, dispatcher } = await buildServer({
+    providerFetch: model.fetch,
   });
-  // Registered always: the ws route needs it before mounting, and a test that
-  // never opens a socket pays nothing for it.
-  await server.register(FastifyWebSocket);
-  await mountApi(server, ...(options.routes ?? []));
   let port = 0;
   if (options.listen === false) {
     await server.ready();
@@ -168,6 +224,8 @@ export async function harness(options: HarnessOptions = {}): Promise<Harness> {
 
   return {
     server,
+    dispatcher,
+    model,
     port,
     session,
     headers: { cookie: `${session}` },
@@ -180,7 +238,10 @@ export async function harness(options: HarnessOptions = {}): Promise<Harness> {
     },
     url: (path) => `http://127.0.0.1:${port}${path}`,
     async close() {
-      for (const entry of runners) unregisterRunner(entry.connection);
+      // A run left working would write into the next test's database.
+      for (const id of await runningSessionIds()) dispatcher.stop(id);
+      await waitFor(async () => (await runningSessionIds()).length === 0);
+      for (const entry of runners) entry.disconnect();
       await server.close();
       cleanupDb();
     },

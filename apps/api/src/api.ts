@@ -9,6 +9,7 @@ import { registerAlertRoutes } from "./alerts/ingest.js";
 import { registerAuthRoutes } from "./auth/routes.js";
 import { registerTokenRoutes } from "./auth/token.js";
 import { registerConfigRoutes } from "./config/routes.js";
+import type { Dispatcher } from "./dispatcher.js";
 import { registerInstallRoutes } from "./fleet/install.js";
 import { registerRunnerRoutes } from "./fleet/routes.js";
 import { registerWsRoutes } from "./fleet/server.js";
@@ -18,7 +19,12 @@ import { installRouteSchemas } from "./route-schemas.js";
 import { registerFrontendEventRoutes } from "./session/events.js";
 import { registerSessionRoutes } from "./session/routes.js";
 
-const ROUTES = [
+// What a route needs from the composition root, beyond the request itself.
+interface ApiDeps {
+  dispatcher: Dispatcher;
+}
+
+const ROUTES: Array<(api: FastifyInstance, deps: ApiDeps) => Promise<void>> = [
   registerAuthRoutes,
   registerTokenRoutes,
   registerWsRoutes,
@@ -34,7 +40,10 @@ const ROUTES = [
 
 // Under /api so the frontend owns every other path: /integrations/metrics
 // and /sessions/:id each name both a page and an endpoint.
-export async function registerApi(fastify: FastifyInstance): Promise<void> {
+export async function registerApi(
+  fastify: FastifyInstance,
+  deps: ApiDeps,
+): Promise<void> {
   await fastify.register(FastifyWebSocket);
   await fastify.register(FastifySwagger, {
     openapi: {
@@ -50,7 +59,7 @@ export async function registerApi(fastify: FastifyInstance): Promise<void> {
   await fastify.register(
     async (api) => {
       installRouteSchemas(api);
-      for (const register of ROUTES) await register(api);
+      for (const register of ROUTES) await register(api, deps);
     },
     { prefix: "/api" },
   );

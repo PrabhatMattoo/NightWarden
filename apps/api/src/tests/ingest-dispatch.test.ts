@@ -9,22 +9,14 @@ import {
 } from "vitest";
 import { harness, type Harness } from "./harness.js";
 import { expectDuplicateAlert } from "./setup.js";
+import { fakeAnthropic } from "./fake-anthropic.js";
 import {
-  createContractFakeProvider,
   createGateController,
   messagesSentTo,
-  type ContractFakeProvider,
   type ScriptedTurn,
-} from "./contract-fake-provider.js";
-
-vi.mock("../llm/factory.js", () => import("./llm-factory-mock.js"));
-
-import { mockCreateProvider } from "./llm-factory-mock.js";
-
+} from "./fake-model.js";
 import { generateAlertSourceToken } from "../integrations/alert-sources.js";
-import { registerAlertRoutes } from "../alerts/ingest.js";
-import { registerSessionRoutes } from "../session/routes.js";
-import { dispatcher } from "../dispatcher.js";
+import { isRunning } from "../session/status-store.js";
 import { updateConfig } from "../config/store.js";
 import { markAlertCleared } from "../session/alerts-store.js";
 import { recordRunFailure } from "../session/status-store.js";
@@ -44,20 +36,18 @@ const FINISH: ScriptedTurn[] = [
   { toolUses: [], text: "Investigation complete." },
 ];
 
-// Shared FIFO gate. In gated mode a run parks on chat() so it stays live long
-// enough to assert against it; releaseAll() lets it finish.
+const anthropic = fakeAnthropic(FINISH);
+
+// Shared FIFO gate. In gated mode a run parks on its request so it stays live
+// long enough to assert against it; releaseAll() lets it finish.
 const gate = createGateController();
 
 function useGatedProvider(): void {
-  mockCreateProvider.mockImplementation(() =>
-    createContractFakeProvider(FINISH, { gate: gate.gate }),
-  );
+  anthropic.park(gate.gate);
 }
 
 function useImmediateProvider(): void {
-  mockCreateProvider.mockImplementation(() =>
-    createContractFakeProvider(FINISH),
-  );
+  anthropic.park();
 }
 
 interface AlertSpec {
@@ -101,7 +91,7 @@ describe("POST /alerts/ingest: one delivery, one investigation", () => {
 
   beforeAll(async () => {
     nw = await harness({
-      routes: [registerAlertRoutes, registerSessionRoutes],
+      model: anthropic,
       runners: [{ name: "host-web-01", services: ["web-01"] }],
       listen: false,
     });
@@ -143,8 +133,7 @@ describe("POST /alerts/ingest: one delivery, one investigation", () => {
     const { facts } = await listSessionFacts(100, 0, "investigation");
     const live: string[] = [];
     for (const s of facts) {
-      if (await dispatcher.isSessionRunning(s.sessionId))
-        live.push(s.sessionId);
+      if (await isRunning(s.sessionId)) live.push(s.sessionId);
     }
     return live;
   }
@@ -210,16 +199,15 @@ describe("POST /alerts/ingest: one delivery, one investigation", () => {
   it("tells the agent how many alerts the sender left out of a delivery", async () => {
     useGatedProvider();
     const before = await countInvestigations();
+    const sent = anthropic.requests.length;
 
     await ingest(
       delivery('{}:{alertname="Withheld"}', [{ fingerprint: "wh-1" }], 6),
     );
     await waitFor(async () => (await countInvestigations()) === before + 1);
 
-    const provider = mockCreateProvider.mock.results.at(-1)
-      ?.value as ContractFakeProvider;
-    await waitFor(() => provider.chat.mock.calls.length > 0);
-    expect(messagesSentTo(provider)[0]?.content).toContain(
+    await waitFor(() => anthropic.requests.length > sent);
+    expect(messagesSentTo(anthropic, sent)[0]?.texts.join("\n")).toContain(
       "left 6 further alerts out of this delivery",
     );
   });
@@ -315,7 +303,10 @@ describe("POST /alerts/ingest: one delivery, one investigation", () => {
       const sessionId = await failedInvestigation("retry-1");
       await recordRunFailure(sessionId, "transient");
 
-      const pass = await reconcileRecovery(Date.now() + 3_600_000);
+      const pass = await reconcileRecovery(
+        nw.dispatcher,
+        Date.now() + 3_600_000,
+      );
       expect(pass.retried).toBe(1);
       await settle();
     });
@@ -328,7 +319,10 @@ describe("POST /alerts/ingest: one delivery, one investigation", () => {
       for (let i = 0; i < 3; i++)
         await recordRunFailure(sessionId, "transient");
 
-      const pass = await reconcileRecovery(Date.now() + 3_600_000);
+      const pass = await reconcileRecovery(
+        nw.dispatcher,
+        Date.now() + 3_600_000,
+      );
       expect(pass.retried).toBe(0);
     });
 
@@ -339,7 +333,10 @@ describe("POST /alerts/ingest: one delivery, one investigation", () => {
       // A rejected key, an empty account, a model that does not exist: each
       // fails identically every time, so retrying only writes more failures.
       await recordRunFailure(sessionId, "permanent");
-      const pass = await reconcileRecovery(Date.now() + 3_600_000);
+      const pass = await reconcileRecovery(
+        nw.dispatcher,
+        Date.now() + 3_600_000,
+      );
       expect(pass.retried).toBe(0);
     });
   });
@@ -420,7 +417,7 @@ describe("POST /alerts/ingest: one delivery, one investigation", () => {
           headers: nw.headers,
         });
       expect((await start()).statusCode).toBe(202);
-      expect(await dispatcher.isSessionRunning(held!.sessionId)).toBe(true);
+      expect(await isRunning(held!.sessionId)).toBe(true);
       expect((await start()).statusCode).toBe(409);
 
       await markAlertCleared(

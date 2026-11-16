@@ -1,9 +1,7 @@
-import { runSession } from "./agent/loop/run-session.js";
 import type { RunSessionInput, RunOutcome } from "./agent/loop/run-session.js";
 import {
   claimRun,
   clearRunFailure,
-  isRunning,
   recordRunFailure,
   releaseRun,
 } from "./session/status-store.js";
@@ -22,14 +20,12 @@ import type { TranscriptRow } from "@nightwarden/shared";
 
 // Alert, chat, Start and resume all funnel through here; what an alert joins is
 // the sender's group key, decided where the alert is stored.
-interface Dispatcher {
+export interface Dispatcher {
   // Answers whether the run started. False means the session already holds a
   // run, which is a race the caller reports rather than a fault.
   dispatch(input: RunSessionInput): Promise<boolean>;
   // Runs a session its opening transaction already claimed as running.
   launch(input: RunSessionInput): void;
-  // guards the 409 on POST /sessions/:id/messages
-  isSessionRunning(sessionId: string): Promise<boolean>;
   // Aborts the in-flight LLM request for a running session. Returns false if
   // the session isn't currently running.
   stop(sessionId: string): boolean;
@@ -145,12 +141,6 @@ export function createDispatcher(opts: DispatcherOptions): Dispatcher {
     dispatch: start,
     launch,
 
-    // Read from the row, not from memory: a run that died with the process is
-    // not running, and only the row survives to say so.
-    async isSessionRunning(sessionId: string): Promise<boolean> {
-      return await isRunning(sessionId);
-    },
-
     stop(sessionId: string): boolean {
       const controller = controllers.get(sessionId);
       if (!controller) return false;
@@ -159,5 +149,3 @@ export function createDispatcher(opts: DispatcherOptions): Dispatcher {
     },
   };
 }
-
-export const dispatcher = createDispatcher({ run: runSession });

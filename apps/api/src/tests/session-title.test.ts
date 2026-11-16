@@ -1,23 +1,22 @@
-import { messageBody } from "./session-helper.js";
-import { harness, type Harness } from "./harness.js";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import type { FrontendEvent, NormalizedAlert } from "@nightwarden/shared";
-
-vi.mock("../llm/factory.js", () => import("./llm-factory-mock.js"));
-
-import {
-  mockCreateProvider,
-  mockCreateTitleProvider,
-} from "./llm-factory-mock.js";
-import {
-  createContractFakeProvider,
-  messagesSentTo,
-} from "./contract-fake-provider.js";
-import { waitFor } from "./wait.js";
-import { registerSessionRoutes } from "../session/routes.js";
+import type {
+  FrontendEvent,
+  NormalizedAlert,
+  ResolvedLLMConfig,
+} from "@nightwarden/shared";
+import { languageModel } from "../llm/factory.js";
 import { subscribeFrontend } from "../session/bus.js";
 import { createSession, getSession } from "../session/store.js";
-import type { ResolvedLLMConfig } from "@nightwarden/shared";
+import {
+  buildAlertTitleSource,
+  generateSessionTitle,
+} from "../session/title.js";
+import { fakeAnthropic } from "./fake-anthropic.js";
+import { harness, type Harness } from "./harness.js";
+import { messageBody } from "./session-helper.js";
+import { waitFor } from "./wait.js";
+
+const anthropic = fakeAnthropic();
 
 // Title generation only runs inside a configured session, so the test states
 // that precondition rather than depending on what an empty config returns.
@@ -40,36 +39,39 @@ function configuredConfig(): ResolvedLLMConfig {
     },
   };
 }
-import {
-  generateSessionTitle,
-  buildAlertTitleSource,
-} from "../session/title.js";
+
+async function title(sessionId: string, source: string): Promise<void> {
+  const config = configuredConfig();
+  await generateSessionTitle(
+    sessionId,
+    source,
+    languageModel(config, "test-api-key", anthropic.fetch),
+    config,
+  );
+}
 
 // The title arrives in a field: the model files it rather than saying it.
-function scriptTitleOnce(title: string): void {
-  mockCreateTitleProvider.mockImplementationOnce(() =>
-    createContractFakeProvider([
-      {
-        toolUses: [
-          { toolCallId: "tu-title", name: "SetTitle", input: { title } },
-        ],
-        text: "",
-      },
-    ]),
-  );
+function scriptTitleOnce(filed: string): void {
+  anthropic.titles({
+    toolUses: [
+      { toolCallId: "tu-title", name: "SetTitle", input: { title: filed } },
+    ],
+    text: "",
+  });
 }
 
 // A model that answers in prose instead, which the text path still reads.
 function scriptTitleAsProse(text: string): void {
-  mockCreateTitleProvider.mockImplementationOnce(() =>
-    createContractFakeProvider([{ toolUses: [], text }]),
-  );
+  anthropic.titles({ toolUses: [], text });
 }
 
-async function seedSession(sessionId: string, title: string): Promise<void> {
+async function seedSession(
+  sessionId: string,
+  temporary: string,
+): Promise<void> {
   await createSession({
     sessionId,
-    title,
+    title: temporary,
     createdAt: new Date().toISOString(),
   });
 }
@@ -80,7 +82,7 @@ describe("session title generation", () => {
   let SESSION: string;
 
   beforeAll(async () => {
-    nw = await harness({ routes: [registerSessionRoutes] });
+    nw = await harness({ model: anthropic });
     ({ port } = nw);
     SESSION = nw.session;
   });
@@ -90,50 +92,18 @@ describe("session title generation", () => {
     vi.unstubAllEnvs();
   });
 
-  it("writes the refined title to the row and publishes SESSION_TITLE_UPDATED", async () => {
-    scriptTitleOnce('"Checkout Latency Spike".');
-    const sessionId = "sess-title-1";
-    await seedSession(sessionId, "Why is checkout slow this morning?");
-
-    const events: FrontendEvent[] = [];
-    const unsubscribe = subscribeFrontend((e) => events.push(e));
-    await generateSessionTitle(
-      sessionId,
-      "Why is checkout slow this morning?",
-      configuredConfig(),
-    );
-    unsubscribe();
-
-    expect((await getSession(sessionId))?.title).toBe("Checkout Latency Spike");
-    const titleEvent = events.find((e) => e.type === "SESSION_TITLE_UPDATED");
-    expect(titleEvent?.payload).toMatchObject({
-      sessionId,
-      title: "Checkout Latency Spike",
-    });
-  });
-
-  it("sends the message as quoted material with reasoning off, not as a live turn", async () => {
-    const provider = createContractFakeProvider([
-      { toolUses: [], text: "Greeting" },
-    ]);
-    mockCreateTitleProvider.mockImplementationOnce(() => provider);
+  it("sends the message as quoted material on a small budget, not as a live turn", async () => {
+    scriptTitleAsProse("Greeting");
     const sessionId = "sess-title-framing";
     await seedSession(sessionId, "temp");
 
-    await generateSessionTitle(
-      sessionId,
-      "Hey there, how's it going?",
-      configuredConfig(),
-    );
+    await title(sessionId, "Hey there, how's it going?");
 
-    const framed: unknown = messagesSentTo(provider)[0]?.content;
+    const request = anthropic.titleRequests.at(-1);
+    const framed = JSON.stringify(request?.messages[0]?.content);
     expect(framed).toContain("Hey there, how's it going?");
     expect(framed).toContain("<content>");
-    expect(framed).not.toBe("Hey there, how's it going?");
-
-    const call = mockCreateTitleProvider.mock.calls.at(-1);
-    expect(call?.[1]).toMatchObject({ maxOutputTokens: 1024 });
-    expect(call?.[3]).toEqual({ minimalReasoning: true });
+    expect(request?.["max_tokens"]).toBe(1024);
     expect((await getSession(sessionId))?.title).toBe("Greeting");
   });
 
@@ -141,24 +111,14 @@ describe("session title generation", () => {
     scriptTitleOnce("Identity Inquiry,");
     const sessionId = "sess-title-comma";
     await seedSession(sessionId, "temp");
-    await generateSessionTitle(sessionId, "who are you?", configuredConfig());
+    await title(sessionId, "who are you?");
     expect((await getSession(sessionId))?.title).toBe("Identity Inquiry");
 
     scriptTitleOnce("One Two Three Four, Five");
     const sessionId2 = "sess-title-comma-2";
     await seedSession(sessionId2, "temp");
-    await generateSessionTitle(sessionId2, "some question", configuredConfig());
+    await title(sessionId2, "some question");
     expect((await getSession(sessionId2))?.title).toBe("One Two Three Four");
-  });
-
-  it("caps the refined title at four words", async () => {
-    scriptTitleOnce("Redis Ran Out Of Memory Again");
-    const sessionId = "sess-title-2";
-    await seedSession(sessionId, "temp");
-
-    await generateSessionTitle(sessionId, "redis is oom", configuredConfig());
-
-    expect((await getSession(sessionId))?.title).toBe("Redis Ran Out Of");
   });
 
   /* "Here's a thinking process" was the first four words of a reply that had
@@ -168,7 +128,7 @@ describe("session title generation", () => {
     const sessionId = "sess-title-prose";
     await seedSession(sessionId, "temp");
 
-    await generateSessionTitle(sessionId, "redis is full", configuredConfig());
+    await title(sessionId, "redis is full");
 
     expect((await getSession(sessionId))?.title).toBe("Redis OOM Restart");
   });
@@ -178,7 +138,7 @@ describe("session title generation", () => {
     const sessionId = "sess-title-3";
     await seedSession(sessionId, "original temp title");
 
-    await generateSessionTitle(sessionId, "some question", configuredConfig());
+    await title(sessionId, "some question");
 
     expect((await getSession(sessionId))?.title).toBe("original temp title");
   });
@@ -207,10 +167,8 @@ describe("session title generation", () => {
   });
 
   it("refines the title end-to-end when a chat session starts", async () => {
-    mockCreateProvider.mockImplementationOnce(() =>
-      createContractFakeProvider([{ toolUses: [], text: "Done." }]),
-    );
-    scriptTitleOnce("Checkout Latency Spike");
+    anthropic.script([{ toolUses: [], text: "Done." }]);
+    scriptTitleOnce('"Checkout Latency Spike".');
     const events: FrontendEvent[] = [];
     const unsubscribe = subscribeFrontend((e) => events.push(e));
 

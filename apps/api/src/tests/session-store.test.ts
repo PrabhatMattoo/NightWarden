@@ -49,6 +49,8 @@ import { buildTranscript } from "../session/transcript.js";
 import {} from "../integrations/store.js";
 import { verifyRecovery } from "../verification/recovery.js";
 import { reconcileRecovery } from "../verification/reconciler.js";
+import { dispatcherFor } from "../server.js";
+import { fakeAnthropic } from "./fake-anthropic.js";
 
 function meta(overrides: Partial<SessionMeta> = {}): SessionMeta {
   return {
@@ -666,7 +668,7 @@ describe("API-local session store", () => {
         expect(await statusOf(sessionId)).toBe("completed");
 
         rulesAnswer([]);
-        await reconcileRecovery();
+        await reconcileRecovery(dispatcherFor(fakeAnthropic().fetch));
 
         expect(await statusOf(sessionId)).toBe("resolved");
       });

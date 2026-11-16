@@ -1,15 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { seedAlertSession } from "./session-helper.js";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { NormalizedAlert, TranscriptRow } from "@nightwarden/shared";
+import { fakeAnthropic } from "./fake-anthropic.js";
+import { dispatcherFor } from "../server.js";
 
-vi.mock("../llm/factory.js", () => import("./llm-factory-mock.js"));
-
-import { mockCreateProvider } from "./llm-factory-mock.js";
-import { createScriptRunner } from "./contract-fake-provider.js";
-
-const scriptRunner = createScriptRunner();
-mockCreateProvider.mockImplementation(() => scriptRunner.create());
+// The reconciler's retries reach this provider.
+const anthropic = fakeAnthropic();
+const dispatcher = dispatcherFor(anthropic.fetch);
 
 import { getDb } from "../db.js";
 import {
@@ -90,7 +88,7 @@ describe("recovering runs a restart interrupted", () => {
   });
 
   it("fails a run killed mid-turn as transient, answers its call as interrupted, and the reconciler retries it", async () => {
-    scriptRunner.setScript([{ text: "Done.", toolUses: [] }]);
+    anthropic.script([{ text: "Done.", toolUses: [] }]);
     const sessionId = await alertSession();
     await appendTranscriptRows([callTurn(sessionId, 0, "tu-edit", "Edit")]);
     await claimRun(sessionId);
@@ -111,7 +109,7 @@ describe("recovering runs a restart interrupted", () => {
       "result unknown",
     );
 
-    const pass = await reconcileRecovery();
+    const pass = await reconcileRecovery(dispatcher);
     expect(pass.retried).toBe(1);
     await waitFor(async () => !(await isRunning(sessionId)));
   });
@@ -122,7 +120,7 @@ describe("recovering runs a restart interrupted", () => {
     await claimRun(sessionId);
     await recoverDeadRuns();
 
-    const pass = await reconcileRecovery();
+    const pass = await reconcileRecovery(dispatcher);
     await updateConfig({ maxRetries: 3 });
 
     expect(await runFailure(sessionId)).toMatchObject({ attempts: 1 });

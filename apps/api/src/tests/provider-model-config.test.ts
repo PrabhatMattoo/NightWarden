@@ -10,7 +10,6 @@ import {
 } from "vitest";
 import { initSecrets } from "../secrets.js";
 import { harness, type Harness } from "./harness.js";
-import { registerConfigRoutes } from "../config/routes.js";
 import { clearTestLLM, configureTestLLM } from "./temp-db.js";
 import { forgetCapabilities } from "../llm/model-capabilities.js";
 import { requestHeaders, requestUrl } from "./wire-helper.js";
@@ -102,7 +101,7 @@ describe("provider/model config seam", () => {
     // credentials are encrypted with it, so stubbing it afterwards invalidates both.
     vi.stubEnv("NIGHTWARDEN_SECRET_KEY", "test-secret-key-for-aes256-gcm-!!!");
     initSecrets();
-    nw = await harness({ routes: [registerConfigRoutes] });
+    nw = await harness();
     SESSION = nw.session;
   });
 

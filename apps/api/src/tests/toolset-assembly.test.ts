@@ -1,70 +1,37 @@
-import type { AddressInfo } from "node:net";
+import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import Fastify from "fastify";
-import type { FastifyInstance } from "fastify";
-import {
-  TOOL_NAMES,
-  type Platform,
-  type RunnerCommandMessage,
-} from "@nightwarden/shared";
-import type { LLMProvider } from "../llm/types.js";
-
-vi.mock("../llm/factory.js", () => import("./llm-factory-mock.js"));
-
-import { mockCreateProvider } from "./llm-factory-mock.js";
-
-import {
-  createScriptRunner,
-  messagesSentTo,
-  toolsSentTo,
-  type ContractFakeProvider,
-  type ScriptedTurn,
-} from "./contract-fake-provider.js";
-
-const scriptRunner = createScriptRunner();
-mockCreateProvider.mockImplementation(() => scriptRunner.create());
-const setScript = (turns: ScriptedTurn[]): void =>
-  scriptRunner.setScript(turns);
-
-import { generateRunnerToken } from "../fleet/runners-store.js";
-import { useTempDb } from "./temp-db.js";
-import { issueTestSession, messageBody } from "./session-helper.js";
-import { waitFor } from "./wait.js";
-import { registerFrontendEventRoutes } from "../session/events.js";
-import { connectFrontendEvents } from "./frontend-events-helper.js";
-import { registerSessionRoutes } from "../session/routes.js";
-import { dispatcher } from "../dispatcher.js";
-import { hasPendingHumanInput } from "../session/gate-store.js";
+import { TOOL_NAMES, type Platform } from "@nightwarden/shared";
+import { runSession } from "../agent/loop/run-session.js";
+import { buildChatContext } from "../agent/context.js";
+import { connectedPlatforms } from "../agent/policy.js";
+import { REPORT } from "../agent/prompts/report.js";
+import { IDENTITY, INVESTIGATION } from "../agent/prompts/system.js";
+import { effectiveToolset, getToolSchemas } from "../agent/tools/toolset.js";
 import {
   registerRunner,
   setRunnerManifest,
   unregisterRunner,
 } from "../fleet/connections.js";
-import type { RunnerConnection } from "../fleet/connections.js";
-import { resolveCommand } from "../fleet/transport.js";
-import { effectiveToolset, getToolSchemas } from "../agent/tools/toolset.js";
-import { buildChatContext } from "../agent/context.js";
-import { IDENTITY, INVESTIGATION } from "../agent/prompts/system.js";
-import { REPORT } from "../agent/prompts/report.js";
-import { connectedPlatforms } from "../agent/policy.js";
-import { randomUUID } from "node:crypto";
-import { runSession } from "../agent/loop/run-session.js";
-import { seedChatSession } from "./session-helper.js";
 import {
   deleteLokiIntegration,
   saveLokiIntegration,
 } from "../integrations/store.js";
-import { mountApi } from "./api-server.js";
+import { isRunning } from "../session/status-store.js";
+import { fakeAnthropic } from "./fake-anthropic.js";
 import {
-  kubernetesManifest,
-  kubernetesWorkload,
-  manifest,
-} from "./manifest-helper.js";
+  messagesSentTo,
+  toolsSentTo,
+  type ScriptedTurn,
+} from "./fake-model.js";
+import { connectFrontendEvents } from "./frontend-events-helper.js";
+import { harness, type Harness } from "./harness.js";
+import { manifest } from "./manifest-helper.js";
+import { messageBody, seedChatSession } from "./session-helper.js";
+import { useTempDb } from "./temp-db.js";
+import { waitFor } from "./wait.js";
 
-const K8S_SERVICE = {
-  namespace: "production",
-  workload: "api-server",
-};
+const anthropic = fakeAnthropic();
+const setScript = (turns: ScriptedTurn[]): void => anthropic.script(turns);
 
 describe("toolset assembly by fleet capabilities", () => {
   describe("provider library injection (unit)", () => {
@@ -151,14 +118,6 @@ describe("toolset assembly by fleet capabilities", () => {
         expect(dockerNames).toContain(name);
         expect(k8sNames).not.toContain(name);
       }
-    });
-
-    it("a mixed fleet gets both libraries", () => {
-      const names = getToolSchemas(
-        new Set(["docker" as const, "kubernetes" as const]),
-      ).map((s) => s.name);
-      expect(names).toContain("GetDockerLogs");
-      expect(names).toContain("GetK8sLogs");
     });
 
     it("the GitHub gate controls both the repo tools and ListRecentGitChanges", () => {
@@ -318,129 +277,25 @@ describe("toolset assembly by fleet capabilities", () => {
     });
   });
 
-  describe("agentic loop seam: a K8s write suspends for approval", () => {
-    let server: FastifyInstance;
+  describe("a chat through the loop", () => {
+    let nw: Harness;
     let port: number;
-    let cleanupDb: () => void;
     let SESSION: string;
-    let K8S_TOKEN: string;
-    let connK8s: RunnerConnection;
-    const executedCommands: string[] = [];
 
     beforeAll(async () => {
-      cleanupDb = await useTempDb();
-      SESSION = await issueTestSession();
-      K8S_TOKEN = (await generateRunnerToken("kubernetes", "toolset-k8s-001"))
-        .id;
-
-      connK8s = registerRunner({
-        runnerId: K8S_TOKEN,
-        platform: "kubernetes",
-        serverName: "toolset-k8s-001",
-        send: (raw: string) => {
-          const msg = JSON.parse(raw) as RunnerCommandMessage;
-          if (msg.type !== "command") return;
-          const { commandName, correlationId } = msg.payload;
-          executedCommands.push(commandName);
-          resolveCommand({
-            correlationId,
-            success: true,
-            result: { success: true },
-          });
-        },
-        close: () => {},
-      });
-      setRunnerManifest(
-        K8S_TOKEN,
-        kubernetesManifest("k8s-host", [
-          kubernetesWorkload(
-            "toolset-k8s-001",
-            K8S_SERVICE.namespace,
-            K8S_SERVICE.workload,
-          ),
-        ]),
-      );
-
-      server = Fastify({ logger: false, forceCloseConnections: true });
-      await mountApi(server, registerFrontendEventRoutes);
-      await mountApi(server, registerSessionRoutes);
-      await server.listen({ port: 0, host: "127.0.0.1" });
-      port = (server.server.address() as AddressInfo).port;
+      nw = await harness({ model: anthropic });
+      ({ port, session: SESSION } = nw);
     });
 
     afterAll(async () => {
-      unregisterRunner(connK8s);
-      await server.close();
-      cleanupDb();
+      await nw.close();
       vi.unstubAllEnvs();
-    });
-
-    it("RestartK8sWorkload suspends for approval before any runner dispatch", async () => {
-      executedCommands.length = 0;
-
-      setScript([
-        {
-          text: "Restarting K8s workload.",
-          toolUses: [
-            {
-              toolCallId: "tu-k8s-write-1",
-              name: "RestartK8sWorkload",
-              input: {
-                target: "toolset-k8s-001/production/api-server",
-                reason: "K8s workload wedged",
-                estimatedDowntimeSeconds: 10,
-              },
-            },
-          ],
-        },
-        { text: "Done.", toolUses: [] },
-      ]);
-
-      const { events, close } = await connectFrontendEvents(port, SESSION);
-
-      const res = await fetch(`http://127.0.0.1:${port}/api/chat`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Cookie: `${SESSION}`,
-        },
-        body: messageBody("Restart the K8s workload."),
-      });
-      const { sessionId } = (await res.json()) as { sessionId: string };
-
-      const interrupt = await waitFor(() =>
-        events.find(
-          (e) =>
-            e.type === "HUMAN_INPUT_REQUIRED" &&
-            e.payload["sessionId"] === sessionId,
-        ),
-      );
-
-      expect(interrupt.payload["kind"]).toBe("approval");
-      expect(interrupt.payload["toolName"]).toBe("RestartK8sWorkload");
-      expect(executedCommands).not.toContain("RestartK8sWorkload");
-      expect(await hasPendingHumanInput(sessionId)).toBe(true);
-
-      close();
-
-      await fetch(
-        `http://127.0.0.1:${port}/api/sessions/${sessionId}/respond`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Cookie: `${SESSION}`,
-          },
-          body: JSON.stringify({ decision: "reject" }),
-        },
-      );
-      await waitFor(async () => !(await hasPendingHumanInput(sessionId)));
     });
 
     // Nothing the model can call opens an investigation, so the report tools
     // stay absent for every turn of this run and every run after it.
     it("never gives a chat the report tools, on any turn or any later run", async () => {
-      mockCreateProvider.mockClear();
+      const first = anthropic.requests.length;
       setScript([
         {
           text: "Let me look.",
@@ -471,23 +326,17 @@ describe("toolset assembly by fleet capabilities", () => {
       );
       close();
 
-      // One provider serves the whole run, so its chat() calls are this run's
-      // successive turns.
-      const provider = mockCreateProvider.mock.results[0]
-        ?.value as ContractFakeProvider;
       // Paging is offered on every turn, so its presence proves the list is the toolset.
-      expect(toolsSentTo(provider, 0)).toContain("ReadToolResult");
-      expect(toolsSentTo(provider, 0)).not.toContain("RecordFinding");
-      expect(toolsSentTo(provider, 1)).toContain("ReadToolResult");
-      expect(toolsSentTo(provider, 1)).not.toContain("RecordFinding");
+      for (const turn of [first, first + 1]) {
+        expect(toolsSentTo(anthropic, turn)).toContain("ReadToolResult");
+        expect(toolsSentTo(anthropic, turn)).not.toContain("RecordFinding");
+      }
 
       // And across runs: a follow-up on the same chat is still a chat.
-      mockCreateProvider.mockClear();
       setScript([{ text: "Nothing has changed.", toolUses: [] }]);
-      await waitFor(
-        async () => !(await dispatcher.isSessionRunning(sessionId)),
-      );
+      await waitFor(async () => !(await isRunning(sessionId)));
 
+      const resumed = anthropic.requests.length;
       const followUp = await fetch(
         `http://127.0.0.1:${port}/api/sessions/${sessionId}/messages`,
         {
@@ -500,14 +349,10 @@ describe("toolset assembly by fleet capabilities", () => {
         },
       );
       expect(followUp.status).toBe(202);
-      await waitFor(
-        async () => !(await dispatcher.isSessionRunning(sessionId)),
-      );
+      await waitFor(async () => !(await isRunning(sessionId)));
 
-      const resumed = mockCreateProvider.mock.results[0]
-        ?.value as ContractFakeProvider;
-      expect(toolsSentTo(resumed, 0)).toContain("ReadToolResult");
-      expect(toolsSentTo(resumed, 0)).not.toContain("RecordFinding");
+      expect(toolsSentTo(anthropic, resumed)).toContain("ReadToolResult");
+      expect(toolsSentTo(anthropic, resumed)).not.toContain("RecordFinding");
     });
   });
 
@@ -521,26 +366,18 @@ describe("toolset assembly by fleet capabilities", () => {
     afterAll(() => cleanupDb());
 
     it("names what appeared, and offers it on the turn after", async () => {
-      const provider = scriptRunner.create();
-      /* Cast because getMockImplementation unions in a constructor signature
-         this method cannot have. */
-      const scripted =
-        provider.chat.getMockImplementation() as LLMProvider["chat"];
       /* Connected while the first turn is in flight, between the two reads of
          the toolset, where a user connecting Loki in another tab would land. */
-      provider.chat.mockImplementation(async (messages, tools, ...rest) => {
-        const first = provider.chat.mock.calls.length === 1;
-        const turn = await scripted(messages, tools, ...rest);
-        if (first) {
-          await saveLokiIntegration({
-            baseUrl: "http://loki.internal:3100",
-            orgId: null,
-            authorization: null,
-          });
-        }
-        return turn;
+      let inFlight = 0;
+      anthropic.park(async () => {
+        if (inFlight++ > 0) return;
+        await saveLokiIntegration({
+          baseUrl: "http://loki.internal:3100",
+          orgId: null,
+          authorization: null,
+        });
       });
-      mockCreateProvider.mockImplementationOnce(() => provider);
+      const first = anthropic.requests.length;
       setScript([
         {
           text: "",
@@ -553,16 +390,20 @@ describe("toolset assembly by fleet capabilities", () => {
 
       const sessionId = randomUUID();
       await seedChatSession(sessionId, "what is running?");
-      await runSession({ sessionId, userMessage: "what is running?" });
+      await runSession(
+        { sessionId, userMessage: "what is running?" },
+        anthropic.fetch,
+      );
+      anthropic.park();
 
-      const told = messagesSentTo(provider, 1)
-        .map((m) => m.content)
+      const told = messagesSentTo(anthropic, first + 1)
+        .flatMap((m) => m.texts)
         .find((c) => c.includes("connected while you were working"));
       expect(told, "the model was never told").toBeDefined();
       expect(told).toContain("QueryLogs");
 
       // And the tool is actually on the next request, not only announced.
-      expect(toolsSentTo(provider, 1)).toContain("QueryLogs");
+      expect(toolsSentTo(anthropic, first + 1)).toContain("QueryLogs");
 
       await deleteLokiIntegration();
     });

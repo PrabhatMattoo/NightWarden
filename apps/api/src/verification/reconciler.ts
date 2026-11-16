@@ -1,7 +1,7 @@
 import { sessionIdsWithOpenAlerts } from "../session/alerts-store.js";
 import { runFailure } from "../session/status-store.js";
 import { getSession } from "../session/store.js";
-import { dispatcher } from "../dispatcher.js";
+import type { Dispatcher } from "../dispatcher.js";
 import { buildSeed } from "../session/seed.js";
 import { loadConfig } from "../config/store.js";
 import { logger } from "../logger.js";
@@ -56,6 +56,7 @@ function forgetSettled(open: Set<string>): void {
 /* Sequential rather than parallel: these are the same few rules on one
    Prometheus, which needs no burst of concurrent requests mid-incident. */
 export async function reconcileRecovery(
+  dispatcher: Dispatcher,
   now = Date.now(),
 ): Promise<{ asked: number; cleared: number; retried: number }> {
   const result = { asked: 0, cleared: 0, retried: 0 };
@@ -72,7 +73,7 @@ export async function reconcileRecovery(
         result.cleared++;
         continue;
       }
-      if (await retryFailedRun(sessionId)) result.retried++;
+      if (await retryFailedRun(dispatcher, sessionId)) result.retried++;
     } catch (err) {
       // One unreachable source must not stop the rest of the sweep.
       logger.warn({ err, sessionId }, "recovery reconciler: session skipped");
@@ -83,7 +84,10 @@ export async function reconcileRecovery(
 
 // Rides this sweep: the sessions worth retrying are the ones worth asking
 // about. Never a permanent failure, which fails identically every time.
-async function retryFailedRun(sessionId: string): Promise<boolean> {
+async function retryFailedRun(
+  dispatcher: Dispatcher,
+  sessionId: string,
+): Promise<boolean> {
   const failure = await runFailure(sessionId);
   if (failure === undefined) return false;
   if (failure.kind !== "transient") return false;

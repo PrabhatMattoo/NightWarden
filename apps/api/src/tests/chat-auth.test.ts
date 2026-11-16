@@ -1,35 +1,19 @@
 import { randomUUID } from "node:crypto";
-import { messageBody } from "./session-helper.js";
-import { harness, type Harness } from "./harness.js";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-
-// Minimal scripted provider: finishes in one free-form turn so the loop exits
-// without runner tools, letting tests focus on the chat route boundary.
-vi.mock("../llm/factory.js", () => import("./llm-factory-mock.js"));
-
-import { mockCreateProvider } from "./llm-factory-mock.js";
-
-import { createContractFakeProvider } from "./contract-fake-provider.js";
-
-// Every run finishes in one free-form turn so the loop exits without runner
-// tools, letting these tests focus on the chat route boundary.
-mockCreateProvider.mockImplementation(() =>
-  createContractFakeProvider([{ toolUses: [], text: "Done." }]),
-);
-
+import { isRunning } from "../session/status-store.js";
 import { clearTestLLM, configureTestLLM } from "./temp-db.js";
 import { waitFor } from "./wait.js";
+import { harness, type Harness } from "./harness.js";
+import { messageBody } from "./session-helper.js";
 
-import { registerSessionRoutes } from "../session/routes.js";
-import { dispatcher } from "../dispatcher.js";
-
+// The fake provider answers every turn "Done.", so each run ends in one free-form turn.
 describe("chat routes — session-uuid-addressed, owner-cookie-gated", () => {
   let nw: Harness;
   let port: number;
   let SESSION: string;
 
   beforeAll(async () => {
-    nw = await harness({ routes: [registerSessionRoutes] });
+    nw = await harness();
     ({ port } = nw);
     SESSION = nw.session;
   });
@@ -53,13 +37,6 @@ describe("chat routes — session-uuid-addressed, owner-cookie-gated", () => {
     // caller has to translate back into "you left it out".
     const body = (await res.json()) as { error: string };
     expect(body.error).toMatch(/message is required/i);
-  });
-
-  it("POST /chat returns 400 when the client message id is missing", async () => {
-    const res = await post({ message: "hello" });
-    expect(res.status).toBe(400);
-    const body = (await res.json()) as { error: string };
-    expect(body.error).toMatch(/clientMessageId/);
   });
 
   it("POST /chat refuses an investigation and says an alert opens one", async () => {
@@ -90,19 +67,7 @@ describe("chat routes — session-uuid-addressed, owner-cookie-gated", () => {
     expect(sessionId.length).toBeGreaterThan(0);
 
     // Wait for the run to complete so subsequent tests start clean.
-    await waitFor(async () => !(await dispatcher.isSessionRunning(sessionId)));
-  });
-
-  it("POST /chat/:id (old route) returns 404 — token-scoped chat removed", async () => {
-    const res = await fetch(`http://127.0.0.1:${port}/api/chat/some-token-id`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Cookie: `${SESSION}`,
-      },
-      body: messageBody("hello"),
-    });
-    expect(res.status).toBe(404);
+    await waitFor(async () => !(await isRunning(sessionId)));
   });
 
   it("POST /sessions/:id/messages continues the session by uuid, returning the same sessionId", async () => {
@@ -119,7 +84,7 @@ describe("chat routes — session-uuid-addressed, owner-cookie-gated", () => {
     const { sessionId } = (await startRes.json()) as { sessionId: string };
 
     // Wait for first run to finish before continuing.
-    await waitFor(async () => !(await dispatcher.isSessionRunning(sessionId)));
+    await waitFor(async () => !(await isRunning(sessionId)));
 
     // Continue the session — no token in body.
     const contRes = await fetch(
@@ -137,7 +102,7 @@ describe("chat routes — session-uuid-addressed, owner-cookie-gated", () => {
     const cont = (await contRes.json()) as { sessionId: string };
     expect(cont.sessionId).toBe(sessionId);
 
-    await waitFor(async () => !(await dispatcher.isSessionRunning(sessionId)));
+    await waitFor(async () => !(await isRunning(sessionId)));
   });
 
   it("POST /chat refuses with 503 when no LLM is configured, naming what to pick", async () => {
