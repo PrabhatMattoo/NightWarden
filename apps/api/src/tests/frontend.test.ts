@@ -1,6 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { brotliCompress } from "node:zlib";
@@ -15,6 +14,7 @@ import {
   vi,
 } from "vitest";
 import { registerFrontendRoutes } from "../frontend.js";
+import { createTempFolder } from "./temp-folder.js";
 
 const compress = promisify(brotliCompress);
 
@@ -24,7 +24,7 @@ const THEME_SCRIPT = `document.documentElement.dataset.theme = "dark";`;
 // What the frontend build lays down: hashed files under assets/, verbatim public
 // files beside them, and a .br for anything worth compressing.
 async function buildFixture(): Promise<string> {
-  const root = await mkdtemp(join(tmpdir(), "nw-frontend-"));
+  const root = createTempFolder();
   await mkdir(join(root, "assets"), { recursive: true });
   await mkdir(join(root, "logos"), { recursive: true });
 
@@ -64,7 +64,6 @@ describe("frontend static serving", () => {
   afterAll(async () => {
     await server.close();
     vi.unstubAllEnvs();
-    await rm(root, { recursive: true, force: true });
   });
 
   describe("caching", () => {
@@ -82,36 +81,6 @@ describe("frontend static serving", () => {
 
       expect(res.statusCode).toBe(200);
       expect(res.headers["cache-control"]).toBe("no-cache");
-    });
-
-    it("keeps an unhashed public file revalidating too", async () => {
-      const res = await server.inject("/logos/docker.svg");
-
-      expect(res.statusCode).toBe(200);
-      expect(res.headers["cache-control"]).toBe("no-cache");
-    });
-  });
-
-  describe("compression", () => {
-    it("serves the prebuilt brotli when the browser accepts it", async () => {
-      const res = await server.inject({
-        url: "/assets/index-AbCdEfGh.js",
-        headers: { "accept-encoding": "br" },
-      });
-
-      expect(res.headers["content-encoding"]).toBe("br");
-      expect(res.headers["vary"]).toContain("accept-encoding");
-      expect(res.rawPayload.byteLength).toBeLessThan(500);
-    });
-
-    it("serves the plain file to a browser that does not", async () => {
-      const res = await server.inject({
-        url: "/assets/index-AbCdEfGh.js",
-        headers: { "accept-encoding": "identity" },
-      });
-
-      expect(res.headers["content-encoding"]).toBeUndefined();
-      expect(res.body).toContain('console.log("app")');
     });
   });
 

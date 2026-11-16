@@ -602,9 +602,8 @@ describe("metrics tools through the tool dispatch", () => {
     });
   });
 
-  /* Payloads copied from Prometheus's own documented examples. The fakes above
-     emit only the two shapes the client already read, so they agree by
-     construction and could never have caught any of these. */
+  /* Payloads copied from Prometheus's documented examples. The fakes above emit only
+     the shapes the client already read, so they could never have caught these. */
   describe("result shapes the Prometheus API documents", () => {
     it("reads a scalar as the one value it is, not as two empty series", async () => {
       await connect();
@@ -661,9 +660,8 @@ describe("metrics tools through the tool dispatch", () => {
       expect(content.note).toContain("histogram_quantile()");
     });
 
-    /* Prometheus answers a division by zero with "+Inf", as a string, and one
-       investigation read it as "enormously over the limit" when the divisor was
-       simply unset. The reading has to say it is not a reading. */
+    /* Prometheus answers a division by zero with the string "+Inf", which reads as far
+       over the limit when the divisor is simply unset, so the result says it is no reading. */
     it("names a non-finite value rather than letting it read as a measurement", async () => {
       await connect();
       mock.body = {

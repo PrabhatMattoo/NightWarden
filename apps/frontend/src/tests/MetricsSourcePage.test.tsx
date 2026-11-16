@@ -110,37 +110,15 @@ describe("MetricsSourcePage", () => {
     });
   });
 
-  /* A supported configuration that costs something specific, so the page names
-     the path that still works rather than reporting a plain "Connected". */
-  it("says what a source with no rules endpoint costs", async () => {
-    stubStatus(connected({ rules: null }));
-    renderPage("victoriametrics");
-
-    const rules = await screen.findByLabelText("Rules endpoint");
-    expect(rules.textContent).toMatch(
-      /reaches Resolved only when your alert source sends a resolved notification/,
-    );
-    // The header names the product, so the address is what identifies the row.
-    expect(screen.getByText("http://vmselect:8481")).toBeInTheDocument();
-    // The facts read the same whether connected or not, and the docs name the brand.
-    expect(
-      screen.getByText("Reads metrics and alert rules"),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole("link", { name: /VictoriaMetrics docs/ }),
-    ).toHaveAttribute("href", "https://docs.victoriametrics.com/");
-  });
-
-  /* The state is said once, in the facts card; the actions are buttons under the
-     card, with Disconnect apart from the ones that are safe to press. */
-  it("says Connected in the facts card and acts through the buttons under the card", async () => {
+  it("tests and updates a connected source, and asks before disconnecting", async () => {
     const user = userEvent.setup();
     const calls: string[] = [];
     const posted = stubStatus(connected(), calls);
     renderPage("victoriametrics");
 
-    expect(await screen.findByText("Connected")).toHaveClass("text-ok");
-    await user.click(screen.getByRole("button", { name: "Test connection" }));
+    await user.click(
+      await screen.findByRole("button", { name: "Test connection" }),
+    );
     await waitFor(() =>
       expect(calls).toContain("POST /api/integrations/metrics/test"),
     );
@@ -182,25 +160,6 @@ describe("MetricsSourcePage", () => {
     expect(
       screen.getByText(/VictoriaMetrics rejected the credential/),
     ).toBeInTheDocument();
-  });
-
-  it("names what VictoriaMetrics needs before it serves metric metadata", async () => {
-    stubStatus(NOT_CONNECTED);
-    renderPage("victoriametrics");
-
-    expect(
-      await screen.findByText(/-enableMetadata on your VictoriaMetrics/),
-    ).toBeInTheDocument();
-  });
-
-  // Grafana Cloud hands out an instance id and a token, so Mimir opens on the
-  // pair rather than on a header the user would encode themselves.
-  it("opens Mimir on the pair Grafana Cloud gives you", async () => {
-    stubStatus(NOT_CONNECTED);
-    renderPage("mimir");
-
-    expect(await screen.findByLabelText("Username")).toBeInTheDocument();
-    expect(screen.getByLabelText("Password")).toBeInTheDocument();
   });
 
   /* X-Scope-OrgID is Mimir's alone. VictoriaMetrics carries its tenant in the

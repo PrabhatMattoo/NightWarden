@@ -18,6 +18,7 @@ export default defineConfig({
     // Fails a test if a dispatched investigation was swallowed by the dispatcher's
     // catch (logger.error "investigation failed").
     setupFiles: ["./src/tests/setup.ts"],
+    globalSetup: ["./src/tests/global-setup.ts"],
     // Coverage is a gap-finder, not a CI gate (no thresholds).
     coverage: {
       provider: "v8",

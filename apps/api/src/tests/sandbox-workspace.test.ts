@@ -1,14 +1,12 @@
 import {
   chmodSync,
   copyFileSync,
-  mkdtempSync,
   existsSync,
   mkdirSync,
   readFileSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   afterAll,
@@ -38,6 +36,7 @@ import {
 import { salvageWorkspaces } from "../sandbox/salvage.js";
 import { reapOrphans, resetIsolationCache } from "../sandbox/docker.js";
 import { SandboxUnavailableError } from "../sandbox/errors.js";
+import { createTempFolder } from "./temp-folder.js";
 import { waitFor } from "./wait.js";
 
 const AUTH_HEADER = "Basic c2VjcmV0dG9rZW4=";
@@ -312,13 +311,12 @@ function nextSessionId(): string {
 }
 
 beforeAll(() => {
-  workspacesDir = mkdtempSync(join(tmpdir(), "nw-sandbox-"));
+  workspacesDir = createTempFolder();
   installGitMock();
   installDockerMock();
 });
 
 afterAll(() => {
-  rmSync(workspacesDir, { recursive: true, force: true });
   vi.unstubAllEnvs();
 });
 
@@ -577,7 +575,7 @@ describe("host-side git with real git", () => {
   });
 
   it("never runs a hook or fsmonitor command the sandbox planted in the checkout", async () => {
-    const root = mkdtempSync(join(tmpdir(), "nw-real-git-"));
+    const root = createTempFolder();
     const seed = join(root, "seed");
     const remote = join(root, "remote.git");
     git("init", "-q", "-b", "main", seed);
@@ -624,7 +622,6 @@ describe("host-side git with real git", () => {
     expect(
       git("--git-dir", remote, "ls-tree", "--name-only", options().branch),
     ).toContain("fix.ts");
-    rmSync(root, { recursive: true, force: true });
   });
 });
 
@@ -782,11 +779,7 @@ describe("boot salvage", () => {
   }
 
   beforeEach(() => {
-    salvageDir = mkdtempSync(join(tmpdir(), "nw-salvage-"));
-  });
-
-  afterEach(() => {
-    rmSync(salvageDir, { recursive: true, force: true });
+    salvageDir = createTempFolder();
   });
 
   it("commits dirty work, pushes to the checkout's own branch, and removes the checkout with its siblings", async () => {

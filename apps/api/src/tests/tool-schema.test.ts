@@ -120,7 +120,9 @@ const WORDS = [
 // reads better in a sentence than "at least 1".
 function states(description: string, value: unknown): boolean {
   if (typeof value !== "number") return false;
-  if (description.includes(String(value))) return true;
+  // A whole number only, so a bound of 1000 is not stated by "10000" or "1,000.5".
+  if (new RegExp(`(?<![\\d.,])${value}(?![\\d.,]*\\d)`).test(description))
+    return true;
   const word = WORDS[value];
   return (
     word !== undefined && new RegExp(`\\b${word}\\b`, "i").test(description)

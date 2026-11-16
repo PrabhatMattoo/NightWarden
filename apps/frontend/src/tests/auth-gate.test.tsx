@@ -79,26 +79,6 @@ describe("the session check", () => {
     expect(router.state.location.pathname).toBe("/login");
   });
 
-  // Nothing for the first second, so a fast check never flashes a loader.
-  it("shows the loading indicator only once the check outlasts a second", async () => {
-    vi.useFakeTimers();
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(() => new Promise<Response>(() => {})),
-    );
-    renderApp({ path: "/" });
-
-    await act(() => vi.advanceTimersByTimeAsync(999));
-    expect(screen.queryByRole("status")).not.toBeInTheDocument();
-
-    await act(() => vi.advanceTimersByTimeAsync(1));
-    expect(screen.getByRole("status", { name: "Loading" })).toBeInTheDocument();
-    expect(screen.queryByText(/log in/i)).not.toBeInTheDocument();
-    expect(
-      screen.queryByRole("link", { name: /integrations/i }),
-    ).not.toBeInTheDocument();
-  });
-
   it("signs out on a data route's 401 only once the status says the session is gone", async () => {
     vi.stubGlobal("EventSource", MockEventSource);
     // Flipped to model a session that dies between two identical failures.

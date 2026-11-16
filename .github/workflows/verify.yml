@@ -1,6 +1,5 @@
-# The one definition of "green". Called by ci.yml on every change and by
-# publish-images.yml before it pushes, so a release cannot pass a weaker gate
-# than a pull request.
+# The one definition of green, called by ci.yml on every change and by
+# publish-images.yml before it pushes, so a release meets a pull request's gate.
 name: Verify
 
 on:

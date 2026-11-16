@@ -21,9 +21,8 @@ Desktop.ini
 # Local doc/reference dumps used while designing — not source
 *.txt
 
-# Per-feature PRDs, docs and issue for tracking — local working docs, not published
+# Local working docs
 docs
-issues
 
 # Demo droplet deployment sequence
 deploy/

@@ -1,5 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import Database from "better-sqlite3";
@@ -15,6 +14,7 @@ import {
   vi,
 } from "vitest";
 import { applyMigrations, getDb, resetDb } from "../db.js";
+import { createTempFolder } from "./temp-folder.js";
 
 // The runner is the only thing standing between a schema change and a deleted
 // database, so what it does on a second boot is the property worth pinning.
@@ -22,14 +22,13 @@ describe("the migration runner", () => {
   let dir: string;
 
   beforeAll(() => {
-    dir = mkdtempSync(join(tmpdir(), "nw-mig-"));
+    dir = createTempFolder();
     vi.stubEnv("NIGHTWARDEN_DIR", dir);
   });
 
   afterAll(() => {
     resetDb();
     vi.unstubAllEnvs();
-    rmSync(dir, { recursive: true, force: true });
   });
 
   async function appliedVersions(): Promise<number[]> {
@@ -97,13 +96,12 @@ describe("the migrations folder", () => {
   let handle: Database.Database;
 
   beforeEach(() => {
-    dir = mkdtempSync(join(tmpdir(), "nw-mig-files-"));
+    dir = createTempFolder();
     handle = new Database(":memory:");
   });
 
   afterEach(() => {
     handle.close();
-    rmSync(dir, { recursive: true, force: true });
   });
 
   function writeMigrations(files: Record<string, string>): URL {

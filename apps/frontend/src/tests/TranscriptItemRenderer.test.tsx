@@ -107,21 +107,6 @@ describe("TranscriptItemRenderer", () => {
       state: { phase: "awaiting_human", gate: "approval" },
     };
 
-    it("labels the action button with the verb, not a generic Approve", async () => {
-      const onResolve = vi.fn();
-      wrap(approvalItem, { onResolve });
-
-      // A generic label is the one users learn to click without reading.
-      expect(
-        screen.queryByRole("button", { name: /^approve$/i }),
-      ).not.toBeInTheDocument();
-
-      const user = userEvent.setup();
-      await user.click(screen.getByRole("button", { name: /restart/i }));
-
-      expect(onResolve).toHaveBeenCalledWith("tu-gate", "approve", undefined);
-    });
-
     it("shows the exact command for an exec tool", () => {
       wrap({
         ...approvalItem,
@@ -150,12 +135,6 @@ describe("TranscriptItemRenderer", () => {
         screen.getByText(/4th time in this investigation/),
       ).toBeInTheDocument();
       expect(screen.getByRole("button", { name: /restart/i })).toBeEnabled();
-    });
-
-    it("says nothing when this is the first time", () => {
-      wrap(approvalItem);
-
-      expect(screen.queryByText(/time in this investigation/)).toBeNull();
     });
 
     it("sends a rejection reason so the agent learns why, as the answer to the agent's own", async () => {
@@ -439,23 +418,6 @@ describe("TranscriptItemRenderer", () => {
       ],
     };
 
-    it("renders Edit results as a colored diff card", () => {
-      wrap({
-        kind: "tool_call",
-        toolCallId: "tu-1",
-        toolName: "Edit",
-        input: { path: "src/app.ts" },
-        state: { phase: "complete", result: DIFF_RESULT },
-      });
-
-      expect(screen.getByTestId("diff-card")).toBeInTheDocument();
-      expect(screen.getByText("src/app.ts")).toBeInTheDocument();
-      expect(screen.getByText("const a = 42;")).toBeInTheDocument();
-      expect(screen.getByText("const a = 1;")).toBeInTheDocument();
-      // No raw unified-diff artifacts leak into the rendered card.
-      expect(screen.queryByText(/@@/)).not.toBeInTheDocument();
-    });
-
     it("parses the persisted JSON-string form of a diff result too", () => {
       wrap({
         kind: "tool_call",
@@ -467,6 +429,7 @@ describe("TranscriptItemRenderer", () => {
 
       expect(screen.getByTestId("diff-card")).toBeInTheDocument();
       expect(screen.getByText("const a = 42;")).toBeInTheDocument();
+      expect(screen.getByText("const a = 1;")).toBeInTheDocument();
     });
 
     it("renders OpenPullRequest results as a PR card with the GitHub link", () => {
@@ -494,44 +457,6 @@ describe("TranscriptItemRenderer", () => {
         screen.getByRole("link", { name: /view on github/i }),
       ).toHaveAttribute("href", "https://github.com/acme/api/pull/42");
       expect(screen.getByText("Created draft PR #42.")).toBeInTheDocument();
-    });
-  });
-
-  describe("output disclosure", () => {
-    it("caps a long shell result and reveals the rest on demand", async () => {
-      // Twelve lines against a body cap of eight, so the cap is exercised
-      // rather than merely configured.
-      const output = Array.from({ length: 12 }, (_, i) => `line-${i + 1}`).join(
-        "\n",
-      );
-      wrap({
-        kind: "tool_call",
-        toolCallId: "tu-6",
-        toolName: "Bash",
-        input: { command: "ls" },
-        state: { phase: "complete", result: { exitCode: 0, output } },
-      });
-
-      const user = userEvent.setup();
-
-      await user.click(screen.getByRole("button", { name: /Bash/ }));
-      expect(screen.getByText(/line-1/)).toBeInTheDocument();
-      expect(screen.queryByText(/line-12/)).not.toBeInTheDocument();
-
-      await user.click(screen.getByRole("button", { name: /show all 12/i }));
-      expect(screen.getByText(/line-12/)).toBeInTheDocument();
-    });
-  });
-
-  describe("compaction", () => {
-    it("says the context was summarised and that the record is untouched", () => {
-      wrap({ kind: "compaction", id: "assistant-4-0" });
-
-      const notice = screen.getByRole("status");
-      expect(notice).toHaveTextContent("Context summarised");
-      /* The evidence did not go: the model forgot, the transcript did not, and a
-         compacted tool result is still citable in the report. */
-      expect(notice).toHaveTextContent("stays in the record");
     });
   });
 

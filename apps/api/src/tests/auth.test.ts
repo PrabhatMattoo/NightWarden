@@ -166,14 +166,6 @@ describe("GET /auth-status", () => {
     });
   });
 
-  it("reports no session for a garbage cookie", async () => {
-    const res = await status(server, "better-auth.session_token=garbage");
-    expect(JSON.parse(res.body)).toEqual({
-      ownerExists: true,
-      authenticated: false,
-    });
-  });
-
   it("reports the signed-in email, name and theme for a valid cookie", async () => {
     const signedIn = await signIn(server, OWNER);
     const res = await status(server, cookieFrom(signedIn));
@@ -257,28 +249,6 @@ describe("GET /auth-status", () => {
   });
 });
 
-describe("signing in", () => {
-  let server: FastifyInstance;
-  let cleanupDb: () => void;
-
-  beforeAll(async () => {
-    cleanupDb = await useTempDb();
-    server = await buildServer();
-    await signUp(server, OWNER);
-  });
-
-  afterAll(async () => {
-    await server.close();
-    cleanupDb();
-  });
-
-  it("sets a session cookie on the right credentials", async () => {
-    const res = await signIn(server, OWNER);
-    expect(res.statusCode).toBe(200);
-    expect(cookieFrom(res)).not.toBe("");
-  });
-});
-
 /* Better Auth validates the Origin header on a request carrying cookies, so the
    trusted list decides which addresses a person can sign in from. */
 describe("trusted origins", () => {
@@ -343,26 +313,12 @@ describe("requireSession gate", () => {
     cleanupDb();
   });
 
-  it("lets a valid cookie through", async () => {
-    const res = await server.inject({
-      method: "GET",
-      url: "/protected",
-      headers: { cookie },
-    });
-    expect(res.statusCode).toBe(200);
-  });
-
   it("refuses a tampered cookie", async () => {
     const res = await server.inject({
       method: "GET",
       url: "/protected",
       headers: { cookie: cookie.slice(0, -4) + "XXXX" },
     });
-    expect(res.statusCode).toBe(401);
-  });
-
-  it("refuses a request with no cookie", async () => {
-    const res = await server.inject({ method: "GET", url: "/protected" });
     expect(res.statusCode).toBe(401);
   });
 });

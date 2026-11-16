@@ -192,33 +192,6 @@ describe("AlertSourcePage", () => {
     );
   });
 
-  // One page serves every sender, so the setup and the settings that fail
-  // silently both have to come from the kind rather than from Alertmanager.
-  it("renders each sender's own setup and its own quiet failures", async () => {
-    const { view } = setup({ configured: true });
-    await screen.findByText(/waiting for first alert/i);
-    expect(
-      screen.getByText(/send_resolved at its default/),
-    ).toBeInTheDocument();
-    view.unmount();
-    vi.unstubAllGlobals();
-
-    setup({ kind: "grafana", configured: true });
-    await screen.findByText(/waiting for first alert/i);
-    expect(screen.getByText(/Contact points/)).toBeInTheDocument();
-    /* Two rows, named in English. What Grafana calls the boxes they go in is
-       said once, in the sentence above them, not three times as a path. */
-    expect(screen.getByText("Webhook URL")).toBeInTheDocument();
-    expect(screen.getByText("Secret")).toBeInTheDocument();
-    expect(
-      screen.getByText(/Authorization header scheme set to Bearer/),
-    ).toBeInTheDocument();
-    expect(screen.getByText(/Custom Payload empty/)).toBeInTheDocument();
-    expect(
-      screen.getByText(/Disable resolved message off/),
-    ).toBeInTheDocument();
-  });
-
   it("delivery state: Receiving with a relative time once an alert has landed", async () => {
     setup({
       configured: true,

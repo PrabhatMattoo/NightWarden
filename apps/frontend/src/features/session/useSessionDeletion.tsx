@@ -8,9 +8,8 @@ import { removeSession } from "@/features/session/useSessions";
 import { toast } from "@/shared/lib/toast";
 import { api, dataOrThrow } from "@/shared/api/client";
 
-/* Deleting a session is one act with one failure mode, so both surfaces that
-   offer it ask the same question and report the same error. What differs is
-   only the noun and where the reader lands afterwards. */
+/* Deleting a session is one act with one failure mode, so both surfaces ask the same
+   question and report the same error; only the noun and the landing place differ. */
 export interface SessionDeletion {
   confirm: () => void;
   dialog: React.JSX.Element;

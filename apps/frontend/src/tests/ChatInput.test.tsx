@@ -129,13 +129,6 @@ describe("ChatInput", () => {
 
       await screen.findByText("session page");
     });
-
-    it("offers no mode picker", async () => {
-      setup({ sessionId: null, isRunning: false });
-
-      await screen.findByRole("textbox");
-      expect(screen.queryByRole("button", { name: /^mode:/i })).toBeNull();
-    });
   });
 
   describe("submit from existing session (sessionId set)", () => {

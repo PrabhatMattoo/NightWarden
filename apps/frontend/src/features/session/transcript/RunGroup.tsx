@@ -61,9 +61,8 @@ export function RunGroup({
     return onReveal(check);
   }, [node.items]);
 
-  /* A live run always has a header, because prose arriving now says nothing
-     about whether a tool follows it; a settled one keeps it only if there is
-     work to open. */
+  /* A live run always has a header, since prose arriving now says nothing about
+     whether a tool follows; a settled one keeps it only when there is work to open. */
   const earned = node.live || node.items.length > 0;
   // Nothing behind the header yet, so it reads as a status rather than a control.
   const disclosable = node.items.length > 0;

@@ -33,9 +33,8 @@ COPY packages/shared/package.json packages/shared/
 COPY packages/runner-core/package.json packages/runner-core/
 
 
-# The tree the image ships: it never sees a devDependency, so nothing needs
-# pruning - `--prod` decides what to install and cannot uninstall. Filtered to
-# the api, or it also installs the frontend's React tree that Vite has bundled.
+# The tree the image ships never sees a devDependency, since `--prod` cannot uninstall.
+# Filtered to the api, or it also installs the React tree Vite has already bundled.
 FROM manifests AS prod-deps
 
 # The store is a build cache, so a package is fetched once across every stage of

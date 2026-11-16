@@ -1,18 +1,18 @@
 import { execSync } from "node:child_process";
 import {
   existsSync,
-  mkdtempSync,
   readFileSync,
   rmSync,
   statSync,
   writeFileSync,
 } from "node:fs";
-import { tmpdir, platform } from "node:os";
+import { platform } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetDb } from "../db.js";
 import { initSecrets } from "../secrets.js";
 import { checkSecretKey, loadApiKey, updateProvider } from "../config/store.js";
+import { createTempFolder } from "./temp-folder.js";
 
 function expectRestrictedPermissions(file: string): void {
   if (platform() === "win32") {
@@ -33,7 +33,7 @@ describe("the secret key at boot", () => {
   let dir: string;
 
   beforeEach(() => {
-    dir = mkdtempSync(join(tmpdir(), "nw-secret-key-"));
+    dir = createTempFolder();
     vi.stubEnv("NIGHTWARDEN_DIR", dir);
     // setup.ts sets the suite-wide test key; self-provisioning tests need
     // NIGHTWARDEN_SECRET_KEY genuinely absent.
@@ -44,7 +44,6 @@ describe("the secret key at boot", () => {
     resetDb();
     vi.unstubAllEnvs();
     initSecrets();
-    rmSync(dir, { recursive: true, force: true });
   });
 
   it("generates a restricted-access key file on a fresh install, creating the state directory", async () => {

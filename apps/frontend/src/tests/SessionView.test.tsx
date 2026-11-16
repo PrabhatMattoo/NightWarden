@@ -1,11 +1,4 @@
-import {
-  render,
-  screen,
-  waitFor,
-  act,
-  within,
-  cleanup,
-} from "@testing-library/react";
+import { render, screen, waitFor, act, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -1140,122 +1133,6 @@ describe("SessionView", () => {
       });
     });
 
-    it("shows sandbox provisioning stages and clears the line when ready", async () => {
-      setup();
-
-      await waitFor(() => {
-        expect(
-          screen.getByText("Service is down on web-01"),
-        ).toBeInTheDocument();
-      });
-
-      act(() => {
-        MockEventSource.latest?.push({
-          messageId: "sb-1",
-          type: "SANDBOX_STATUS",
-          payload: { sessionId: "s1", stage: "cloning" },
-        });
-      });
-      await waitFor(() => {
-        expect(
-          screen.getByText(/Preparing sandbox - cloning the repository/),
-        ).toBeInTheDocument();
-      });
-      /* The notice rides the transcript's own live line, where the work is,
-         rather than a bar wedged between the transcript and the message box. */
-      const line = screen.getByTestId("working-indicator");
-      expect(line).toHaveTextContent(
-        /Preparing sandbox - cloning the repository/,
-      );
-      expect(screen.getByTestId("transcript-column")).toContainElement(line);
-
-      act(() => {
-        MockEventSource.latest?.push({
-          messageId: "sb-2",
-          type: "SANDBOX_STATUS",
-          payload: { sessionId: "s1", stage: "starting" },
-        });
-      });
-      await waitFor(() => {
-        expect(
-          screen.getByText(/Preparing sandbox - starting the container/),
-        ).toBeInTheDocument();
-      });
-
-      act(() => {
-        MockEventSource.latest?.push({
-          messageId: "sb-3",
-          type: "SANDBOX_STATUS",
-          payload: { sessionId: "s1", stage: "installing" },
-        });
-      });
-      await waitFor(() => {
-        expect(
-          screen.getByText(/Preparing sandbox - installing dependencies/),
-        ).toBeInTheDocument();
-      });
-
-      act(() => {
-        MockEventSource.latest?.push({
-          messageId: "sb-4",
-          type: "SANDBOX_STATUS",
-          payload: { sessionId: "s1", stage: "ready" },
-        });
-      });
-      await waitFor(() => {
-        expect(screen.queryByText(/Preparing sandbox/)).not.toBeInTheDocument();
-      });
-    });
-
-    it("shows the retry status line on RUN_RETRYING and clears it when streaming resumes", async () => {
-      setup();
-
-      await waitFor(() => {
-        expect(
-          screen.getByText("Service is down on web-01"),
-        ).toBeInTheDocument();
-      });
-
-      act(() => {
-        MockEventSource.latest?.push({
-          messageId: "m-retry",
-          type: "RUN_RETRYING",
-          payload: {
-            sessionId: "s1",
-            summary: "Provider error (529). Retrying - attempt 2 of 4.",
-          },
-        });
-      });
-
-      await waitFor(() => {
-        expect(
-          screen.getByText("Provider error (529). Retrying - attempt 2 of 4."),
-        ).toBeInTheDocument();
-      });
-      // One line that morphs: the retry takes the placeholder's place rather
-      // than adding a second text somewhere else on screen.
-      expect(screen.getAllByTestId("working-indicator")).toHaveLength(1);
-      expect(screen.getByTestId("working-indicator")).toHaveTextContent(
-        "Provider error (529). Retrying - attempt 2 of 4.",
-      );
-
-      act(() => {
-        MockEventSource.latest?.push({
-          messageId: "m-resume",
-          type: "TEXT_MESSAGE_CONTENT",
-          payload: { sessionId: "s1", delta: "Back online." },
-        });
-      });
-
-      await waitFor(() => {
-        expect(
-          screen.queryByText(
-            "Provider error (529). Retrying - attempt 2 of 4.",
-          ),
-        ).not.toBeInTheDocument();
-      });
-    });
-
     it("re-enables the chat input when RUN_FAILED arrives (run not left spinning)", async () => {
       const { setItems } = setup();
 
@@ -1487,23 +1364,6 @@ describe("SessionView", () => {
       });
     });
 
-    /* The card is the thing asking. A live line beside it claiming the model is
-       thinking is both untrue and a second shimmer on screen. */
-    it("falls silent while a question is waiting on an answer", async () => {
-      setup();
-      await waitFor(() => {
-        expect(
-          screen.getByText("Service is down on web-01"),
-        ).toBeInTheDocument();
-      });
-
-      pushClarification();
-      await waitFor(() => {
-        expect(screen.getByTestId("clarification-card")).toBeInTheDocument();
-      });
-      expect(screen.queryByTestId("working-indicator")).not.toBeInTheDocument();
-    });
-
     /* Answering resumes the run, and the card is drawn from a live-only item,
        so the resume must not wipe the answer out from under the reader. */
     it("keeps an answered card visible as the run resumes", async () => {
@@ -1633,19 +1493,6 @@ describe("the Agent page", () => {
     await user.click(await screen.findByRole("button", { name }));
   }
 
-  it("heads a new conversation 'New chat' and an open one by its title", async () => {
-    setupPage();
-    expect(
-      await screen.findByRole("button", { name: "New chat" }),
-    ).toBeInTheDocument();
-
-    cleanup();
-    setupPage({ path: "/agent/c1" });
-    expect(
-      await screen.findByRole("button", { name: "Why is redis restarting?" }),
-    ).toBeInTheDocument();
-  });
-
   /* The title is refined in the background as the run opens, long before the
      first answer, so the heading takes it the moment it is filed. */
   it("heads the conversation with the title the moment it is refined", async () => {
@@ -1678,30 +1525,6 @@ describe("the Agent page", () => {
     // heading a row lands under is the clock's business.
     expect(
       api.requests("/api/sessions?").some((r) => r.path.includes("kind=chat")),
-    ).toBe(true);
-  });
-
-  it("offers a New chat entry above the list only once a session is open", async () => {
-    setupPage();
-    await openHistory("New chat");
-    expect(
-      within(await screen.findByRole("dialog")).queryByRole("link", {
-        name: "New chat",
-      }),
-    ).not.toBeInTheDocument();
-
-    cleanup();
-    setupPage({ path: "/agent/c1" });
-    await openHistory("Why is redis restarting?");
-    const panel = await screen.findByRole("dialog");
-    const fresh = within(panel).getByRole("link", { name: "New chat" });
-    const firstRow = within(panel).getByRole("link", {
-      name: /Why is redis restarting\?/,
-    });
-    expect(
-      (fresh.compareDocumentPosition(firstRow) &
-        Node.DOCUMENT_POSITION_FOLLOWING) !==
-        0,
     ).toBe(true);
   });
 

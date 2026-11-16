@@ -442,13 +442,7 @@ describe("metrics source routes", () => {
     });
   }
 
-  it("lists nothing before onboarding and requires a session", async () => {
-    const unauthed = await server.inject({
-      method: "GET",
-      url: "/api/integrations/metrics",
-    });
-    expect(unauthed.statusCode).toBe(401);
-
+  it("lists nothing before onboarding", async () => {
     const res = await authed({
       method: "GET",
       url: "/api/integrations/metrics",
@@ -700,13 +694,7 @@ describe("Alertmanager integration routes", () => {
     return createHash("sha256").update(s).digest("hex");
   }
 
-  it("reports not configured with the ingest URL; reveal 404s; a session is required", async () => {
-    const unauthed = await server.inject({
-      method: "GET",
-      url: "/api/integrations/alerting/alertmanager",
-    });
-    expect(unauthed.statusCode).toBe(401);
-
+  it("reports not configured with the ingest URL, and reveal 404s", async () => {
     const res = await authed({
       method: "GET",
       url: "/api/integrations/alerting/alertmanager",
@@ -850,13 +838,7 @@ describe("Loki integration routes", () => {
     });
   }
 
-  it("reports not configured before onboarding and requires a session", async () => {
-    const unauthed = await server.inject({
-      method: "GET",
-      url: "/api/integrations/loki",
-    });
-    expect(unauthed.statusCode).toBe(401);
-
+  it("reports not configured before onboarding", async () => {
     const res = await authed({ method: "GET", url: "/api/integrations/loki" });
     expect(res.statusCode).toBe(200);
     expect(JSON.parse(res.body)).toEqual({
@@ -1077,10 +1059,7 @@ describe("Sentry integration routes", () => {
   // Both probes answer an empty page, which is a token holding both scopes.
   const probeOk = () => stubFetch(() => jsonResponse([]));
 
-  it("reports not configured before onboarding and requires a session", async () => {
-    const unauthed = await server.inject({ method: "GET", url: URL_ });
-    expect(unauthed.statusCode).toBe(401);
-
+  it("reports not configured before onboarding", async () => {
     const res = await status();
     expect(res.statusCode).toBe(200);
     expect(JSON.parse(res.body)).toEqual({

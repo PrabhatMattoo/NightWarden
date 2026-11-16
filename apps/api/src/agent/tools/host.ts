@@ -3,10 +3,8 @@ import { declareTool } from "./schema.js";
 import { dockerServers as server } from "./server.js";
 import type { Tool } from "./types.js";
 
-// A Docker runner is 1:1 with its machine. A Kubernetes runner is one pod on
-// an arbitrary node, so GetK8sNodeStatus answers node health there.
-// Defaults are applied by the runner, so these stay optional here and say so in
-// their descriptions rather than declaring a default this schema never applies.
+// Docker only: a Kubernetes runner is a pod on any node, so GetK8sNodeStatus covers it.
+// The runner applies each default, so the fields stay optional and their descriptions name it.
 const HOST_VITALS_INPUT = z.object({ server });
 
 const HOST_DMESG_INPUT = z.object({

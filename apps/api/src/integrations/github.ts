@@ -96,8 +96,6 @@ function parseExpiryHeader(res: Response): string | null {
   return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
 }
 
-// Shared error ladder: 401 and 403-with-SSO are deterministic signals and map
-// the same way on every GitHub call; everything else is the caller's business.
 /* What a call reaching GitHub outside a tool's own budget may take. The sandbox
    caches a workspace, so its pull-request closures outlive the call that built them. */
 export const GITHUB_TIMEOUT_MS = 30_000;
@@ -106,6 +104,7 @@ export function githubSignal(): AbortSignal {
   return AbortSignal.timeout(GITHUB_TIMEOUT_MS);
 }
 
+// 401 and 403-with-SSO map the same way on every GitHub call; the rest is the caller's.
 async function githubFetch(
   token: string,
   signal: AbortSignal,

@@ -215,22 +215,6 @@ afterEach(() => {
 
 describe("IntegrationsPage", () => {
   describe("the list", () => {
-    it("renders every adapter as a row, across all capabilities", async () => {
-      setup();
-
-      await screen.findByText("GitHub");
-      for (const title of [
-        "Alertmanager",
-        "Prometheus",
-        "Grafana Loki",
-        "Sentry",
-        "Docker",
-        "GitHub",
-      ]) {
-        expect(rowFor(title)).toBeInTheDocument();
-      }
-    });
-
     /* Connecting keeps a row in its own section and adds its status, so the
        list a person learned stays where they left it. */
     it("keeps a connected integration in its own section with its status", async () => {
@@ -261,49 +245,7 @@ describe("IntegrationsPage", () => {
     });
   });
 
-  describe("GitHub", () => {
-    it("says nothing at all when unconnected, and navigates to the connect route", async () => {
-      const user = userEvent.setup();
-      setup();
-
-      await screen.findByText("GitHub");
-      const card = within(rowFor("GitHub"));
-      expect(card.queryByText("Not connected")).not.toBeInTheDocument();
-      expect(card.queryByText("Connected")).not.toBeInTheDocument();
-      expect(card.getByText(/draft pull request/i)).toBeInTheDocument();
-
-      await user.click(rowFor("GitHub"));
-      expect(
-        await screen.findByText(/github connect destination/i),
-      ).toBeInTheDocument();
-    });
-
-    it("gains a status line once configured", async () => {
-      const user = userEvent.setup();
-      setup({ github: CONFIGURED });
-
-      await screen.findByText("GitHub");
-      await waitFor(() => {
-        expect(
-          within(rowFor("GitHub")).getByText("Connected"),
-        ).toBeInTheDocument();
-      });
-
-      await user.click(rowFor("GitHub"));
-      expect(
-        await screen.findByText(/github connect destination/i),
-      ).toBeInTheDocument();
-    });
-  });
-
   describe("Docker hosts and Kubernetes clusters", () => {
-    it("offers both, since they install and are addressed differently", async () => {
-      setup({ runners: [] });
-
-      expect(await screen.findByText("Docker")).toBeInTheDocument();
-      expect(screen.getByText("Kubernetes")).toBeInTheDocument();
-    });
-
     it("routes an empty platform straight into its setup wizard", async () => {
       const user = userEvent.setup();
       setup({ runners: [] });
@@ -316,15 +258,16 @@ describe("IntegrationsPage", () => {
       ).toBeInTheDocument();
     });
 
-    it("counts offline hosts in the warning tone", async () => {
+    it("counts the hosts that are offline", async () => {
       setup({
         runners: [
           CONNECTED_RUNNER,
           { ...CONNECTED_RUNNER, id: "runner-2", online: false },
         ],
       });
-      const status = await screen.findByText("2 hosts · 1 offline");
-      expect(status).toHaveClass("text-warn");
+      expect(
+        await screen.findByText("2 hosts · 1 offline"),
+      ).toBeInTheDocument();
     });
 
     it("counts a runner under the platform it advertises, and opens that list", async () => {

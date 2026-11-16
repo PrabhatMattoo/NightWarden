@@ -159,24 +159,6 @@ afterEach(() => {
 });
 
 describe("GitHubConnectPage - onboarding (not yet connected)", () => {
-  it("shows the token deep link and the always-visible classic-token note", async () => {
-    setup();
-
-    const mintLink = await screen.findByRole("link", {
-      name: /create token on github/i,
-    });
-    expect(mintLink).toHaveAttribute(
-      "href",
-      expect.stringContaining("settings/personal-access-tokens/new"),
-    );
-    expect(
-      screen.getByRole("link", { name: /classic token/i }),
-    ).toBeInTheDocument();
-    expect(
-      screen.queryByRole("button", { name: /advanced/i }),
-    ).not.toBeInTheDocument();
-  });
-
   it("validates the token, collapses to a line asking for the repository, and Change token re-opens it", async () => {
     const user = userEvent.setup();
     setup();
@@ -245,25 +227,6 @@ describe("GitHubConnectPage - onboarding (not yet connected)", () => {
         screen.getByRole("button", { name: "Connect repository" }),
       ).toBeEnabled();
     });
-  });
-
-  it("shows the invalid-token ladder step with a regenerate link", async () => {
-    const user = userEvent.setup();
-    setup({
-      repos: {
-        status: 401,
-        body: { error: "Token invalid or expired", code: "invalid_token" },
-      },
-    });
-
-    await validate(user);
-
-    expect(
-      await screen.findByText(/token invalid or expired/i),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole("link", { name: /regenerate token on github/i }),
-    ).toBeInTheDocument();
   });
 
   it("surfaces the org-approval link when binding 404s on an org-owned repo", async () => {

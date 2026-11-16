@@ -1,8 +1,7 @@
 name: CI
 
-# Pull requests only. A push to main is gated by publish-images.yml, which calls
-# the same verify workflow before it writes anything to the registry, so running
-# here as well would only spend a second full suite on the same commit.
+# Pull requests only: a push to main runs verify through publish-images.yml before
+# it writes to the registry, so a second full suite here would repeat it.
 on:
   pull_request:
 

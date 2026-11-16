@@ -1,15 +1,12 @@
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { afterEach, vi } from "vitest";
 import { openDb } from "../db.js";
 import { logger } from "../logger.js";
 import { initSecrets } from "../secrets.js";
 import { deriveStatus } from "../session/status-store.js";
+import { createTempFolder } from "./temp-folder.js";
 
-/* Suite-wide, so a test reaching getDb without its own useTempDb cannot create
-   a database in the developer's real ~/.nightwarden. */
-process.env["NIGHTWARDEN_DIR"] = mkdtempSync(join(tmpdir(), "nw-suite-"));
+// Suite-wide, so a test reaching getDb without its own useTempDb never touches ~/.nightwarden.
+process.env["NIGHTWARDEN_DIR"] = createTempFolder();
 
 // A fixed key keeps the suite off the developer's .env, and the suite runs the
 // same boot step production does rather than reaching past it.

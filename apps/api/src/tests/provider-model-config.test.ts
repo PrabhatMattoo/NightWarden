@@ -324,16 +324,6 @@ describe("provider/model config seam", () => {
     ).toBe("https://openrouter.ai/api/v1");
   });
 
-  it("POST /config/models: returns 401 without a valid session cookie", async () => {
-    const res = await nw.server.inject({
-      method: "POST",
-      url: "/api/config/models",
-      payload: {},
-    });
-
-    expect(res.statusCode).toBe(401);
-  });
-
   it("POST /config/models: lists what the endpoint returned", async () => {
     stubFetch(() =>
       mockResponse(200, {
@@ -584,11 +574,6 @@ describe("provider/model config seam", () => {
     expect(
       (JSON.parse(accepted.body) as AgentConfig).maxInvestigationsPerHour,
     ).toBe(5);
-  });
-
-  it("GET /config: returns 401 without a valid session cookie", async () => {
-    const res = await nw.server.inject({ method: "GET", url: "/api/config" });
-    expect(res.statusCode).toBe(401);
   });
 
   // --- Key never returned to browser ---

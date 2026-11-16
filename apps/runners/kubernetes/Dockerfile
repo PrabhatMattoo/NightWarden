@@ -10,9 +10,8 @@ ENV CI=true
 WORKDIR /build
 
 
-# No compiler stage: nothing in this runner's tree has a native binding to build.
-# Manifests alone are what pnpm resolves against, so this layer stays cached
-# until a dependency actually changes rather than on every source edit.
+# No compiler stage: nothing here has a native binding. Manifests alone are what
+# pnpm resolves, so this layer stays cached until a dependency changes.
 FROM base AS manifests
 
 COPY pnpm-workspace.yaml pnpm-lock.yaml package.json .pnpmfile.cjs ./
@@ -50,9 +49,8 @@ RUN pnpm --filter @nightwarden/kubernetes-runner build
 
 FROM base AS runtime
 
-# ca-certificates for the outbound WSS dial, and nothing else: this runner reads a
-# cluster through its API server, so it needs none of the host tooling a Docker
-# runner does, and ships no dockerode.
+# ca-certificates for the outbound WSS dial alone: this runner reads a cluster
+# through its API server, so it needs none of the Docker runner's host tooling.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates \
     && rm -rf /var/lib/apt/lists/*

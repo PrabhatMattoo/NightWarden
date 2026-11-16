@@ -7,5 +7,7 @@ export default defineConfig({
     // Named, not "apps/*": that glob also matches apps/runners and discovers
     // each runner's tests a second time through it.
     projects: ["apps/api", "apps/frontend", "apps/runners/*", "packages/*"],
+    // The slowest files set the pace, so more workers only crowd the machine.
+    maxWorkers: "50%",
   },
 });

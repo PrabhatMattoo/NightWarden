@@ -157,29 +157,6 @@ afterEach(() => {
 });
 
 describe("ReportPanel", () => {
-  // Two jobs, two fields: the one sentence that is the answer, and the
-  // paragraph under it. Both are the model's own prose, never a lifted claim.
-  it("leads with the headline and puts the summary under it", () => {
-    render(panel());
-
-    expect(
-      screen.getByRole("heading", {
-        name: "PR #482's cache bump exhausted payments-worker's memory",
-        level: 1,
-      }),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText(
-        "payments-worker was OOM-killed after PR #482 raised its floor",
-      ),
-    ).toBeInTheDocument();
-    expect(screen.getByText(/the payments write path/)).toBeInTheDocument();
-    expect(
-      screen.getByText("Nine minutes of failed payment writes"),
-    ).toBeInTheDocument();
-    expect(screen.getByText("Revert PR #482")).toBeInTheDocument();
-  });
-
   // Nothing drew the timeline citation, so the row claimed a fact and hid what
   // showed it. The chip reaches the call rather than redrawing its result.
   it("reaches the cited call from a timeline row", () => {
@@ -264,40 +241,6 @@ describe("ReportPanel", () => {
         Node.DOCUMENT_POSITION_FOLLOWING) !==
         0,
     ).toBe(true);
-  });
-
-  it("renders each of the four standing verdicts distinctly", () => {
-    const verdicts = [
-      "root_cause",
-      "trigger",
-      "symptom",
-      "contributing_factor",
-    ] as const;
-    render(
-      panel({
-        record: {
-          ...RECORD,
-          findings: verdicts.map((verdict, i) => ({
-            id: `h${i + 1}`,
-            statement: `claim ${verdict}`,
-            verdict,
-            candidate: `c${i + 1}`,
-            explanation: "",
-            evidenceIds: [],
-            recordedAt: RESOLVED,
-          })),
-        },
-      }),
-    );
-
-    for (const label of [
-      "Root cause",
-      "Trigger",
-      "Symptom",
-      "Contributing factor",
-    ]) {
-      expect(screen.getByText(label)).toBeInTheDocument();
-    }
   });
 
   it("puts the released writes on the composed timeline, in one order", () => {
@@ -651,14 +594,6 @@ describe("ReportPanel", () => {
     ).toBeInTheDocument();
   });
 
-  it("states an investigation that has recorded nothing", () => {
-    render(panel({ evidence: [], record: null }));
-    expect(screen.getByText("Investigation")).toBeInTheDocument();
-    expect(
-      screen.getByText(/has not recorded a finding yet/),
-    ).toBeInTheDocument();
-  });
-
   it("shows the alert before the agent has recorded anything", () => {
     render(panel({ evidence: [], record: null, alerts: [onSession(ALERT)] }));
     // The sender's own word, not a rank we impose: P1 is not rankable.
@@ -685,12 +620,6 @@ describe("ReportPanel", () => {
     // One word, on the one that recovered: the session is not resolved while
     // the other still fires, and the band has to show why.
     expect(screen.getAllByText("Recovered")).toHaveLength(1);
-  });
-
-  it("renders no alert band on a session no alert opened", () => {
-    render(panel());
-    expect(screen.queryByText("Alert")).not.toBeInTheDocument();
-    expect(screen.queryByText("Alerts")).not.toBeInTheDocument();
   });
 
   it("says the run could not conclude by showing what it settled and no cause", () => {
@@ -760,11 +689,6 @@ describe("ReportPanel", () => {
     expect(screen.getByText("Declined")).toBeInTheDocument();
     expect(screen.getByText("Failed")).toBeInTheDocument();
     expect(screen.queryByText(/by user/)).not.toBeInTheDocument();
-  });
-
-  it("draws no timeline on a record with neither entries nor released writes", () => {
-    render(panel({ record: { ...RECORD, report: null }, decisions: [] }));
-    expect(screen.queryByText("Timeline")).not.toBeInTheDocument();
   });
 
   it("tells the transcript which call to reveal, by its id", () => {

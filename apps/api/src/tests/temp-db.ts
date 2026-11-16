@@ -1,6 +1,3 @@
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { vi } from "vitest";
 import { getDb, resetDb } from "../db.js";
 import { resetAuth } from "../auth/instance.js";
@@ -10,18 +7,18 @@ import {
 } from "../integrations/metrics/store.js";
 import { updateConfig, updateProvider } from "../config/store.js";
 import { seedCatalog } from "../llm/catalog.js";
+import { createTempFolder } from "./temp-folder.js";
 
 // Call at the top of beforeAll before anything opens the lazy db; pair the
 // teardown with vi.unstubAllEnvs().
 export async function useTempDb(): Promise<() => void> {
-  const dir = mkdtempSync(join(tmpdir(), "nw-api-"));
+  const dir = createTempFolder();
   vi.stubEnv("NIGHTWARDEN_DIR", dir);
   await configureTestLLM();
   return () => {
     // The auth instance holds the handle resetDb closes, so it goes with it.
     resetAuth();
     resetDb();
-    rmSync(dir, { recursive: true, force: true });
   };
 }
 

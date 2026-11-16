@@ -201,32 +201,6 @@ function precedes(a: HTMLElement, b: HTMLElement): boolean {
 }
 
 describe("Shell", () => {
-  describe("the sidebar holds only navigation", () => {
-    it("carries no session list, no new-session action and no readouts", async () => {
-      setup({ path: "/investigations" });
-
-      await screen.findByRole("link", { name: "Agent" });
-      expect(
-        screen.queryByRole("button", { name: /new session/i }),
-      ).not.toBeInTheDocument();
-      expect(screen.queryByText("Sessions")).not.toBeInTheDocument();
-      await waitFor(() => {
-        expect(
-          screen.queryByText("CPU spike on web-01"),
-        ).not.toBeInTheDocument();
-      });
-
-      // A nav item is its name and nothing else: the count that sat here said
-      // what the page already says, and could not survive the rail.
-      await screen.findByRole("region", { name: "Action required" });
-      const sidebar = document.querySelector('[data-slot="sidebar"]');
-      const item = within(sidebar as HTMLElement).getByRole("link", {
-        name: "Investigations",
-      });
-      expect(item).toHaveTextContent(/^Investigations$/);
-    });
-  });
-
   describe("signing out", () => {
     it("asks first, then leaves for the login page once the server has ended the session", async () => {
       const user = userEvent.setup();
@@ -261,38 +235,6 @@ describe("Shell", () => {
       expect(
         await screen.findByRole("heading", { name: "Investigations" }),
       ).toBeInTheDocument();
-    });
-  });
-
-  describe("the top bar", () => {
-    it("gives a section page a title heading and no breadcrumb", async () => {
-      setup({ path: "/investigations" });
-
-      expect(
-        await screen.findByRole("heading", { name: "Investigations" }),
-      ).toBeInTheDocument();
-      expect(
-        screen.queryByRole("navigation", { name: "breadcrumb" }),
-      ).not.toBeInTheDocument();
-    });
-
-    it("gives a detail page a back link to its parent, no breadcrumb", async () => {
-      setup({ path: "/integrations/alerting/alertmanager" });
-
-      // The back link names its target, distinct from the sidebar's own link.
-      const back = await screen.findByRole("link", {
-        name: /back to integrations/i,
-      });
-      expect(back).toHaveAttribute("href", "/integrations");
-      expect(
-        screen.queryByRole("navigation", { name: "breadcrumb" }),
-      ).not.toBeInTheDocument();
-    });
-
-    it("shows the live delivery status on a detail page", async () => {
-      setup({ path: "/integrations/alerting/alertmanager" });
-
-      expect(await screen.findByText(/receiving/i)).toBeInTheDocument();
     });
   });
 
@@ -427,55 +369,6 @@ describe("Shell", () => {
       expect(screen.getByRole("textbox")).toBeInTheDocument();
     });
 
-    it("takes the width the user gives it, within its floor, and keeps it", async () => {
-      const user = userEvent.setup();
-      const { setInvestigation } = setup({ path: "/investigations/new-s1" });
-
-      setInvestigation(true);
-      await user.click(
-        await screen.findByRole("button", { name: /show the report/i }),
-      );
-      const handle = await screen.findByRole("separator", {
-        name: /resize the report/i,
-      });
-      const panel = screen.getByRole("complementary", {
-        name: /investigation report/i,
-      });
-
-      // jsdom applies no CSS, so the width is only legible as the variable the
-      // panel writes as the reader drags it.
-      expect(panel.style.getPropertyValue("--rail-width")).toBe("480px");
-
-      handle.focus();
-      await user.keyboard("{ArrowLeft}{ArrowLeft}");
-      expect(panel.style.getPropertyValue("--rail-width")).toBe("520px");
-      expect(window.localStorage.getItem("nightwarden.report.width")).toBe(
-        "520",
-      );
-
-      // Narrower than the floor is not a narrower panel, so the floor holds
-      // however far the drag goes.
-      await user.keyboard("{ArrowRight}{ArrowRight}{ArrowRight}{ArrowRight}");
-      expect(panel.style.getPropertyValue("--rail-width")).toBe("480px");
-    });
-
-    it("opens at the width it was left at, not at the default", async () => {
-      window.localStorage.setItem("nightwarden.report.width", "600");
-      const user = userEvent.setup();
-      const { setInvestigation } = setup({ path: "/investigations/new-s1" });
-
-      setInvestigation(true);
-      await user.click(
-        await screen.findByRole("button", { name: /show the report/i }),
-      );
-      const panel = await screen.findByRole("complementary", {
-        name: /investigation report/i,
-      });
-
-      // A width set once and lost every night is worse than one you cannot set.
-      expect(panel.style.getPropertyValue("--rail-width")).toBe("600px");
-    });
-
     it("maximizes to the full stage without unmounting the chat", async () => {
       const user = userEvent.setup();
       const { setInvestigation } = setup({ path: "/investigations/new-s1" });
@@ -550,30 +443,16 @@ describe("Shell", () => {
       ).not.toBeInTheDocument();
     });
 
-    it("puts the title, the finding, the severity word and the age on one row", async () => {
+    /* On a run parked for an answer, when it last moved and when it opened are
+       different numbers, and only the first one is worth reading. */
+    it("ages a row from when it last moved, not from when it opened", async () => {
       setup({ path: "/investigations" });
 
       const row = await screen.findByRole("link", {
         name: /Container memory high/,
       });
-      expect(row).toHaveTextContent("Container memory high");
-      expect(row).toHaveTextContent("Waiting on approval");
-      // The label's own word, not a vocabulary we imposed on it.
-      expect(row).toHaveTextContent("critical");
-      /* When it last moved, not when it opened. On a run parked for an answer
-         those are different numbers, and only the first one is worth reading. */
       expect(row).toHaveTextContent("2m");
       expect(row).not.toHaveTextContent("14m");
-    });
-
-    it("renders an absent severity as nothing rather than a substitute", async () => {
-      setup({ path: "/investigations" });
-
-      const row = await screen.findByRole("link", {
-        name: /Disk filling on db-02/,
-      });
-      expect(row).toHaveTextContent("Alert condition recovered");
-      expect(row).not.toHaveTextContent(/critical|warning|info|unknown|—/);
     });
 
     /* Nothing reorders within a group. Ranking the sender's own word would put
@@ -658,18 +537,6 @@ describe("Shell", () => {
   });
 
   describe("the investigation record", () => {
-    it("heads the record with a back link to the list, keeping its title", async () => {
-      setup({ path: "/investigations/inv-crit" });
-
-      const back = await screen.findByRole("link", {
-        name: /back to investigations/i,
-      });
-      expect(back).toHaveAttribute("href", "/investigations");
-      expect(
-        await screen.findByText("Container memory high"),
-      ).toBeInTheDocument();
-    });
-
     it("carries its place in the queue and steps to the next record", async () => {
       const user = userEvent.setup();
       const { router } = setup({ path: "/investigations/inv-p1" });

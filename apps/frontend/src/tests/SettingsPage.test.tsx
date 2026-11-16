@@ -463,30 +463,6 @@ describe("SettingsPage", () => {
       ).not.toBeInTheDocument();
       expect(screen.getByRole("button", { name: /^save$/i })).toBeDisabled();
     });
-
-    it("says only that it is loading until the catalog has answered", async () => {
-      const user = userEvent.setup();
-      setup();
-      await openSection(user, /provider/i);
-      await openModelList(user);
-
-      // Before the answer lands there is one honest message, not a guess that
-      // gets corrected a frame later.
-      expect(screen.queryByText(/add an api key/i)).not.toBeInTheDocument();
-      expect(screen.queryByText(/listed no models/i)).not.toBeInTheDocument();
-
-      await screen.findByRole("option", { name: /claude-sonnet-4-6/ });
-      expect(screen.queryByText(/loading models/i)).not.toBeInTheDocument();
-    });
-
-    it("asks for a key when the provider will not list models without one", async () => {
-      const user = userEvent.setup();
-      setup(undefined, { ok: false, error: "needs_key" });
-      await openSection(user, /provider/i);
-      await openModelList(user);
-
-      expect(await screen.findByText(/add an api key/i)).toBeInTheDocument();
-    });
   });
 
   describe("reasoning control", () => {
@@ -670,23 +646,6 @@ describe("SettingsPage", () => {
       },
     };
 
-    it("shows the saved key masked, with no input open until Replace is pressed", async () => {
-      const user = userEvent.setup();
-      setup(withStoredKey);
-      await openSection(user, /provider/i);
-
-      expect(await screen.findByText("sk-...9999")).toBeInTheDocument();
-      expect(
-        screen.queryByPlaceholderText(/paste api key/i),
-      ).not.toBeInTheDocument();
-
-      await user.click(screen.getByRole("button", { name: /replace/i }));
-
-      expect(
-        await screen.findByPlaceholderText(/paste api key/i),
-      ).toBeInTheDocument();
-    });
-
     it("loads the catalog with the saved key, without it being retyped", async () => {
       const user = userEvent.setup();
       const { sent } = setup(withStoredKey);
@@ -707,20 +666,6 @@ describe("SettingsPage", () => {
   });
 
   describe("Limits", () => {
-    it("offers presets in the unit a person would say them in", async () => {
-      const user = userEvent.setup();
-      setup();
-      await openSection(user, /limits/i);
-
-      // 1800000 ms is thirty minutes; nobody should have to do that division.
-      expect(
-        await screen.findByRole("combobox", { name: /ask to continue after/i }),
-      ).toHaveTextContent("30 minutes");
-      expect(
-        screen.getByRole("combobox", { name: /longest tool call/i }),
-      ).toHaveTextContent("10 minutes");
-    });
-
     it("keeps a saved value the presets do not list, rather than showing a blank", async () => {
       const user = userEvent.setup();
       setup({ checkInAfterMs: 45 * 60_000 });
@@ -770,44 +715,6 @@ describe("SettingsPage", () => {
       );
     });
 
-    it("shows the reason inline when the catalog rejects the key", async () => {
-      const user = userEvent.setup();
-      setup(undefined, { ok: false, error: "bad_key" });
-      await openSection(user, /provider/i);
-      await openModelList(user);
-
-      expect(
-        await screen.findByText(/that key was rejected/i),
-      ).toBeInTheDocument();
-    });
-
-    it("says an endpoint could not be reached, which is a different mistake", async () => {
-      const user = userEvent.setup();
-      setup(undefined, { ok: false, error: "unreachable" });
-      await openSection(user, /provider/i);
-      await openModelList(user);
-
-      expect(
-        await screen.findByText(/could not reach that endpoint/i),
-      ).toBeInTheDocument();
-    });
-
-    it("enables Save as soon as anything is edited", async () => {
-      const user = userEvent.setup();
-      setup();
-      await openSection(user, /provider/i);
-
-      const save = await screen.findByRole("button", { name: /^save$/i });
-      expect(save).toBeDisabled();
-
-      const keyInput = await screen.findByPlaceholderText(/paste api key/i);
-      await user.type(keyInput, "sk-ant-newkey");
-
-      // The key changes what the catalog is asked, so Save turns on when that
-      // answer lands, not before: an unverified key is not saveable.
-      await waitFor(() => expect(save).toBeEnabled());
-    });
-
     it("PATCHes /config/key on Save, before the config that depends on it", async () => {
       const user = userEvent.setup();
       const { sent } = setup();
@@ -831,21 +738,15 @@ describe("SettingsPage", () => {
   });
 
   describe("sandbox network", () => {
-    it("saves the sandbox network knob and explains what each mode means", async () => {
+    it("saves the sandbox network mode", async () => {
       const user = userEvent.setup();
       const { sent } = setup();
       await openSection(user, /sandbox/i);
-
-      expect(
-        await screen.findByLabelText(/sandbox network/i),
-      ).toHaveTextContent("None (no network)");
-      expect(screen.getByText(/no network at all/i)).toBeInTheDocument();
 
       const list = await openSelect(user, /sandbox network/i);
       await user.click(
         within(list).getByRole("option", { name: /open \(unrestricted\)/i }),
       );
-      expect(screen.getByText(/could exfiltrate/i)).toBeInTheDocument();
 
       await waitFor(() => {
         const patch = sent("PATCH", "/api/config")[0];

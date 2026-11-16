@@ -68,14 +68,11 @@ jobs:
           context: .
           file: ${{ matrix.dockerfile }}
           push: true
-          # amd64 is what a standard cloud VM runs, built natively here so
-          # better-sqlite3 and argon2 compile for the right target. arm64 hosts
-          # build locally; the README says so.
+          # amd64 is what a standard cloud VM runs, built natively so better-sqlite3
+          # and argon2 compile for it. arm64 hosts build locally, as the README says.
           platforms: linux/amd64
-          # The commit tag is what keeps the registry free of orphans: :latest is a
-          # moving pointer, so without a second tag the digest it leaves behind
-          # loses its last one and becomes untagged. With this, every build stays
-          # addressable and retention below prunes by age rather than by accident.
+          # :latest moves, so without the commit tag the digest it leaves behind turns
+          # untagged. With it every build stays addressable and retention prunes by age.
           tags: |
             ${{ env.REGISTRY }}/${{ steps.repo.outputs.owner }}/${{ matrix.name }}:latest
             ${{ env.REGISTRY }}/${{ steps.repo.outputs.owner }}/${{ matrix.name }}:sha-${{ steps.repo.outputs.sha }}
@@ -94,10 +91,8 @@ jobs:
           subject-digest: ${{ steps.build.outputs.digest }}
           push-to-registry: true
 
-      # Publishing on every push makes history unbounded, so it is bounded here.
-      # Three versions per build, not one: the image, the provenance attestation,
-      # and the index tagged sha256-<image digest> that links them. Thirty is ten
-      # builds; counting it in builds would silently keep three.
+      # Every push publishes, so history is bounded here. A build is three versions
+      # (image, attestation, the sha256-<digest> index), so thirty keeps ten builds.
       - uses: actions/delete-package-versions@v5
         with:
           package-name: ${{ matrix.name }}
