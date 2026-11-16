@@ -257,7 +257,11 @@ describe("API-local session store", () => {
     const card = (await buildTranscript(m.sessionId)).find(
       (item) => item.kind === "tool_call",
     );
-    expect(card?.state).toEqual({ phase: "complete", result: "not found" });
+    expect(card?.state).toEqual({
+      phase: "complete",
+      result: "not found",
+      isError: true,
+    });
   });
 
   it("rejects a duplicate (session_id, seq) so a hole can never be re-filled", async () => {

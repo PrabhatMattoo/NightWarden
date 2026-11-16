@@ -32,7 +32,11 @@ export const toolCallStateSchema = z.discriminatedUnion("phase", [
     result: z.unknown().optional(),
     actor: actorSchema.optional(),
   }),
-  z.object({ phase: z.literal("complete"), result: z.unknown() }),
+  z.object({
+    phase: z.literal("complete"),
+    result: z.unknown(),
+    isError: z.literal(true).optional(),
+  }),
 ]);
 export type ToolCallState = z.infer<typeof toolCallStateSchema>;
 

@@ -107,6 +107,7 @@ async function reportCard(sessionId: string): Promise<TranscriptItem | null> {
 // beats what a human already decided, which beats the tool merely having run.
 function toolCallState(
   result: string | undefined,
+  failed: boolean,
   gate: ToolGate | null,
   decided: ApprovalStatus | null,
   actor: Actor | null,
@@ -122,7 +123,7 @@ function toolCallState(
       ...(actor !== null && { actor }),
     };
   if (result === undefined) return { phase: "running" };
-  return { phase: "complete", result };
+  return { phase: "complete", result, ...(failed && { isError: true }) };
 }
 
 // A candidate's state read live off the record: the verdict of the finding that
@@ -186,12 +187,14 @@ export async function buildTranscript(
   // One pass: what a call returned, whether it failed, and what a person said
   // about it, each read from the part that records it.
   const results = new Map<string, string>();
+  const failed = new Set<string>();
   const decisions = new Map<string, ApprovalStatus>();
   const deciders = new Map<string, Actor>();
   for (const msg of messages) {
     for (const part of msg.parts) {
       if (part.type === "tool_result") {
         results.set(part.toolCallId, part.output);
+        if (part.isError === true) failed.add(part.toolCallId);
       } else if (part.type === "tool_approval") {
         decisions.set(part.toolCallId, part.approved ? "approved" : "rejected");
         if (part.actor) deciders.set(part.toolCallId, part.actor);
@@ -349,6 +352,7 @@ export async function buildTranscript(
             input: part.input,
             state: toolCallState(
               results.get(part.toolCallId),
+              failed.has(part.toolCallId),
               gate,
               decided,
               decider,

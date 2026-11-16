@@ -194,6 +194,7 @@ function ToolRow({ item }: { item: ToolCallItem }): React.JSX.Element {
   // waiting: one has no result yet, the other is actually executing.
   const unanswered = result === null;
   const working = item.state.phase === "running";
+  const failed = item.state.phase === "complete" && item.state.isError === true;
   const target = targetOf(input) ?? inputString(input, "path");
   // Who settled this call, drawn on the resolved row so the audit reads inline.
   const actor =
@@ -234,6 +235,11 @@ function ToolRow({ item }: { item: ToolCallItem }): React.JSX.Element {
           {target !== null && (
             <span className="shrink-0 font-mono type-prose transition-colors group-hover:text-ink-base">
               {target}
+            </span>
+          )}
+          {failed && (
+            <span className="shrink-0 type-prose transition-colors group-hover:text-ink-base">
+              failed
             </span>
           )}
           {actor !== null && decisionWord !== null && (
