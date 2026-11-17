@@ -18,6 +18,7 @@ export function assembleRecord(
   row: RecordRow | undefined,
 ): InvestigationRecord | undefined {
   if (row === undefined) return undefined;
+  // These columns hold what this store serialised, so the casts restate it.
   const candidates = JSON.parse(row.candidates) as Candidate[];
   const findings = JSON.parse(row.findings) as Finding[];
   const report =

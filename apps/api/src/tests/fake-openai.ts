@@ -23,7 +23,7 @@ interface InputItem {
 }
 
 // The request body exactly as OpenAI receives it.
-export interface OpenAIRequest {
+interface OpenAIRequest {
   model: string;
   input: InputItem[];
   tools?: Array<{ name: string }>;

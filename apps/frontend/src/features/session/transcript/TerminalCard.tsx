@@ -1,7 +1,7 @@
 import { asRecord, numberAt, stringAt } from "@/shared/lib/toolResult";
 import { cn } from "@/shared/lib/utils";
 
-export interface CommandRun {
+interface CommandRun {
   exitCode: number;
   output: string;
 }

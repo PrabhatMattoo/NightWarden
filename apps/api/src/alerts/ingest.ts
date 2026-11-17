@@ -144,6 +144,6 @@ function isAlertmanagerShape(body: unknown): boolean {
     typeof body === "object" &&
     body !== null &&
     "alerts" in body &&
-    Array.isArray((body as Record<string, unknown>)["alerts"])
+    Array.isArray(body.alerts)
   );
 }

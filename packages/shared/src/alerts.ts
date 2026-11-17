@@ -5,5 +5,5 @@ export const ALERT_SOURCE_KINDS = ["alertmanager", "grafana"] as const;
 export type AlertSourceKind = (typeof ALERT_SOURCE_KINDS)[number];
 
 export function isAlertSourceKind(value: string): value is AlertSourceKind {
-  return (ALERT_SOURCE_KINDS as readonly string[]).includes(value);
+  return ALERT_SOURCE_KINDS.some((kind) => kind === value);
 }

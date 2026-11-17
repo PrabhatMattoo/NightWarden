@@ -1,3 +1,4 @@
+import { z } from "zod";
 import type {
   AmpCredential,
   MetricsSourceKind,
@@ -22,27 +23,22 @@ export interface MetricsSource {
   capabilities: MetricsPreset;
 }
 
+const ampCredentialSchema = z.object({
+  accessKeyId: z.string(),
+  secretAccessKey: z.string(),
+  region: z.string(),
+  sessionToken: z.string().optional(),
+});
+
 // AMP has no static header, so its "authorization" secret slot stores the
 // credential JSON-encoded instead.
 function decodeAmpCredential(raw: string | null): AmpCredential | undefined {
   if (raw === null) return undefined;
   try {
-    const parsed = JSON.parse(raw) as Partial<AmpCredential>;
-    if (
-      typeof parsed.accessKeyId !== "string" ||
-      typeof parsed.secretAccessKey !== "string" ||
-      typeof parsed.region !== "string"
-    ) {
-      return undefined;
-    }
-    return {
-      accessKeyId: parsed.accessKeyId,
-      secretAccessKey: parsed.secretAccessKey,
-      region: parsed.region,
-      ...(typeof parsed.sessionToken === "string" && {
-        sessionToken: parsed.sessionToken,
-      }),
-    };
+    const parsed = ampCredentialSchema.safeParse(JSON.parse(raw));
+    if (!parsed.success) return undefined;
+    const { sessionToken, ...required } = parsed.data;
+    return { ...required, ...(sessionToken !== undefined && { sessionToken }) };
   } catch {
     return undefined;
   }
@@ -104,7 +100,7 @@ export async function getMetricsSource(): Promise<MetricsSource | null> {
 
 // Encoded here rather than asked for as base64: a Grafana Cloud user is handed
 // an instance id and a token, and turning those into a header is our job.
-export function authorizationOf(input: MetricsEndpointInput): string | null {
+function authorizationOf(input: MetricsEndpointInput): string | null {
   if (input.authHeader !== undefined && input.authHeader !== "") {
     return input.authHeader;
   }
@@ -115,9 +111,7 @@ export function authorizationOf(input: MetricsEndpointInput): string | null {
   return `Basic ${Buffer.from(pair, "utf8").toString("base64")}`;
 }
 
-export function ampCredentialOf(
-  input: MetricsEndpointInput,
-): AmpCredential | null {
+function ampCredentialOf(input: MetricsEndpointInput): AmpCredential | null {
   if (
     input.accessKeyId === undefined ||
     input.secretAccessKey === undefined ||

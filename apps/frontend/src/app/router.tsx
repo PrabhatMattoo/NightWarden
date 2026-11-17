@@ -361,7 +361,7 @@ const sentryRoute = createRoute({
   component: LAZY.SentryPage,
 });
 
-export const routeTree = rootRoute.addChildren([
+const routeTree = rootRoute.addChildren([
   loginRoute,
   appRoute.addChildren([
     indexRoute,

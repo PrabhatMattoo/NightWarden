@@ -12,7 +12,7 @@ export const METRICS_SOURCE_KINDS = [
 export type MetricsSourceKind = (typeof METRICS_SOURCE_KINDS)[number];
 
 export function isMetricsSourceKind(value: string): value is MetricsSourceKind {
-  return (METRICS_SOURCE_KINDS as readonly string[]).includes(value);
+  return METRICS_SOURCE_KINDS.some((kind) => kind === value);
 }
 
 // AMP signs every request with these instead of a static header.

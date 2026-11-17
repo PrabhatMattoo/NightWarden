@@ -10,7 +10,7 @@ import { api, dataOrThrow } from "@/shared/api/client";
 
 /* Deleting a session is one act with one failure mode, so both surfaces ask the same
    question and report the same error; only the noun and the landing place differ. */
-export interface SessionDeletion {
+interface SessionDeletion {
   confirm: () => void;
   dialog: React.JSX.Element;
 }

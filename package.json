@@ -22,13 +22,15 @@
     "dev:docker-runner": "pnpm --filter @nightwarden/docker-runner dev",
     "dev:kubernetes-runner": "pnpm --filter @nightwarden/kubernetes-runner dev",
     "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check .",
+    "knip": "knip"
   },
   "devDependencies": {
     "@playwright/cli": "0.1.17",
     "@types/dockerode": "4.0.1",
     "@types/node": "26.1.1",
     "esbuild": "0.28.1",
+    "knip": "6.45.1",
     "oxlint": "1.85.0",
     "oxlint-tsgolint": "7.0.2002",
     "prettier": "3.9.5",

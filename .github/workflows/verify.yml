@@ -30,6 +30,9 @@ jobs:
 
       - run: pnpm lint
 
+      # Dead code and unlisted dependencies fail here rather than accumulate.
+      - run: pnpm knip
+
       - run: pnpm test
 
       # A pull request that cannot produce the artifact is not green. Without

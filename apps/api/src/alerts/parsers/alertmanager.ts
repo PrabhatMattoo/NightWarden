@@ -41,11 +41,12 @@ export function parseAlertmanager(body: unknown): ParsedWebhook {
   const firing: ParsedAlert[] = [];
   const cleared: ParsedWebhook["cleared"] = [];
   for (const raw of result.data.alerts) {
-    if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+    const parsedAlert = z.record(z.string(), z.unknown()).safeParse(raw);
+    if (!parsedAlert.success) {
       logger.warn({ raw }, "skipping malformed alert: not an object");
       continue;
     }
-    const alert = raw as Record<string, unknown>;
+    const alert = parsedAlert.data;
 
     const labels = toStringMap(alert["labels"]);
     const fingerprint =

@@ -1,6 +1,6 @@
 /* What a call made outside a run may take: a person clicking Connect is waiting
    on it, and boot and the recovery sweep must not stall on a silent host. */
-export const PROBE_TIMEOUT_MS = 10_000;
+const PROBE_TIMEOUT_MS = 10_000;
 
 export function probeSignal(): AbortSignal {
   return AbortSignal.timeout(PROBE_TIMEOUT_MS);
@@ -11,9 +11,8 @@ export function probeSignal(): AbortSignal {
 export function failureCode(err: unknown): string | null {
   let found: string | null = null;
   for (let link = err; typeof link === "object" && link !== null;) {
-    const { code, cause } = link as { code?: unknown; cause?: unknown };
-    if (typeof code === "string") found = code;
-    link = cause;
+    if ("code" in link && typeof link.code === "string") found = link.code;
+    link = "cause" in link ? link.cause : undefined;
   }
   return found;
 }
@@ -23,7 +22,12 @@ export function failureCode(err: unknown): string | null {
 export function describeNetworkFailure(err: unknown, service: string): string {
   const from = `Attempted from the NightWarden API`;
   // An abort carries the caller's own limit rather than the network's verdict.
-  if ((err as { name?: unknown })?.name === "TimeoutError") {
+  if (
+    typeof err === "object" &&
+    err !== null &&
+    "name" in err &&
+    err.name === "TimeoutError"
+  ) {
     return `${service} did not answer within the time this call was given. ${from}.`;
   }
   switch (failureCode(err)) {

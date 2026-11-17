@@ -93,7 +93,7 @@ interface SessionListRawRow {
   createdAt: string;
   lastActivityAt: string;
   investigation: number;
-  status: string;
+  status: InvestigationStatus;
   candidates: string;
   findings: string;
   report: string | null;
@@ -104,7 +104,6 @@ interface SessionListRawRow {
   pendingKind: string | null;
 }
 
-// The status cast is safe because the column CHECKs against the same members.
 function toFacts(
   r: SessionListRawRow,
   alerts: SessionAlert[],
@@ -116,7 +115,7 @@ function toFacts(
     lastActivityAt: r.lastActivityAt,
     alerts,
     investigation: r.investigation === 1,
-    status: r.status as InvestigationStatus,
+    status: r.status,
     record:
       assembleRecord({
         candidates: r.candidates,
@@ -135,7 +134,7 @@ function toFacts(
 }
 
 // What a page is narrowed to; an absent field narrows nothing.
-export interface SessionListFilter {
+interface SessionListFilter {
   statuses?: readonly InvestigationStatus[];
   titleContains?: string;
 }

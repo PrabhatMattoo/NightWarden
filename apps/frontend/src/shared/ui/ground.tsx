@@ -1,7 +1,7 @@
 import { createContext, useContext } from "react";
 
 // The ground a component stands on, carried through portals so a popup knows where it was opened.
-export type Ground = "stage" | "sidebar" | "card" | "overlay" | "overlay-stage";
+type Ground = "stage" | "sidebar" | "card" | "overlay" | "overlay-stage";
 
 const GroundContext = createContext<Ground>("stage");
 

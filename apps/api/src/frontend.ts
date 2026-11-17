@@ -25,7 +25,7 @@ function setCacheHeaders(reply: FastifyReply, path: string): void {
 
 /* The page reaches this origin and nothing else. A script runs from here or is
    one index.html itself carries, by its hash; sonner writes its own <style>. */
-export function contentSecurityPolicy(indexHtml: string): string {
+function contentSecurityPolicy(indexHtml: string): string {
   const inline = [
     ...indexHtml.matchAll(/<script(?![^>]*\ssrc=)[^>]*>([\s\S]*?)<\/script>/g),
   ].map(

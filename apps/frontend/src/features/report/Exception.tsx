@@ -1,6 +1,6 @@
 import { asRecord, numberAt, stringAt } from "@/shared/lib/toolResult";
 
-export interface ExceptionRow {
+interface ExceptionRow {
   title: string;
   culprit: string;
   // Counts for a search hit, the release for a single event: what places it.

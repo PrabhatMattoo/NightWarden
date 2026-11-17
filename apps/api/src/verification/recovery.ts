@@ -10,7 +10,7 @@ import { metricsRulesSource } from "./sources/metrics-rules.js";
 // can do is decided at build time, never discovered at runtime.
 const SOURCES: readonly VerificationSource[] = [metricsRulesSource];
 
-export type RecoveryState =
+type RecoveryState =
   // Every alert that opened this investigation has cleared. The only state that
   // may be called resolved.
   | "confirmed"

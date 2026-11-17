@@ -37,7 +37,7 @@ interface WireMessage {
 }
 
 // The request body exactly as Anthropic receives it.
-export interface AnthropicRequest {
+interface AnthropicRequest {
   model: string;
   system?: unknown;
   messages: WireMessage[];
@@ -65,7 +65,7 @@ const ERROR_TYPES: Readonly<Record<number, string>> = {
   529: "overloaded_error",
 };
 
-export const start = {
+const start = {
   type: "message_start",
   message: {
     id: "msg_1",
@@ -156,11 +156,8 @@ function finish(stopReason: string): object[] {
   ];
 }
 
-export const answer = (said: string): string =>
-  sse(start, ...textBlock(0, said), ...finish("end_turn"));
-
 // What Anthropic sends when it sheds load after the reply has begun.
-export const overloadedAfter = (said: string): string =>
+const overloadedAfter = (said: string): string =>
   sse(start, ...textBlock(0, said), {
     type: "error",
     error: { type: "overloaded_error", message: "Overloaded" },

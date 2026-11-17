@@ -8,6 +8,13 @@ import {
   Loader2Icon,
 } from "lucide-react";
 
+const TOAST_VARS: React.CSSProperties & Record<`--${string}`, string> = {
+  "--normal-bg": "var(--control)",
+  "--normal-text": "var(--ink-title)",
+  "--normal-border": "var(--edge)",
+  "--border-radius": "var(--radius-overlay)",
+};
+
 // Themed from the page's own roles, so it follows whichever theme is chosen.
 const Toaster = ({ ...props }: ToasterProps) => {
   return (
@@ -20,14 +27,7 @@ const Toaster = ({ ...props }: ToasterProps) => {
         error: <OctagonXIcon className="size-4" />,
         loading: <Loader2Icon className="size-4 animate-spin" />,
       }}
-      style={
-        {
-          "--normal-bg": "var(--control)",
-          "--normal-text": "var(--ink-title)",
-          "--normal-border": "var(--edge)",
-          "--border-radius": "var(--radius-overlay)",
-        } as React.CSSProperties
-      }
+      style={TOAST_VARS}
       toastOptions={{
         classNames: {
           toast: "cn-toast",

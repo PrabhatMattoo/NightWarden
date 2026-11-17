@@ -45,6 +45,7 @@ function alertRow(
 
 function parseAlert(raw: string): NormalizedAlert[] {
   try {
+    // The column holds what this store wrote from a NormalizedAlert.
     return [JSON.parse(raw) as NormalizedAlert];
   } catch {
     return [];
@@ -77,7 +78,7 @@ async function insertAlerts(
 
 /* What a delivery came to. `none` stored nothing new, `joined` added to its
    group's open session, and `started` and `held` opened one. */
-export type Admission =
+type Admission =
   | { kind: "none" }
   | {
       kind: "joined" | "started" | "held";
@@ -228,6 +229,7 @@ interface AlertRow {
 // Untrusted on read for the same reason as the canonical column below: a session
 // holding one unreadable alert should still open, showing the rest.
 function toSessionAlert(row: AlertRow): SessionAlert[] {
+  // Both JSON columns hold what this store wrote, so the casts below restate it.
   try {
     return [
       {

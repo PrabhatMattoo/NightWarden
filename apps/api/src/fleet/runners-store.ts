@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { isPlatform, type Platform } from "@nightwarden/shared";
+import type { Platform } from "@nightwarden/shared";
 import { getDb } from "../db.js";
 import { hashToken, issueToken, tokenMatches } from "../secrets.js";
 
@@ -76,58 +76,24 @@ export async function createRunner(
   };
 }
 
-const SELECT_ROW = [
+const META_COLUMNS = [
   "id",
-  "token as tokenHash",
   "platform",
   "server_name as serverName",
   "created_at as createdAt",
   "last_used_at as lastUsedAt",
 ] as const;
 
-function text(raw: Record<string, unknown>, column: string): string {
-  const value = raw[column];
-  if (typeof value !== "string") {
-    throw new Error(`runner.${column} is missing or not text`);
-  }
-  return value;
-}
-
-function nullableText(
-  raw: Record<string, unknown>,
-  column: string,
-): string | null {
-  const value = raw[column];
-  return typeof value === "string" ? value : null;
-}
-
-function mapRow(raw: Record<string, unknown>): RunnerRow {
-  const platform = raw["platform"];
-  // The CHECK constraint already refuses anything else, so this can only fire on
-  // a database edited by hand. Failing beats silently onboarding an unroutable runner.
-  if (!isPlatform(platform)) {
-    throw new Error(`runner.platform holds an unrecognised value`);
-  }
-  return {
-    id: text(raw, "id"),
-    tokenHash: text(raw, "tokenHash"),
-    platform,
-    serverName: text(raw, "serverName"),
-    createdAt: text(raw, "createdAt"),
-    lastUsedAt: nullableText(raw, "lastUsedAt"),
-  };
-}
-
 export async function findRunnerByToken(
   plaintext: string,
 ): Promise<RunnerRow | undefined> {
   /* Scanned and compared in constant time rather than looked up on the token
      index, which is the same rule the ingest credential follows. */
-  for (const raw of await getDb()
+  for (const row of await getDb()
     .selectFrom("runner")
-    .select(SELECT_ROW)
+    .select(["token as tokenHash", ...META_COLUMNS])
     .execute()) {
-    if (tokenMatches(plaintext, raw.tokenHash)) return mapRow(raw);
+    if (tokenMatches(plaintext, row.tokenHash)) return row;
   }
   return undefined;
 }
@@ -151,13 +117,9 @@ export async function deleteRunner(id: string): Promise<boolean> {
 
 // Public list: no hash, no plaintext, newest first.
 export async function listRunnersMeta(): Promise<RunnerMeta[]> {
-  const rows = await getDb()
+  return await getDb()
     .selectFrom("runner")
-    .select(SELECT_ROW)
+    .select(META_COLUMNS)
     .orderBy("created_at", "desc")
     .execute();
-  return rows.map((r) => {
-    const { tokenHash: _tokenHash, ...meta } = mapRow(r);
-    return meta;
-  });
 }

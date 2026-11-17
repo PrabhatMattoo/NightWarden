@@ -2,14 +2,14 @@ import { Card, CardContent } from "@/shared/ui/card";
 import { cn } from "@/shared/lib/utils";
 import { asRecord } from "@/shared/lib/toolResult";
 
-export type DiffLineType = "added" | "removed" | "unchanged";
+type DiffLineType = "added" | "removed" | "unchanged";
 export interface DiffLine {
   type: DiffLineType;
   oldLineNumber: number | null;
   newLineNumber: number | null;
   content: string;
 }
-export interface DiffHunk {
+interface DiffHunk {
   lines: DiffLine[];
 }
 interface FileChange {

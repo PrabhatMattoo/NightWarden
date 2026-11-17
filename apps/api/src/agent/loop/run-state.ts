@@ -31,7 +31,7 @@ export type RunOutcome = "completed" | "suspended" | "stopped";
 
 // One chat call with the run's provider bound in: the driver supplies it so the
 // turn cycle never sees the provider or the retry policy.
-export type ChatFn = (
+type ChatFn = (
   messages: readonly ProviderMessage[],
   tools: ToolSchema[],
   turn: number,

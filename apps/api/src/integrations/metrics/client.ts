@@ -209,9 +209,10 @@ function seriesOf(data: QueryData): MetricsSeries[] {
       }
       if (item.histogram !== undefined) {
         const [at, value] = item.histogram;
+        const count: [number, string] = [at, value.count];
         return {
           metric: item.metric,
-          values: [[at, value.count] as [number, string]],
+          values: [count],
           histogram: true as const,
         };
       }
@@ -438,7 +439,7 @@ export async function metricNames(
 
 // What a metric is and what it is measured in. Only known for metrics an
 // exporter declared with HELP and TYPE, and some sources store none at all.
-export interface MetricMetadata {
+interface MetricMetadata {
   metric: string;
   type: string;
   unit: string;

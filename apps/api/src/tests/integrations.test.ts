@@ -16,6 +16,8 @@ import { registerMetricsRoutes } from "../integrations/metrics/routes.js";
 import {
   deleteLokiIntegration,
   deleteSentryIntegration,
+  getLokiIntegration,
+  putIntegration,
 } from "../integrations/store.js";
 import { setAlertSourceReceived } from "../integrations/alert-sources.js";
 import { useTempDb } from "./temp-db.js";
@@ -661,6 +663,20 @@ describe("metrics source routes", () => {
     });
     expect(JSON.parse(after.body).configured).toBe(false);
   });
+
+  it("refuses a stored config that fails its schema instead of reading it as valid", async () => {
+    await putIntegration({
+      kind: "thanos",
+      name: "Thanos",
+      config: { query: { url: "http://thanos:10902" } },
+    });
+
+    const res = await authed({
+      method: "GET",
+      url: "/api/integrations/metrics",
+    });
+    expect(res.statusCode).toBe(500);
+  });
 });
 
 describe("Alertmanager integration routes", () => {
@@ -1006,6 +1022,18 @@ describe("Loki integration routes", () => {
       (await authed({ method: "GET", url: "/api/integrations/loki" })).body,
     );
     expect(status.rejection).toBeNull();
+  });
+
+  it("refuses a stored config that fails its schema, naming the kind and the field", async () => {
+    await putIntegration({
+      kind: "loki",
+      name: "Grafana Loki",
+      config: { baseUrl: 3100, orgId: null },
+    });
+
+    const res = await authed({ method: "GET", url: "/api/integrations/loki" });
+    expect(res.statusCode).toBe(500);
+    await expect(getLokiIntegration()).rejects.toThrow(/loki.*baseUrl/);
   });
 });
 

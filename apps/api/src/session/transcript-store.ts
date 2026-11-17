@@ -15,6 +15,7 @@ function serializeCanonical(m: TranscriptRow): string | null {
 function parseCanonical(raw: string | null): { parts: MessagePart[] } {
   if (raw === null) return { parts: [] };
   try {
+    // The parts array is checked below; its elements are what this store wrote.
     const parsed = JSON.parse(raw) as { parts?: MessagePart[] };
     return { parts: Array.isArray(parsed.parts) ? parsed.parts : [] };
   } catch {

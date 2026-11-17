@@ -55,5 +55,3 @@ export function ConfirmDialog({
     </AlertDialog>
   );
 }
-
-export type { ConfirmDialogProps };

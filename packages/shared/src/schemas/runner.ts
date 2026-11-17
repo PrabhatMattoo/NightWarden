@@ -26,7 +26,6 @@ export const createRunnerRequestSchema = z.object({
     if (error !== null) ctx.addIssue({ code: "custom", message: error });
   }),
 });
-export type CreateRunnerRequest = z.infer<typeof createRunnerRequestSchema>;
 
 // The plaintext nwr_... token is returned exactly once, here, and never stored.
 export const createdRunnerSchema = z.object({

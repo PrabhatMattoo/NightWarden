@@ -157,7 +157,7 @@ function selectContainer(
 
 // The kind rides back with the selector because an event lookup matching on name
 // alone claims every Service, ConfigMap and ServiceAccount sharing that name.
-export interface WorkloadSelector {
+interface WorkloadSelector {
   labelSelector: string;
   kind: K8sWorkloadKind;
 }

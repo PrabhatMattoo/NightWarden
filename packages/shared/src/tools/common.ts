@@ -16,7 +16,7 @@ export interface NotFoundResult {
 }
 
 // One server's answer inside a fan-out.
-export interface ServerScopedResult<T> {
+interface ServerScopedResult<T> {
   server: string;
   result: T;
 }

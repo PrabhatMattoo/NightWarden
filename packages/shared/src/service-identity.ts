@@ -64,7 +64,7 @@ export function kubernetesWorkloadKey(
   return `${server}/${id.namespace}/${id.workload}`;
 }
 
-export interface ParsedTargetKey {
+interface ParsedTargetKey {
   server: string;
   scope: string;
   name: string;

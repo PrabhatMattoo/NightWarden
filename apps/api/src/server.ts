@@ -4,13 +4,13 @@ import { runSession } from "./agent/loop/run-session.js";
 import { registerApi } from "./api.js";
 import { createDispatcher, type Dispatcher } from "./dispatcher.js";
 
-export interface ServerOptions {
+interface ServerOptions {
   // Every request to the model provider goes through it; unset is the global fetch.
   providerFetch?: typeof fetch;
   logger?: FastifyServerOptions["logger"];
 }
 
-export interface Server {
+interface Server {
   server: FastifyInstance;
   dispatcher: Dispatcher;
 }

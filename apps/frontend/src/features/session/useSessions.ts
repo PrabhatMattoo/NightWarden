@@ -161,7 +161,7 @@ export function removeSession(
   );
 }
 
-export function renameSession(
+function renameSession(
   queryClient: QueryClient,
   kind: SessionKind,
   sessionId: string,

@@ -14,7 +14,7 @@ export const AUTH_LABEL: Record<AuthMethod, string> = {
   aws: "AWS credentials",
 };
 
-export interface MetricsSourceContent {
+interface MetricsSourceContent {
   queryPlaceholder: string;
   // Only what is true of this product. What is true of every one of them is
   // said once, by the section the field sits in.

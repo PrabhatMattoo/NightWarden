@@ -108,7 +108,7 @@ export type {
   KubernetesFleetRunner,
   Platform,
 } from "./runner.js";
-export { PLATFORMS, isPlatform, serverNameError } from "./runner.js";
+export { PLATFORMS, serverNameError } from "./runner.js";
 export type {
   TranscriptKind,
   ReminderKind,

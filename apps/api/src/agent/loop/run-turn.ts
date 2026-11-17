@@ -256,7 +256,7 @@ function emitChallengeIfDue(
 
 // One id, because a session has one report: a later phase replaces the card
 // rather than stacking a second one under the first.
-export function publishReportCard(
+function publishReportCard(
   sessionId: string,
   phase: ReportCardItem["state"]["phase"],
   headline?: string,

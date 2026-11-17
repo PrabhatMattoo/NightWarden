@@ -1,4 +1,5 @@
 import type Dockerode from "dockerode";
+import { z } from "zod";
 import {
   deriveDockerServiceIdentity,
   fitList,
@@ -200,7 +201,8 @@ export async function getContainerStats(
   const cpuPercent =
     systemDelta > 0 ? Math.max(0, (cpuDelta / systemDelta) * numCPUs * 100) : 0;
 
-  const statsObj = raw.memory_stats.stats as Record<string, number> | undefined;
+  // cgroup v2 reports inactive_file where dockerode's type names only the v1 keys.
+  const statsObj: Record<string, number> | undefined = raw.memory_stats.stats;
   const inactiveFile =
     statsObj?.["total_inactive_file"] ?? statsObj?.["inactive_file"] ?? 0;
   const memoryUsedBytes = (raw.memory_stats.usage ?? 0) - inactiveFile;
@@ -237,6 +239,13 @@ export async function getContainerStats(
   };
 }
 
+// One line of Docker's event stream; a field it leaves out reads as blank.
+const dockerEventSchema = z.object({
+  Action: z.string().catch(""),
+  Actor: z.object({ ID: z.string().catch("") }).catch({ ID: "" }),
+  time: z.number(),
+});
+
 export async function getContainerEvents(
   input: DockerEventsInput,
 ): Promise<DockerEventsResult | NotFoundResult> {
@@ -266,21 +275,12 @@ export async function getContainerEvents(
     .split("\n")
     .filter(Boolean)
     .map((line) => {
-      const data = JSON.parse(line) as Record<string, unknown>;
-      const action = typeof data["Action"] === "string" ? data["Action"] : "";
-      const actor = data["Actor"];
-      const actorId =
-        typeof actor === "object" &&
-        actor !== null &&
-        "ID" in actor &&
-        typeof actor.ID === "string"
-          ? actor.ID
-          : "";
+      const event = dockerEventSchema.parse(JSON.parse(line));
       return {
-        timestamp: new Date(Number(data["time"]) * 1000).toISOString(),
-        eventType: action,
-        message: action,
-        actor: actorId.slice(0, 12),
+        timestamp: new Date(event.time * 1000).toISOString(),
+        eventType: event.Action,
+        message: event.Action,
+        actor: event.Actor.ID.slice(0, 12),
       };
     });
 
@@ -294,25 +294,28 @@ export async function getContainerEvents(
   return { events, ...(coverage && { coverage }) };
 }
 
+// dockerode types top() as any; this is the shape Docker's API documents.
+const containerTopSchema = z.object({
+  Titles: z.array(z.string()).default([]),
+  Processes: z.array(z.array(z.string())).default([]),
+});
+
 export async function getContainerProcesses(
   input: DockerProcessesInput,
 ): Promise<DockerProcessesResult | NotFoundResult> {
   const docker = getDocker();
   const resolved = await resolveService(docker, input.service);
   if (!resolved || !resolved.live) return noContainerResult(input.service);
-  const top = (await resolved.container.top()) as {
-    Titles: string[];
-    Processes: string[][];
-  };
+  const top = containerTopSchema.parse(await resolved.container.top());
 
-  const titles = top.Titles ?? [];
+  const titles = top.Titles;
   const uidIdx = titles.indexOf("UID");
   const pidIdx = titles.indexOf("PID");
   const ppidIdx = titles.indexOf("PPID");
   const cIdx = titles.indexOf("C");
   const cmdIdx = titles.indexOf("CMD");
 
-  const processes: DockerProcess[] = (top.Processes ?? []).map((row) => ({
+  const processes: DockerProcess[] = top.Processes.map((row) => ({
     pid: parseInt(row[pidIdx] ?? "0", 10),
     ppid: parseInt(row[ppidIdx] ?? "0", 10),
     user: row[uidIdx] ?? "unknown",

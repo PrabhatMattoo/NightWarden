@@ -38,7 +38,7 @@ interface RunnerView {
 
 const connectionsByRunnerId = new Map<string, RunnerConnection>();
 
-export class RunnerOfflineError extends Error {
+class RunnerOfflineError extends Error {
   constructor() {
     super("No server is connected for this deployment");
     this.name = "RunnerOfflineError";

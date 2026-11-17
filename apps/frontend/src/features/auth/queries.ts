@@ -4,7 +4,7 @@ import type { AuthStatusResponse } from "@nightwarden/shared";
 import { apiQuery } from "@/shared/api/client";
 import { authCall, authClient } from "@/shared/api/authClient";
 
-export type SignedIn = Extract<AuthStatusResponse, { authenticated: true }>;
+type SignedIn = Extract<AuthStatusResponse, { authenticated: true }>;
 
 // What a failed status check falls back to: the login page, never an endless load.
 export const SIGNED_OUT: AuthStatusResponse = {
@@ -25,7 +25,7 @@ export function authStatusQuery() {
   );
 }
 
-export interface DeviceSession {
+interface DeviceSession {
   token: string;
   userAgent: string | null;
   createdAt: string;

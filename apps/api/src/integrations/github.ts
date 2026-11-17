@@ -98,7 +98,7 @@ function parseExpiryHeader(res: Response): string | null {
 
 /* What a call reaching GitHub outside a tool's own budget may take. The sandbox
    caches a workspace, so its pull-request closures outlive the call that built them. */
-export const GITHUB_TIMEOUT_MS = 30_000;
+const GITHUB_TIMEOUT_MS = 30_000;
 
 export function githubSignal(): AbortSignal {
   return AbortSignal.timeout(GITHUB_TIMEOUT_MS);

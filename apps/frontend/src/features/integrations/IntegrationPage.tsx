@@ -38,7 +38,7 @@ export function IntegrationLogo({
   );
 }
 
-export interface MetaFact {
+interface MetaFact {
   key: string;
   content: React.ReactNode;
 }

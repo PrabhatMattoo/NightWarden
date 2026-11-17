@@ -63,9 +63,15 @@ export function encrypt(plaintext: string): string {
 }
 
 export function decrypt(stored: string): string {
-  const parts = stored.split(".");
-  if (parts.length !== 3) throw new Error("Invalid encrypted value format");
-  const [ivHex, tagHex, ctHex] = parts as [string, string, string];
+  const [ivHex, tagHex, ctHex, ...extra] = stored.split(".");
+  if (
+    ivHex === undefined ||
+    tagHex === undefined ||
+    ctHex === undefined ||
+    extra.length > 0
+  ) {
+    throw new Error("Invalid encrypted value format");
+  }
   const key = deriveKey();
   const decipher = createDecipheriv(
     "aes-256-gcm",

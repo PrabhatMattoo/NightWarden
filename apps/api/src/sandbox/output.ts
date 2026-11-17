@@ -1,4 +1,4 @@
-export const MAX_OUTPUT_BYTES = 64 * 1024;
+const MAX_OUTPUT_BYTES = 64 * 1024;
 
 function utf8BoundaryBefore(buf: Buffer, index: number): number {
   let i = index;

@@ -616,8 +616,11 @@ export async function registerIntegrationRoutes(
 }
 
 function senderOf(params: { kind: string }): AlertSourceKind {
-  // Reached only after requireKnownAlertSource has accepted the kind.
-  return params.kind as AlertSourceKind;
+  // The route's preHandler has already refused an unknown kind.
+  if (!isAlertSourceKind(params.kind)) {
+    throw new Error(`Unknown alert source: ${params.kind}`);
+  }
+  return params.kind;
 }
 
 // Checked against the shared list, so the frontend and the API cannot disagree

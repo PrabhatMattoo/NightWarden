@@ -2,6 +2,7 @@ import { mkdirSync, readdirSync, readFileSync } from "node:fs";
 import { dirname } from "node:path";
 import Database from "better-sqlite3";
 import { Kysely, SqliteDialect } from "kysely";
+import { z } from "zod";
 import type { DB } from "./database.js";
 import { dbPath } from "./paths.js";
 
@@ -46,10 +47,13 @@ export function applyMigrations(
       applied_at TEXT     NOT NULL
     );
   `);
-  const rows = handle
-    .prepare(`SELECT version FROM schema_migrations`)
-    .all() as Array<{ version: number }>;
-  const applied = new Set(rows.map((r) => r.version));
+  const applied = new Set(
+    z
+      .array(z.number())
+      .parse(
+        handle.prepare(`SELECT version FROM schema_migrations`).pluck().all(),
+      ),
+  );
 
   let previous = 0;
   for (const migration of readMigrations(dir)) {

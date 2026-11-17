@@ -39,7 +39,7 @@ export function pullRequestsFrom(result: unknown): PullRequest[] {
 
 /* Returned beside the pull requests and drawn by nothing, so what a report could
    show depended on how the change happened to land. */
-export interface Commit {
+interface Commit {
   sha: string;
   message: string;
   author: string;

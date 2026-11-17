@@ -17,7 +17,7 @@ export class SentryApiError extends Error {
 
 // Issues and events answer to event:read; releases, deploys and commits answer
 // to project:read. A token holding one and not the other fails only half way.
-export type SentryScope = "event:read" | "project:read";
+type SentryScope = "event:read" | "project:read";
 
 // Every path is organization-scoped, so the slug is part of the address rather
 // than a filter, and a wrong one is a 404 the probe has to name.
@@ -33,14 +33,14 @@ export interface SentryConnection {
 
 /* A page of rows and the cursor that reaches the next one. Sentry paginates by
    Link header, so nothing here shifts a time window to page. */
-export interface SentryPage<T> {
+interface SentryPage<T> {
   rows: T[];
   nextCursor: string | null;
 }
 
 /* rel="next" is always present; results="true" is what says the page it points
    at holds anything, so following it on "false" fetches an empty page forever. */
-export function parseNextCursor(link: string | null): string | null {
+function parseNextCursor(link: string | null): string | null {
   if (link === null) return null;
   for (const part of link.split(",")) {
     if (!/rel="next"/.test(part)) continue;
@@ -156,7 +156,7 @@ async function getList(
   return { rows: rows(body, res.status), nextCursor };
 }
 
-export interface IssueSearch {
+interface IssueSearch {
   projects: string[];
   environments: string[];
   query: string;

@@ -4,7 +4,7 @@ import type { TranscriptItem } from "./types.js";
 /* Lifted out of the column because the parent decides which items dock above
    the input, and it cannot pick from a list it never sees. */
 
-export interface MergeInput {
+interface MergeInput {
   persisted: TranscriptItem[];
   live: TranscriptItem[];
   // What the user just sent, under the id they minted for it.

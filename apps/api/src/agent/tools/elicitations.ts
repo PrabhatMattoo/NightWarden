@@ -12,7 +12,7 @@ export interface Elicitation {
 
 // Four plus the free-text box makes five rows. Beyond that a question stops
 // being answerable at a glance, which is the only reason to ask one.
-export const MAX_QUESTION_OPTIONS = 4;
+const MAX_QUESTION_OPTIONS = 4;
 
 // Reads as the tail of the refusal the turn renders, which names the field.
 const TOO_MANY = `a card shows at most ${MAX_QUESTION_OPTIONS}. Ask again with the ${MAX_QUESTION_OPTIONS} that most change what happens next; the user is given a free-text box as well, so a rarer answer is not lost by leaving it out.`;

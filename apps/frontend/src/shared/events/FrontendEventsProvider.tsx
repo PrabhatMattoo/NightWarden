@@ -25,7 +25,8 @@ function isFrontendEvent(value: unknown): value is FrontendEvent {
   return (
     typeof value === "object" &&
     value !== null &&
-    typeof (value as { type?: unknown }).type === "string"
+    "type" in value &&
+    typeof value.type === "string"
   );
 }
 

@@ -24,7 +24,7 @@ interface PendingCommand {
 
 const pending = new Map<string, PendingCommand>();
 
-export type UnansweredReason = "timeout" | "disconnect" | "stop";
+type UnansweredReason = "timeout" | "disconnect" | "stop";
 
 /* The command went out and no answer came back, so whether it ran is unknown.
    A routing error throws before sending, and a runner's own failure is its answer. */

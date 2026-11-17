@@ -11,7 +11,10 @@ const TRANSIENT_CODES = ["ECONNRESET", "UND_ERR_SOCKET"];
 /* Whether waiting may change the answer: a status the service uses for "not
    now", or a connection that dropped. An ApiError carries its status. */
 export function isTransient(err: unknown): boolean {
-  const status = (err as { status?: unknown } | null)?.status;
+  const status =
+    typeof err === "object" && err !== null && "status" in err
+      ? err.status
+      : undefined;
   if (typeof status === "number" && RETRY_STATUSES.includes(status)) {
     return true;
   }

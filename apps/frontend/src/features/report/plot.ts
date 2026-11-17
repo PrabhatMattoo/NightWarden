@@ -69,9 +69,8 @@ function seriesLabels(all: Series[]): string[] {
       s.metric["job"] ??
       null,
   );
-  return qualifiers.every((q) => q !== null && q !== "")
-    ? qualifiers.map((q) => q as string)
-    : full;
+  const named = qualifiers.filter((q): q is string => q !== null && q !== "");
+  return named.length === qualifiers.length ? named : full;
 }
 
 // Prometheus names a metric for the unit it counts in. Without it a working

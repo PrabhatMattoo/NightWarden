@@ -12,7 +12,7 @@ export function formatDuration(totalSeconds: number): string {
   return h % 24 ? `${d}d ${h % 24}h` : `${d}d`;
 }
 
-export interface RunSpan {
+interface RunSpan {
   live: boolean;
   startedAt?: string;
   endedAt?: string;

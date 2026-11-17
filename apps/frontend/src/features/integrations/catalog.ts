@@ -2,7 +2,7 @@ import { ALERT_SOURCE_KINDS, METRICS_SOURCE_KINDS } from "@nightwarden/shared";
 
 // A catalog row's description stays within 85 characters; the page header's tagline within 70.
 
-export const INTEGRATION_SLUGS = [
+const INTEGRATION_SLUGS = [
   "docker",
   "kubernetes",
   ...ALERT_SOURCE_KINDS,
@@ -12,7 +12,7 @@ export const INTEGRATION_SLUGS = [
   "github",
 ] as const;
 
-export type IntegrationSlug = (typeof INTEGRATION_SLUGS)[number];
+type IntegrationSlug = (typeof INTEGRATION_SLUGS)[number];
 
 export interface IntegrationIdentity {
   label: string;

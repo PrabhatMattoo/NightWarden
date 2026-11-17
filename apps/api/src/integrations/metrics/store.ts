@@ -1,3 +1,5 @@
+import { z } from "zod";
+import { isMetricsSourceKind } from "@nightwarden/shared";
 import type {
   CredentialRejection,
   MetricsSourceKind,
@@ -5,10 +7,10 @@ import type {
 import {
   allIntegrations,
   deleteIntegrationById,
+  parseStoredConfig,
   putIntegration,
   type IntegrationRow,
 } from "../store.js";
-import { METRICS_SOURCE_KINDS } from "@nightwarden/shared";
 
 /* A metrics source is a connection like any other; only its config shape is
    its own. Two endpoints and two credentials fit because `secrets` is a map. */
@@ -27,21 +29,25 @@ export interface MetricsSourceRow {
   createdAt: string;
 }
 
-interface Endpoint {
-  url: string;
-  orgId: string | null;
-}
+const endpointSchema = z.object({
+  url: z.string(),
+  orgId: z.string().nullable(),
+});
 
-interface MetricsConfig {
-  query: Endpoint;
-  rules: Endpoint | null;
-}
+const metricsConfigSchema = z.object({
+  query: endpointSchema,
+  rules: endpointSchema.nullable(),
+});
+type MetricsConfig = z.infer<typeof metricsConfigSchema>;
 
-function toSource(row: IntegrationRow): MetricsSourceRow {
-  const config = row.config as unknown as MetricsConfig;
+function toSource(
+  row: IntegrationRow,
+  kind: MetricsSourceKind,
+): MetricsSourceRow {
+  const config = parseStoredConfig(row, metricsConfigSchema);
   return {
     id: row.id,
-    kind: row.kind as MetricsSourceKind,
+    kind,
     label: row.name,
     queryUrl: config.query.url,
     queryAuthorization: row.secrets["query"] ?? null,
@@ -54,15 +60,13 @@ function toSource(row: IntegrationRow): MetricsSourceRow {
   };
 }
 
-function isMetricsRow(row: IntegrationRow): boolean {
-  return (METRICS_SOURCE_KINDS as readonly string[]).includes(row.kind);
-}
-
 /* One source whatever the product, so this filters the set of five kinds rather
    than reading one fixed kind. The connect route refuses a second. */
 export async function metricsSourceRow(): Promise<MetricsSourceRow | null> {
-  const row = (await allIntegrations()).find(isMetricsRow);
-  return row === undefined ? null : toSource(row);
+  for (const row of await allIntegrations()) {
+    if (isMetricsSourceKind(row.kind)) return toSource(row, row.kind);
+  }
+  return null;
 }
 
 export interface MetricsSourceInput {

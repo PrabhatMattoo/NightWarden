@@ -11,14 +11,14 @@ import { GateCard } from "./GateCard.js";
 // Pinned unlike an approval, because a question stops the whole run rather
 // than one tool: there is nothing else for the reader to do.
 
-export interface QuestionOption {
+interface QuestionOption {
   label: string;
   description: string;
 }
 
 // Read from the call's own arguments rather than from fields copied beside
 // them: a copy is a second source, and this is the only reader.
-export function questionOf(input: Record<string, unknown>): {
+function questionOf(input: Record<string, unknown>): {
   question: string;
   options: QuestionOption[];
   multiSelect: boolean;

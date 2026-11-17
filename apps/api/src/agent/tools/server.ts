@@ -2,7 +2,7 @@ import { z } from "zod";
 
 // A fan-out wider than this is noise rather than evidence: the model cannot read
 // ten servers' vitals in one turn, and the token cost is real.
-export const MAX_SERVERS_PER_CALL = 8;
+const MAX_SERVERS_PER_CALL = 8;
 
 // Named rather than defaulted to the whole fleet: a reading that covers less
 // than the model thinks it does is how an absence reads as a healthy zero.

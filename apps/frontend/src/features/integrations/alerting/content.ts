@@ -2,7 +2,7 @@ import type { AlertSourceKind } from "@nightwarden/shared";
 
 // The two values are the same for both senders, so the page draws one set of
 // rows and only the wording around them changes.
-export interface AlertSourceContent {
+interface AlertSourceContent {
   // Where these go, and anything the sender asks for that is not one of them.
   where: string;
   warnings: string[];

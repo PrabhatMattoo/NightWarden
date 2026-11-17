@@ -118,11 +118,11 @@ const SEVERE = /\b(error|err|fatal|panic|exception|traceback|oom)\b/i;
 const WARNING = /\b(warn|warning)\b/i;
 const EXCERPT_LINES = 5;
 
-export function isSevere(line: string): boolean {
+function isSevere(line: string): boolean {
   return SEVERE.test(line);
 }
 
-export function isWarning(line: string): boolean {
+function isWarning(line: string): boolean {
   return !SEVERE.test(line) && WARNING.test(line);
 }
 

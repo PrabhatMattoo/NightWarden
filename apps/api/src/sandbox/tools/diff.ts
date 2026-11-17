@@ -2,8 +2,8 @@ import { diffArrays } from "diff";
 
 const CONTEXT_LINES = 3;
 
-export type DiffLineType = "added" | "removed" | "unchanged";
-export interface DiffLine {
+type DiffLineType = "added" | "removed" | "unchanged";
+interface DiffLine {
   type: DiffLineType;
   oldLineNumber: number | null;
   newLineNumber: number | null;

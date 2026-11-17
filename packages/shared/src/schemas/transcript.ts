@@ -16,12 +16,12 @@ export type ApprovalStatus = z.infer<typeof approvalStatusSchema>;
 
 // Named as the gate names it, so there is one vocabulary. It lives on the one
 // phase where it means anything, so a settled call cannot contradict it.
-export const toolGateSchema = z.enum(["approval", "clarification"]);
+const toolGateSchema = z.enum(["approval", "clarification"]);
 export type ToolGate = z.infer<typeof toolGateSchema>;
 
 // Explicit rather than an optional field, so "not set" is never a meaning. A
 // decision in flight is the component's own concern and never appears here.
-export const toolCallStateSchema = z.discriminatedUnion("phase", [
+const toolCallStateSchema = z.discriminatedUnion("phase", [
   z.object({ phase: z.literal("running") }),
   z.object({ phase: z.literal("awaiting_human"), gate: toolGateSchema }),
   // `result` arrives once the tool that was waiting has run. `actor` is absent

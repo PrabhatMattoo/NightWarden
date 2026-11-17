@@ -1,8 +1,10 @@
 import { randomUUID } from "node:crypto";
 import type { Selectable } from "kysely";
+import { z } from "zod";
 import type { CredentialRejection } from "@nightwarden/shared";
 import { getDb } from "../db.js";
 import type { DB } from "../database.js";
+import { readable } from "../route-schemas.js";
 import { decrypt, encrypt } from "../secrets.js";
 
 /* One table holds every configured connection. This file owns the row shape;
@@ -38,20 +40,25 @@ const COLUMNS = [
 
 // A row written by an older shape reads as empty rather than crashing every
 // caller that touches the table.
-function parseJson(text: string | null): Record<string, string> {
+function parseJson<T>(
+  text: string | null,
+  schema: z.ZodType<Record<string, T>>,
+): Record<string, T> {
   if (text === null) return {};
   try {
-    const parsed: unknown = JSON.parse(text);
-    return typeof parsed === "object" && parsed !== null
-      ? (parsed as Record<string, string>)
-      : {};
+    return schema.parse(JSON.parse(text));
   } catch {
     return {};
   }
 }
 
+const configJsonSchema = z.record(z.string(), z.unknown());
+const secretsJsonSchema = z.record(z.string(), z.string());
+
 function decryptSecrets(encrypted: string | null): Record<string, string> {
-  return encrypted === null ? {} : parseJson(decrypt(encrypted));
+  return encrypted === null
+    ? {}
+    : parseJson(decrypt(encrypted), secretsJsonSchema);
 }
 
 function toRow(raw: RawRow): IntegrationRow {
@@ -59,7 +66,7 @@ function toRow(raw: RawRow): IntegrationRow {
     id: raw.id,
     kind: raw.kind,
     name: raw.name,
-    config: parseJson(raw.config),
+    config: parseJson(raw.config, configJsonSchema),
     secrets: decryptSecrets(raw.secrets),
     tokenHash: raw.token_hash,
     lastUsedAt: raw.last_used_at,
@@ -71,9 +78,22 @@ function toRow(raw: RawRow): IntegrationRow {
   };
 }
 
-export async function integrationsOfKind(
-  kind: string,
-): Promise<IntegrationRow[]> {
+/* A stored config that fails its kind's schema fails loudly, since reading it
+   as valid would dial an address nobody connected. */
+export function parseStoredConfig<T>(
+  row: IntegrationRow,
+  schema: z.ZodType<T>,
+): T {
+  const parsed = schema.safeParse(row.config);
+  if (!parsed.success) {
+    throw new Error(
+      `Stored ${row.kind} integration config is invalid: ${readable(parsed.error)}`,
+    );
+  }
+  return parsed.data;
+}
+
+async function integrationsOfKind(kind: string): Promise<IntegrationRow[]> {
   const rows = await getDb()
     .selectFrom("integrations")
     .select(COLUMNS)
@@ -113,7 +133,7 @@ export async function allIntegrations(): Promise<IntegrationRow[]> {
   return rows.map(toRow);
 }
 
-export interface IntegrationInput {
+interface IntegrationInput {
   kind: string;
   name: string;
   config: Record<string, unknown>;
@@ -195,13 +215,14 @@ export async function touchIntegration(id: string, at: string): Promise<void> {
 
 const GITHUB = "github";
 
-interface GitHubConfig {
-  repoOwner: string;
-  repoName: string;
-  tokenExpiresAt: string | null;
-}
+const githubConfigSchema = z.object({
+  repoOwner: z.string(),
+  repoName: z.string(),
+  tokenExpiresAt: z.string().nullable(),
+});
+type GitHubConfig = z.infer<typeof githubConfigSchema>;
 
-export interface GitHubIntegration {
+interface GitHubIntegration {
   id: string;
   token: string;
   repoOwner: string;
@@ -216,7 +237,7 @@ export async function getGitHubIntegration(): Promise<GitHubIntegration | null> 
   // GitHub always has a token: a row without one is malformed, treat as absent.
   const token = row?.secrets["token"];
   if (!row || token === undefined) return null;
-  const config = row.config as unknown as GitHubConfig;
+  const config = parseStoredConfig(row, githubConfigSchema);
   return {
     id: row.id,
     token,
@@ -271,13 +292,14 @@ export async function deleteGitHubIntegration(): Promise<void> {
 
 const LOKI = "loki";
 
-interface LokiConfig {
-  baseUrl: string;
+const lokiConfigSchema = z.object({
+  baseUrl: z.string(),
   // Tenant for multi-tenant Loki (X-Scope-OrgID); null for single-binary Loki.
-  orgId: string | null;
-}
+  orgId: z.string().nullable(),
+});
+type LokiConfig = z.infer<typeof lokiConfigSchema>;
 
-export interface LokiIntegration {
+interface LokiIntegration {
   id: string;
   baseUrl: string;
   orgId: string | null;
@@ -289,7 +311,7 @@ export interface LokiIntegration {
 export async function getLokiIntegration(): Promise<LokiIntegration | null> {
   const row = await integrationOfKind(LOKI);
   if (!row) return null;
-  const config = row.config as unknown as LokiConfig;
+  const config = parseStoredConfig(row, lokiConfigSchema);
   return {
     id: row.id,
     baseUrl: config.baseUrl,
@@ -328,14 +350,15 @@ export async function deleteLokiIntegration(): Promise<void> {
 
 const SENTRY = "sentry";
 
-interface SentryConfig {
-  baseUrl: string;
+const sentryConfigSchema = z.object({
+  baseUrl: z.string(),
   // Every Sentry path is scoped by the organization, so this addresses rather
   // than filters, and a wrong one 404s every call.
-  orgSlug: string;
-}
+  orgSlug: z.string(),
+});
+type SentryConfig = z.infer<typeof sentryConfigSchema>;
 
-export interface SentryIntegration {
+interface SentryIntegration {
   id: string;
   baseUrl: string;
   orgSlug: string;
@@ -349,7 +372,7 @@ export async function getSentryIntegration(): Promise<SentryIntegration | null> 
   // Sentry always has a token: a row without one is malformed, treat as absent.
   const token = row?.secrets["token"];
   if (!row || token === undefined) return null;
-  const config = row.config as unknown as SentryConfig;
+  const config = parseStoredConfig(row, sentryConfigSchema);
   return {
     id: row.id,
     baseUrl: config.baseUrl,

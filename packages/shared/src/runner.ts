@@ -3,14 +3,6 @@ import type {
   KubernetesWorkloadEntry,
 } from "./schemas/runner-protocol.js";
 
-export type {
-  DockerManifest,
-  DockerServiceEntry,
-  KubernetesManifest,
-  KubernetesWorkloadEntry,
-  RunnerManifest,
-} from "./schemas/runner-protocol.js";
-
 // What a runner is, decided at onboarding and stored on its row. A runner serves
 // exactly one of these; it is never probed, and never negotiated at runtime.
 export type Platform = "docker" | "kubernetes";
@@ -20,10 +12,6 @@ export const PLATFORMS = [
   "docker",
   "kubernetes",
 ] as const satisfies readonly Platform[];
-
-export function isPlatform(value: unknown): value is Platform {
-  return typeof value === "string" && PLATFORMS.some((p) => p === value);
-}
 
 // No DB-only fields, unlike a RunnerRecord, and the platform discriminant is what
 // lets a caller partition the fleet before matching.

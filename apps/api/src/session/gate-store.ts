@@ -38,6 +38,7 @@ function parseRow(row: RawRow): PendingHumanInput | undefined {
   }
   let completedResults: ToolResult[];
   try {
+    // The column holds the ToolResult list this store serialised.
     completedResults = JSON.parse(row.completedResults) as ToolResult[];
   } catch (err) {
     throw new Error(

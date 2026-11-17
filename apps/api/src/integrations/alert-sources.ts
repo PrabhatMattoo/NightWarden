@@ -7,7 +7,7 @@ import {
   touchIntegration,
   type IntegrationRow,
 } from "./store.js";
-import { ALERT_SOURCE_KINDS } from "@nightwarden/shared";
+import { isAlertSourceKind } from "@nightwarden/shared";
 import type { AlertSourceKind } from "@nightwarden/shared";
 
 // The one connection whose credential we verify rather than present, so the
@@ -20,7 +20,7 @@ interface AlertSourceRow {
 }
 
 function isAlertSourceRow(row: IntegrationRow): boolean {
-  return (ALERT_SOURCE_KINDS as readonly string[]).includes(row.kind);
+  return isAlertSourceKind(row.kind);
 }
 
 export async function getAlertSource(

@@ -32,7 +32,7 @@ export type AlertGroupContext = z.infer<typeof alertGroupContextSchema>;
 
 // Derived server-side and never declared by the model. `not_started` is held by
 // the hourly limit until a person starts it.
-export const investigationStatusSchema = z.enum([
+const investigationStatusSchema = z.enum([
   "action_required",
   "running",
   "resolved",
