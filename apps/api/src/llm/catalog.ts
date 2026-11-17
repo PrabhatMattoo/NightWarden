@@ -14,21 +14,53 @@ import {
 } from "./model-capabilities.js";
 import { CATALOG_TIMEOUT_MS } from "./config.js";
 
-export const ANTHROPIC_BASE_URL = "https://api.anthropic.com/v1";
-export const OPENAI_BASE_URL = "https://api.openai.com/v1";
-export const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
+const ANTHROPIC_BASE_URL = "https://api.anthropic.com/v1";
+const OPENAI_BASE_URL = "https://api.openai.com/v1";
+const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
 
 // The frontend renders this rather than naming providers itself, so adding one
 // is a change here and nowhere in the UI.
 export const PROVIDER_OPTIONS: readonly ProviderOption[] = [
-  { name: "anthropic", label: "Anthropic", defaultBaseUrl: ANTHROPIC_BASE_URL },
-  { name: "openai", label: "OpenAI", defaultBaseUrl: OPENAI_BASE_URL },
+  {
+    name: "anthropic",
+    label: "Anthropic",
+    defaultBaseUrl: ANTHROPIC_BASE_URL,
+    requiresKey: true,
+  },
+  {
+    name: "openai",
+    label: "OpenAI",
+    defaultBaseUrl: OPENAI_BASE_URL,
+    requiresKey: true,
+  },
   {
     name: "openrouter",
     label: "OpenRouter",
     defaultBaseUrl: OPENROUTER_BASE_URL,
+    requiresKey: true,
+  },
+  {
+    name: "openai-compatible",
+    label: "OpenAI-compatible",
+    defaultBaseUrl: null,
+    requiresKey: false,
   },
 ];
+
+export function optionFor(provider: LLMProviderName): ProviderOption {
+  const option = PROVIDER_OPTIONS.find((p) => p.name === provider);
+  if (option === undefined) throw new Error(`no provider named ${provider}`);
+  return option;
+}
+
+// Null where the provider has no address of its own and none was stored.
+export function baseUrlFor(
+  provider: LLMProviderName,
+  stored: string | undefined,
+): string | null {
+  const url = stored ?? optionFor(provider).defaultBaseUrl;
+  return url === null ? null : url.replace(/\/+$/, "");
+}
 
 // Anthropic pages at 20 by default, which is fewer models than it publishes.
 const MODELS_PATH = "/models?limit=1000";
@@ -37,12 +69,14 @@ function authHeaders(
   provider: LLMProviderName,
   apiKey: string,
 ): Record<string, string> {
-  return provider === "anthropic"
-    ? { "x-api-key": apiKey, "anthropic-version": "2023-06-01" }
-    : { Authorization: `Bearer ${apiKey}` };
+  if (provider === "anthropic") {
+    return { "x-api-key": apiKey, "anthropic-version": "2023-06-01" };
+  }
+  // A server run open takes no credential, and an empty bearer is not "none".
+  return apiKey === "" ? {} : { Authorization: `Bearer ${apiKey}` };
 }
 
-// All three answer with the same envelope, so one parser reads every list.
+// Every provider answers with the same envelope, so one parser reads every list.
 const ListSchema = z.object({
   data: z.array(z.object({ id: z.string() }).loose()),
 });
@@ -198,9 +232,10 @@ export async function fetchCatalog(
   baseUrl: string | undefined,
   apiKey: string,
 ): Promise<ProviderCatalog> {
-  const url = `${baseUrl ?? PROVIDER_OPTIONS.find((p) => p.name === provider)?.defaultBaseUrl ?? ""}${MODELS_PATH}`;
+  const root = baseUrlFor(provider, baseUrl);
+  if (root === null) return { ok: false, error: "needs_url" };
   try {
-    const res = await fetchRead(url, {
+    const res = await fetchRead(`${root}${MODELS_PATH}`, {
       signal: AbortSignal.timeout(CATALOG_TIMEOUT_MS),
       headers: authHeaders(provider, apiKey),
     });
@@ -225,10 +260,12 @@ export function offeredModels(models: readonly CatalogModel[]): ModelOption[] {
 
 const CATALOG_TTL_MS = 60 * 60_000;
 
-const held = new Map<
-  LLMProviderName,
-  { models: CatalogModel[]; until: number }
->();
+// Keyed by the address too: one provider name can front a different server
+// each time the address changes.
+const held = new Map<string, { models: CatalogModel[]; until: number }>();
+
+const heldKey = (provider: LLMProviderName, baseUrl: string | undefined) =>
+  `${provider} ${baseUrlFor(provider, baseUrl) ?? ""}`;
 
 // Test seams: the cache is process-wide, so a suite has to be able to clear it
 // and to fill it rather than reach a provider from every run it starts.
@@ -238,9 +275,13 @@ export function forgetCatalog(): void {
 
 export function seedCatalog(
   provider: LLMProviderName,
+  baseUrl: string | undefined,
   models: CatalogModel[],
 ): void {
-  held.set(provider, { models, until: Date.now() + CATALOG_TTL_MS });
+  held.set(heldKey(provider, baseUrl), {
+    models,
+    until: Date.now() + CATALOG_TTL_MS,
+  });
 }
 
 /* What a run reads. A provider it cannot reach leaves the last answer standing,
@@ -250,13 +291,11 @@ export async function catalogFor(
   baseUrl: string | undefined,
   apiKey: string,
 ): Promise<CatalogModel[]> {
-  const cached = held.get(provider);
+  const key = heldKey(provider, baseUrl);
+  const cached = held.get(key);
   if (cached && Date.now() < cached.until) return cached.models;
   const catalog = await fetchCatalog(provider, baseUrl, apiKey);
   if (!catalog.ok) return cached?.models ?? [];
-  held.set(provider, {
-    models: catalog.models,
-    until: Date.now() + CATALOG_TTL_MS,
-  });
+  held.set(key, { models: catalog.models, until: Date.now() + CATALOG_TTL_MS });
   return catalog.models;
 }

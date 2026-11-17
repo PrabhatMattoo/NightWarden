@@ -15,6 +15,12 @@ const TEST_MODELS: Record<LLMProviderName, string> = {
   anthropic: "test-model",
   openai: "gpt-5",
   openrouter: "anthropic/claude-sonnet-4.5",
+  "openai-compatible": "llama3.1:8b",
+};
+
+// The one provider with no address of its own; the fake answers at any URL.
+const TEST_BASE_URLS: Partial<Record<LLMProviderName, string>> = {
+  "openai-compatible": "http://localhost:11434/v1",
 };
 
 // Call at the top of beforeAll before anything opens the lazy db; pair the
@@ -36,17 +42,20 @@ export async function configureTestLLM(
   provider: LLMProviderName = "anthropic",
 ): Promise<void> {
   const model = TEST_MODELS[provider];
-  // Anthropic is sent thinking on every request; the others reason once a level is set.
-  const reasons = provider !== "anthropic";
+  // Anthropic is sent thinking on every request, the others reason once a level
+  // is set, and a local server publishes no ladder to set one from.
+  const reasons = provider !== "anthropic" && provider !== "openai-compatible";
+  const baseUrl = TEST_BASE_URLS[provider];
   await updateProvider(provider, {
     model,
     apiKey: "test-api-key",
+    ...(baseUrl !== undefined && { baseUrl }),
     ...(reasons && { reasoningLevel: "high" }),
   });
   await updateConfig({ provider });
   // A run resolves its model from the catalogue, which is seeded rather than
   // fetched so no test reaches a provider to start one.
-  seedCatalog(provider, [
+  seedCatalog(provider, baseUrl, [
     {
       id: model,
       reasoning: reasons

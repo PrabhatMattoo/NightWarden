@@ -22,6 +22,7 @@ import { runningSessionIds } from "../session/status-store.js";
 import { fakeAnthropic } from "./fake-anthropic.js";
 import type { FakeModel } from "./fake-model.js";
 import { fakeOpenAI } from "./fake-openai.js";
+import { fakeOpenAICompatible } from "./fake-openai-compatible.js";
 import { fakeOpenRouter } from "./fake-openrouter.js";
 import {
   dockerService,
@@ -98,6 +99,7 @@ const FAKES: Record<LLMProviderName, () => FakeModel> = {
   anthropic: fakeAnthropic,
   openai: fakeOpenAI,
   openrouter: fakeOpenRouter,
+  "openai-compatible": fakeOpenAICompatible,
 };
 
 // A fake speaking `provider`'s wire, for a test that builds its own dispatcher.

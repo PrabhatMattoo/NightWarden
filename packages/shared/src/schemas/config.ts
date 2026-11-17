@@ -2,6 +2,7 @@ import { z } from "zod";
 import { THEME_PREFERENCES } from "../auth.js";
 import {
   LLM_PROVIDER_NAMES,
+  type LLMProviderName,
   SANDBOX_HOST_PATTERN,
   SANDBOX_NETWORKS,
   SETTING_RANGES,
@@ -22,6 +23,16 @@ function bounded(setting: NumericSetting) {
     .max(max, bounds);
 }
 
+// One entry per provider in the build, so a new name needs no edit here.
+function perProvider<T extends z.ZodType>(entry: T) {
+  return z.object(
+    // fromEntries widens the keys to string; LLM_PROVIDER_NAMES is exactly the keys.
+    Object.fromEntries(
+      LLM_PROVIDER_NAMES.map((name) => [name, entry]),
+    ) as Record<LLMProviderName, T>,
+  );
+}
+
 // reasoningLevel is free here: the model's own descriptor is the authority on it.
 const providerPatchSchema = z.object({
   model: z.string().min(1).nullable().optional(),
@@ -32,13 +43,7 @@ const providerPatchSchema = z.object({
 // Nested under `providers`, so a change to one cannot touch another's model or key.
 export const configPatchSchema = z.object({
   provider: llmProviderNameSchema.nullable().optional(),
-  providers: z
-    .object({
-      anthropic: providerPatchSchema.optional(),
-      openai: providerPatchSchema.optional(),
-      openrouter: providerPatchSchema.optional(),
-    })
-    .optional(),
+  providers: perProvider(providerPatchSchema.optional()).optional(),
   maxRetries: bounded("maxRetries").optional(),
   maxInvestigationsPerHour: bounded("maxInvestigationsPerHour").optional(),
   checkInAfterMs: bounded("checkInAfterMs").optional(),
@@ -66,7 +71,11 @@ export type SettingsPatch = Omit<ConfigPatch, "providers">;
 const providerOptionSchema = z.object({
   name: llmProviderNameSchema,
   label: z.string(),
-  defaultBaseUrl: z.string(),
+  // Null where the address is the whole difference between servers, so the
+  // person must enter one.
+  defaultBaseUrl: z.string().nullable(),
+  // False where a server may run open, as a local one often does.
+  requiresKey: z.boolean(),
 });
 export type ProviderOption = z.infer<typeof providerOptionSchema>;
 
@@ -91,7 +100,12 @@ export type ModelOption = z.infer<typeof modelOptionSchema>;
 
 // The response decides: a rejected request with no key asked for one, and the
 // same rejection with a key means that key is wrong.
-const catalogErrorSchema = z.enum(["needs_key", "bad_key", "unreachable"]);
+const catalogErrorSchema = z.enum([
+  "needs_key",
+  "bad_key",
+  "needs_url",
+  "unreachable",
+]);
 export type CatalogError = z.infer<typeof catalogErrorSchema>;
 
 // Listing the catalog is also how setup is verified: models coming back prove
@@ -101,6 +115,29 @@ export const modelCatalogSchema = z.discriminatedUnion("ok", [
   z.object({ ok: z.literal(false), error: catalogErrorSchema }),
 ]);
 export type ModelCatalog = z.infer<typeof modelCatalogSchema>;
+
+// Why a model could not be used, and the one reason it can be reached and still
+// fail: a reply that never called the tool.
+const modelCheckReasonSchema = z.enum([
+  "unreachable",
+  "needs_url",
+  "bad_key",
+  "refused",
+  "no_tool_call",
+]);
+export type ModelCheckReason = z.infer<typeof modelCheckReasonSchema>;
+
+// A model that cannot call a tool cannot run an investigation. `detail` is the
+// server's own words when it refused the request.
+export const modelCheckSchema = z.discriminatedUnion("ok", [
+  z.object({ ok: z.literal(true) }),
+  z.object({
+    ok: z.literal(false),
+    reason: modelCheckReasonSchema,
+    detail: z.string().optional(),
+  }),
+]);
+export type ModelCheck = z.infer<typeof modelCheckSchema>;
 
 // Unset baseUrl means the provider's own endpoint. The key is masked on read, so
 // the plaintext never leaves.
@@ -112,11 +149,7 @@ const providerSettingsSchema = z.object({
 });
 export type ProviderSettings = z.infer<typeof providerSettingsSchema>;
 
-const providerSettingsMapSchema = z.object({
-  anthropic: providerSettingsSchema,
-  openai: providerSettingsSchema,
-  openrouter: providerSettingsSchema,
-});
+const providerSettingsMapSchema = perProvider(providerSettingsSchema);
 export type ProviderSettingsMap = z.infer<typeof providerSettingsMapSchema>;
 
 // Every value here is safe to send to the frontend. `provider` is null until a

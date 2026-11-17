@@ -1,29 +1,30 @@
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createOpenAI } from "@ai-sdk/openai";
+import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import type {
   LanguageModelV4,
   SharedV4ProviderOptions,
 } from "@ai-sdk/provider";
-import type { LLMProviderName, ResolvedLLMConfig } from "@nightwarden/shared";
-import {
-  ANTHROPIC_BASE_URL,
-  OPENAI_BASE_URL,
-  OPENROUTER_BASE_URL,
-} from "./catalog.js";
+import type { ResolvedLLMConfig } from "@nightwarden/shared";
+import { baseUrlFor } from "./catalog.js";
 import { SdkProvider } from "./provider.js";
+import { toolSchemaFor } from "./tool-schema-dialects.js";
 import type { LLMProvider, ProviderCallOptions } from "./types.js";
 
 // `providerFetch` stands in for the network, so a test serves the provider's own wire.
 export function languageModel(
-  config: ResolvedLLMConfig,
+  config: Pick<ResolvedLLMConfig, "provider" | "model" | "baseUrl">,
   apiKey?: string,
   providerFetch?: typeof fetch,
 ): LanguageModelV4 {
+  const baseURL = baseUrlFor(config.provider, config.baseUrl);
+  // The readiness gate refuses a provider with no address, so this is a bug.
+  if (baseURL === null) throw new Error(`${config.provider} has no base URL`);
   const settings = {
     ...(apiKey !== undefined && { apiKey }),
     ...(providerFetch !== undefined && { fetch: providerFetch }),
-    baseURL: config.baseUrl ?? defaultBaseUrl(config.provider),
+    baseURL,
   };
   switch (config.provider) {
     case "anthropic":
@@ -32,12 +33,14 @@ export function languageModel(
       return createOpenAI(settings).responses(config.model);
     case "openrouter":
       return createOpenRouter(settings).chat(config.model);
+    case "openai-compatible":
+      return createOpenAICompatible({
+        ...settings,
+        name: "openai-compatible",
+        // Servers report no usage on a stream unless asked.
+        includeUsage: true,
+      }).chatModel(config.model);
   }
-}
-
-function defaultBaseUrl(provider: LLMProviderName): string {
-  if (provider === "anthropic") return ANTHROPIC_BASE_URL;
-  return provider === "openai" ? OPENAI_BASE_URL : OPENROUTER_BASE_URL;
 }
 
 /* The rung to ask for. Reasoning is never switched off: a model told not to
@@ -99,6 +102,11 @@ export function requestOptions(
           ...(level !== null && { reasoning: { effort: level } }),
         },
       };
+    // A server states a ladder only when its list does, so most runs send nothing.
+    case "openai-compatible":
+      return level === null
+        ? {}
+        : { openaiCompatible: { reasoningEffort: level } };
   }
 }
 
@@ -122,6 +130,7 @@ export function createProvider(
   return new SdkProvider(model, system, {
     maxOutputTokens: config.maxOutputTokens,
     maxRetries: config.maxRetries,
+    toolSchema: (schema) => toolSchemaFor(config.provider, schema),
     providerOptions: requestOptions(config, opts),
     ...(opts?.onRetry !== undefined && { onRetry: opts.onRetry }),
   });

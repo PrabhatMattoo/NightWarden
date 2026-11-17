@@ -37,6 +37,7 @@ const ADMIN_ONLY = [
   "GET /api/runners/install",
   "PATCH /api/config",
   "POST /api/config/models",
+  "POST /api/config/model-check",
   "PATCH /api/config/key",
   "DELETE /api/sessions/:id",
   "POST /api/integrations/github/preflight",

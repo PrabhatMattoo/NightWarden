@@ -8,6 +8,7 @@ import type {
   ToolSet,
 } from "ai";
 import type {
+  JSONSchema7,
   LanguageModelV4,
   SharedV4ProviderOptions,
 } from "@ai-sdk/provider";
@@ -40,6 +41,8 @@ export interface SdkProviderOptions {
   maxOutputTokens: number;
   // Spent on the request and again on a stream that fails part way.
   maxRetries: number;
+  // The keywords the chosen provider accepts, reduced from the generated schema.
+  toolSchema: (schema: ToolSchema["input_schema"]) => unknown;
   // Reasoning, caching and context management, resolved by the factory.
   providerOptions: SharedV4ProviderOptions;
   onRetry?: (notice: RetryNotice) => void;
@@ -146,13 +149,17 @@ function modelMessages(turns: readonly ProviderMessage[]): ModelMessage[] {
 
 // Constrains sampling to the schema and guarantees the tool name is one of
 // these; each provider is sent only the keywords it documents.
-function toolSet(tools: readonly ToolSchema[]): ToolSet {
+function toolSet(
+  tools: readonly ToolSchema[],
+  reduce: SdkProviderOptions["toolSchema"],
+): ToolSet {
   return Object.fromEntries(
     tools.map((t) => [
       t.name,
       tool({
         description: t.description,
-        inputSchema: jsonSchema(t.input_schema),
+        // The reducers emit JSON Schema keywords only, which JSONSchema7 names.
+        inputSchema: jsonSchema(reduce(t.input_schema) as JSONSchema7),
         strict: true,
       }),
     ]),
@@ -322,7 +329,7 @@ export class SdkProvider implements LLMProvider {
         providerOptions: CACHE_BREAKPOINT,
       },
       messages: modelMessages(messages),
-      tools: toolSet(tools),
+      tools: toolSet(tools, this.opts.toolSchema),
       maxOutputTokens: this.opts.maxOutputTokens,
       providerOptions: this.opts.providerOptions,
       ...(signal !== undefined && { abortSignal: signal }),

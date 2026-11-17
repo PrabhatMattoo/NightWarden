@@ -1,3 +1,4 @@
+import type { LLMProviderName } from "@nightwarden/shared";
 import type { ToolSchema } from "./types.js";
 
 /* What each provider's strict mode accepts, from its own published list. The
@@ -122,4 +123,20 @@ export function openAIToolSchema(schema: InputSchema): Record<string, unknown> {
   };
 
   return widenObject(reduce(schema, OPENAI) as Node);
+}
+
+/* Every provider but Anthropic gets strict mode's subset: a gateway that ignores
+   strict accepts it too, and one that enforces it refuses anything wider. */
+export function toolSchemaFor(
+  provider: LLMProviderName,
+  schema: InputSchema,
+): unknown {
+  switch (provider) {
+    case "anthropic":
+      return anthropicToolSchema(schema);
+    case "openai":
+    case "openrouter":
+    case "openai-compatible":
+      return openAIToolSchema(schema);
+  }
 }

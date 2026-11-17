@@ -167,6 +167,8 @@ export type {
   ConfigPatch,
   SettingsPatch,
   ModelCatalog,
+  ModelCheck,
+  ModelCheckReason,
   ModelOption,
   ProviderOption,
   ProviderSettings,

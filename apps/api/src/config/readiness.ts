@@ -1,6 +1,6 @@
 import { loadApiKey, loadConfig } from "./store.js";
 import { MAX_OUTPUT_TOKENS } from "../llm/config.js";
-import { catalogFor } from "../llm/catalog.js";
+import { baseUrlFor, catalogFor, optionFor } from "../llm/catalog.js";
 import type { ResolvedLLMConfig } from "@nightwarden/shared";
 
 // Every entry point that starts a run asks here, so a half-configured install
@@ -9,7 +9,7 @@ type LLMReadiness =
   | { ready: true; config: ResolvedLLMConfig; apiKey: string }
   | { ready: false; missing: LLMRequirement[] };
 
-type LLMRequirement = "provider" | "model" | "API key";
+type LLMRequirement = "provider" | "model" | "API key" | "base URL";
 
 export async function checkLLMReadiness(): Promise<LLMReadiness> {
   const config = await loadConfig();
@@ -19,14 +19,17 @@ export async function checkLLMReadiness(): Promise<LLMReadiness> {
   }
 
   const settings = config.providers[provider];
-  const apiKey = await loadApiKey(provider);
+  const apiKey = (await loadApiKey(provider)) ?? "";
   const model = settings.model;
-  const noKey = apiKey === undefined || apiKey === "";
+  // An open server needs no key; a provider with no default address needs one.
+  const noKey = optionFor(provider).requiresKey && apiKey === "";
+  const noUrl = baseUrlFor(provider, settings.baseUrl) === null;
 
-  if (model === null || model === "" || noKey) {
+  if (model === null || model === "" || noKey || noUrl) {
     const missing: LLMRequirement[] = [];
     if (model === null || model === "") missing.push("model");
     if (noKey) missing.push("API key");
+    if (noUrl) missing.push("base URL");
     return { ready: false, missing };
   }
 

@@ -58,7 +58,7 @@ NightWarden runs as one image - the API and the frontend on a single origin, wit
 - **Resolved is verified.** An investigation reads resolved once the alert that opened it clears, confirmed from your alert source's own recovery notification or its rules API.
 - **Code fixes as draft pull requests.** Connect a GitHub repository and the agent builds and tests a fix in an isolated sandbox, then opens a draft pull request for you to review and merge.
 - **Bring your own monitoring.** Point Prometheus, Loki, Sentry, and Alertmanager or Grafana at NightWarden. Any sender that speaks the Alertmanager envelope fits too, including Mimir, Thanos and VictoriaMetrics.
-- **Bring your own model.** Use Anthropic, OpenAI, or OpenRouter. Inference goes straight to your provider and your key stays on your network.
+- **Bring your own model.** Use Anthropic, OpenAI, OpenRouter, or a server you run yourself that speaks OpenAI's Chat Completions API, such as Ollama, vLLM or LM Studio. Inference goes straight to your provider and your key stays on your network.
 - **Your data stays put.** One SQLite file on your own infrastructure, no telemetry.
 - **Durable approvals.** Approve hours later and the agent resumes from where it paused.
 - **Works behind NAT.** Runners dial out to the API, so there are no inbound ports to open on your servers.
@@ -79,7 +79,7 @@ Everything else has a default.
 
 ## Development
 
-Node.js 24 or newer, pnpm 11 or newer, and an Anthropic, OpenAI or OpenRouter API key.
+Node.js 24 or newer, pnpm 11 or newer, and a model to talk to: an Anthropic, OpenAI or OpenRouter key, or a local server such as Ollama.
 
 ```bash
 git clone https://github.com/PrabhatMattoo/NightWarden.git

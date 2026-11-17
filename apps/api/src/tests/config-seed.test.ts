@@ -32,6 +32,18 @@ const PROVIDER_FAMILIES = [
     apiKey: "sk-or-seeded",
     baseUrl: "https://openrouter.ai/api/v1",
   },
+  {
+    // A hyphen is not legal in a variable name, so the prefix is underscored.
+    provider: "openai-compatible",
+    env: {
+      OPENAI_COMPATIBLE_MODEL: "llama3.1:8b",
+      OPENAI_COMPATIBLE_API_KEY: "sk-gateway-seeded",
+      OPENAI_COMPATIBLE_BASE_URL: "http://localhost:11434/v1",
+    },
+    model: "llama3.1:8b",
+    apiKey: "sk-gateway-seeded",
+    baseUrl: "http://localhost:11434/v1",
+  },
 ] as const;
 
 // Env provisions an install once on first boot and is never a live source after.
@@ -94,6 +106,20 @@ describe("first-boot config seed from the environment", () => {
     expect(config.provider).toBeNull();
     expect(config.providers.anthropic.model).toBeNull();
     expect(await loadApiKey("anthropic")).toBeUndefined();
+  });
+
+  it("seeds an OpenAI-compatible server with no key, but never one with no address", async () => {
+    vi.stubEnv("NIGHTWARDEN_LLM_PROVIDER", "openai-compatible");
+    vi.stubEnv("OPENAI_COMPATIBLE_MODEL", "llama3.1:8b");
+    await seedConfigFromEnv();
+    expect((await loadConfig()).provider).toBeNull();
+
+    vi.stubEnv("OPENAI_COMPATIBLE_BASE_URL", "http://localhost:11434/v1");
+    await seedConfigFromEnv();
+
+    const config = await loadConfig();
+    expect(config.provider).toBe("openai-compatible");
+    expect(await loadApiKey("openai-compatible")).toBeUndefined();
   });
 
   it("activates nothing without NIGHTWARDEN_LLM_PROVIDER, so credentials alone never start an agent", async () => {

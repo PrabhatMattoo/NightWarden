@@ -6,6 +6,7 @@ export const LLM_PROVIDER_NAMES = [
   "anthropic",
   "openai",
   "openrouter",
+  "openai-compatible",
 ] as const;
 export type LLMProviderName = (typeof LLM_PROVIDER_NAMES)[number];
 

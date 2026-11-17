@@ -315,12 +315,17 @@ describe("provider/model config seam", () => {
       "anthropic",
       "openai",
       "openrouter",
+      "openai-compatible",
     ]);
     // The endpoint each adapter falls back to, so the form can show it as a
     // placeholder without knowing either provider's address.
     expect(
       body.providerOptions.find((p) => p.name === "openrouter")?.defaultBaseUrl,
     ).toBe("https://openrouter.ai/api/v1");
+    // A server run by the operator has no address of ours and may run open.
+    expect(
+      body.providerOptions.find((p) => p.name === "openai-compatible"),
+    ).toMatchObject({ defaultBaseUrl: null, requiresKey: false });
   });
 
   it("POST /config/models: lists what the endpoint returned", async () => {

@@ -151,6 +151,7 @@ const ENDINGS: Record<
   // Neither streams a pause: a turn either finishes or ends incomplete.
   openai: ["length", "filtered"],
   openrouter: ["length", "filtered"],
+  "openai-compatible": ["length", "filtered"],
 };
 
 describe.each(LLM_PROVIDER_NAMES)(

@@ -10,15 +10,19 @@ import {
 } from "./store.js";
 import {
   PROVIDER_OPTIONS,
+  baseUrlFor,
   catalogFor,
   fetchCatalog,
   offeredModels,
 } from "../llm/catalog.js";
+import { languageModel } from "../llm/factory.js";
+import { checkModelCallsTool } from "../llm/model-check.js";
 import { maskKey } from "../secrets.js";
 import { logger } from "../logger.js";
 import type {
   LLMProviderName,
   ModelCatalog,
+  ModelCheck,
   ModelOption,
 } from "@nightwarden/shared";
 import {
@@ -27,6 +31,7 @@ import {
   configPatchSchema,
   llmProviderNameSchema,
   modelCatalogSchema,
+  modelCheckSchema,
   providerKeySavedSchema,
 } from "@nightwarden/shared/schemas";
 
@@ -36,6 +41,14 @@ const CatalogBodySchema = z.object({
   provider: llmProviderNameSchema.optional(),
   baseUrl: z.url().optional(),
   apiKey: z.string().min(1).optional(),
+});
+
+// The same rules as the catalog, with the model to try: nothing is stored here.
+const ModelCheckBodySchema = z.object({
+  provider: llmProviderNameSchema,
+  baseUrl: z.url().optional(),
+  apiKey: z.string().min(1).optional(),
+  model: z.string().min(1),
 });
 
 // The provider is explicit: a key belongs to one provider's block, and inferring
@@ -75,6 +88,7 @@ function validLevel(model: ModelOption, level: string | null): string | null {
 
 export async function registerConfigRoutes(
   fastify: FastifyInstance,
+  { providerFetch }: { providerFetch?: typeof fetch },
 ): Promise<void> {
   const app = fastify.withTypeProvider<ZodTypeProvider>();
   const answersConfig = {
@@ -149,6 +163,37 @@ export async function registerConfigRoutes(
       return catalog.ok
         ? { ok: true, models: offeredModels(catalog.models) }
         : catalog;
+    },
+  );
+
+  // The list cannot say whether a model calls tools, and one that cannot is no
+  // use to a run, so this sends one turn the way a run would and sees.
+  app.post(
+    "/config/model-check",
+    {
+      config: { permission: { settings: ["manage"] } },
+      schema: {
+        body: ModelCheckBodySchema,
+        response: { 200: modelCheckSchema, ...refusals() },
+      },
+    },
+    async (request): Promise<ModelCheck> => {
+      const { provider, model, apiKey } = request.body;
+      const stored = (await loadConfig()).providers[provider];
+      const baseUrl = baseUrlFor(
+        provider,
+        request.body.baseUrl ?? stored.baseUrl,
+      );
+      if (baseUrl === null) return { ok: false, reason: "needs_url" };
+      const key = apiKey ?? (await loadApiKey(provider)) ?? "";
+      const check = await checkModelCallsTool(
+        languageModel({ provider, model, baseUrl }, key, providerFetch),
+      );
+      logger.info(
+        { provider, model, ok: check.ok },
+        "model tool-call check requested",
+      );
+      return check;
     },
   );
 

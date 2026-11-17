@@ -22,6 +22,7 @@ import type {
   ToolSchema,
 } from "../llm/types.js";
 import { fakeAnthropic } from "./fake-anthropic.js";
+import { fakeOpenAICompatible } from "./fake-openai-compatible.js";
 
 /* The vendor's own double, so the adapter is tested against the interface a
    provider package implements. Turns are consumed in order, the last repeating. */
@@ -74,6 +75,7 @@ function provider(model: MockLanguageModelV4): SdkProvider {
   return new SdkProvider(model, "SYSTEM", {
     maxOutputTokens: 4096,
     maxRetries: 0,
+    toolSchema: (schema) => schema,
     providerOptions: {},
   });
 }
@@ -544,6 +546,102 @@ describe("talking to Anthropic over the wire", () => {
     expect(body["cache_control"]).toEqual({ type: "ephemeral" });
     const markers = JSON.stringify(body).match(/"cache_control"/g) ?? [];
     expect(markers.length).toBeLessThanOrEqual(4);
+  });
+});
+
+/* The real OpenAI-compatible adapter over a stubbed fetch, so what a local server
+   would be sent is read off the wire the adapter writes. */
+describe("talking to an OpenAI-compatible server over the wire", () => {
+  const LOOKUP: ToolSchema = {
+    name: "GetDockerLogs",
+    description: "Reads logs.",
+    input_schema: {
+      type: "object",
+      properties: {
+        service: { type: "string", format: "hostname" },
+        tail: { type: "integer", minimum: 1 },
+      },
+      required: ["service"],
+    },
+  };
+
+  function server(over: Partial<ResolvedLLMConfig> = {}) {
+    const config: ResolvedLLMConfig = {
+      provider: "openai-compatible",
+      model: "llama3.1:8b",
+      baseUrl: "http://localhost:11434/v1",
+      maxOutputTokens: 4096,
+      maxInputTokens: null,
+      compaction: false,
+      maxRetries: 0,
+      reasoningLevel: null,
+      reasoning: null,
+      ...over,
+    };
+    const fake = fakeOpenAICompatible();
+    const bearers: Array<string | null> = [];
+    const chat = (apiKey?: string): Promise<unknown> =>
+      createProvider(
+        languageModel(config, apiKey, (input, init) => {
+          bearers.push(new Headers(init?.headers).get("authorization"));
+          return fake.fetch(input, init);
+        }),
+        "SYSTEM",
+        config,
+      ).chat(opening("first"), [LOOKUP]);
+    return { fake, bearers, chat };
+  }
+
+  it("offers a tool in strict mode's subset, with its optional field required and nullable", async () => {
+    const { fake, chat } = server();
+
+    await chat();
+
+    expect(fake.requests[0]?.tools?.[0]).toEqual({
+      type: "function",
+      function: {
+        name: "GetDockerLogs",
+        description: "Reads logs.",
+        parameters: {
+          type: "object",
+          properties: {
+            service: { type: "string" },
+            tail: { type: ["integer", "null"] },
+          },
+          required: ["service", "tail"],
+          additionalProperties: false,
+        },
+        strict: true,
+      },
+    });
+  });
+
+  it("states a ladder under its own key when the server published one, and sends none otherwise", async () => {
+    const laddered = server({
+      reasoningLevel: "low",
+      reasoning: {
+        levels: [{ value: "low", label: "Low" }],
+        defaultLevel: "low",
+      },
+    });
+    await laddered.chat();
+    const plain = server();
+    await plain.chat();
+
+    expect(laddered.fake.requests[0]).toMatchObject({
+      reasoning_effort: "low",
+    });
+    expect(plain.fake.requests[0]).not.toHaveProperty("reasoning_effort");
+  });
+
+  it("sends a bearer only when there is a key", async () => {
+    const { bearers, chat } = server();
+
+    // A run with no key stored hands the factory an empty one.
+    await chat("");
+    await chat("sk-gateway");
+
+    expect(bearers).toEqual([null, "Bearer sk-gateway"]);
   });
 });
 

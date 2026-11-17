@@ -39,11 +39,19 @@ const PROVIDER_OPTIONS: ProviderOption[] = [
     name: "anthropic",
     label: "Anthropic",
     defaultBaseUrl: "https://api.anthropic.com",
+    requiresKey: true,
   },
   {
     name: "openrouter",
     label: "OpenRouter",
     defaultBaseUrl: "https://openrouter.ai/api/v1",
+    requiresKey: true,
+  },
+  {
+    name: "openai-compatible",
+    label: "OpenAI-compatible",
+    defaultBaseUrl: null,
+    requiresKey: false,
   },
 ];
 
@@ -64,6 +72,12 @@ const CONFIG: AgentConfig = {
       reasoningLevel: null,
     },
     openrouter: {
+      model: null,
+      baseUrl: undefined,
+      apiKeyMasked: null,
+      reasoningLevel: null,
+    },
+    "openai-compatible": {
       model: null,
       baseUrl: undefined,
       apiKeyMasked: null,
@@ -618,7 +632,7 @@ describe("SettingsPage", () => {
         within(list)
           .getAllByRole("option")
           .map((o) => o.textContent),
-      ).toEqual(["Anthropic", "OpenRouter"]);
+      ).toEqual(["Anthropic", "OpenRouter", "OpenAI-compatible"]);
     });
 
     /* A real value, not ghost text: as a placeholder it read as filled while the
@@ -631,6 +645,92 @@ describe("SettingsPage", () => {
       expect(await screen.findByLabelText(/base url/i)).toHaveValue(
         "https://api.anthropic.com",
       );
+    });
+  });
+
+  describe("OpenAI-compatible server", () => {
+    // A server the operator runs: no address of ours, and no list to pick from
+    // when it does not answer /v1/models.
+    const SERVER = "http://localhost:11434/v1";
+    const withServer = (over: Partial<AgentConfig["providers"]["anthropic"]>) =>
+      ({
+        ...CONFIG,
+        provider: "openai-compatible",
+        providers: {
+          ...CONFIG.providers,
+          "openai-compatible": {
+            ...CONFIG.providers["openai-compatible"],
+            ...over,
+          },
+        },
+      }) satisfies AgentConfig;
+    const NO_LIST: ModelCatalog = { ok: false, error: "unreachable" };
+
+    it("takes a typed model id when the server lists none, and saves only with an address", async () => {
+      const user = userEvent.setup();
+      const { sent } = setup(withServer({}), NO_LIST);
+      await openSection(user, /provider/i);
+
+      // The field is a list until the server has failed to give one.
+      await user.type(
+        await screen.findByPlaceholderText("llama3.1:8b"),
+        "llama3.1:8b",
+      );
+      expect(screen.getByRole("button", { name: /^save$/i })).toBeDisabled();
+
+      await user.type(screen.getByLabelText(/^base url$/i), SERVER);
+      await user.click(screen.getByRole("button", { name: /^save$/i }));
+
+      await waitFor(() => {
+        expect(sent("PATCH", "/api/config")[0]?.body).toEqual({
+          providers: {
+            "openai-compatible": { model: "llama3.1:8b", baseUrl: SERVER },
+          },
+        });
+      });
+      // No key was typed, and the server may need none.
+      expect(sent("PATCH", "/api/config/key")).toHaveLength(0);
+    });
+
+    it("asks the server whether the model calls a tool, with the address and any key on screen", async () => {
+      const user = userEvent.setup();
+      const answer = answerFrom(
+        withServer({ model: "llama3.1:8b", baseUrl: SERVER }),
+        NO_LIST,
+      );
+      const { sent } = renderSettings(async (request) =>
+        request.path === "/api/config/model-check"
+          ? json({ ok: false, reason: "no_tool_call" })
+          : await answer(request),
+      );
+      await openSection(user, /provider/i);
+
+      await user.click(
+        await screen.findByRole("button", { name: /check model/i }),
+      );
+      await waitFor(() => {
+        expect(sent("POST", "/api/config/model-check")).toHaveLength(1);
+      });
+      await user.type(screen.getByPlaceholderText(/paste api key/i), "sk-gw");
+      await user.click(screen.getByRole("button", { name: /check model/i }));
+
+      await waitFor(() => {
+        expect(
+          sent("POST", "/api/config/model-check").map((r) => r.body),
+        ).toEqual([
+          {
+            provider: "openai-compatible",
+            model: "llama3.1:8b",
+            baseUrl: SERVER,
+          },
+          {
+            provider: "openai-compatible",
+            model: "llama3.1:8b",
+            baseUrl: SERVER,
+            apiKey: "sk-gw",
+          },
+        ]);
+      });
     });
   });
 

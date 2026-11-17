@@ -22,6 +22,8 @@ import { registerSessionRoutes } from "./session/routes.js";
 // What a route needs from the composition root, beyond the request itself.
 interface ApiDeps {
   dispatcher: Dispatcher;
+  // Every request to the model provider goes through it; unset is the global fetch.
+  providerFetch?: typeof fetch;
 }
 
 const ROUTES: Array<(api: FastifyInstance, deps: ApiDeps) => Promise<void>> = [

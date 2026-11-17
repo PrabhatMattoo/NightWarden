@@ -33,7 +33,12 @@ export async function buildServer(
     // Long-lived frontend SSE streams would otherwise hold close() open forever.
     forceCloseConnections: true,
   });
-  await registerApi(server, { dispatcher });
+  await registerApi(server, {
+    dispatcher,
+    ...(options.providerFetch !== undefined && {
+      providerFetch: options.providerFetch,
+    }),
+  });
   // Outside /api: a container probe is infrastructure, not API surface.
   server.get("/health", async () => ({ status: "ok" }));
   return { server, dispatcher };

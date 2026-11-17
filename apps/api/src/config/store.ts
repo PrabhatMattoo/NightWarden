@@ -11,7 +11,7 @@ import {
   DEFAULT_TOOL_CALL_CEILING_MS,
   MAX_RETRIES,
 } from "../llm/config.js";
-import { PROVIDER_OPTIONS } from "../llm/catalog.js";
+import { PROVIDER_OPTIONS, baseUrlFor, optionFor } from "../llm/catalog.js";
 import { decrypt, encrypt, generateSecretKey, maskKey } from "../secrets.js";
 import { secretKeyPath } from "../paths.js";
 import { logger } from "../logger.js";
@@ -113,11 +113,13 @@ function toSettings(row: ProviderRow | undefined): ProviderSettings {
 }
 
 async function loadProviders(): Promise<ProviderSettingsMap> {
-  return {
-    anthropic: toSettings(await readProviderRow("anthropic")),
-    openai: toSettings(await readProviderRow("openai")),
-    openrouter: toSettings(await readProviderRow("openrouter")),
-  };
+  const blocks = await Promise.all(
+    PROVIDER_NAMES.map(
+      async (name) => [name, toSettings(await readProviderRow(name))] as const,
+    ),
+  );
+  // fromEntries widens the keys to string; PROVIDER_NAMES is exactly the keys.
+  return Object.fromEntries(blocks) as ProviderSettingsMap;
 }
 
 // Operational defaults are engineering choices and stay; which provider is active
@@ -256,17 +258,27 @@ export async function seedConfigFromEnv(): Promise<void> {
   if ((await loadConfig()).provider !== null) return;
 
   // Activating a block that cannot run would produce an install that looks
-  // configured and fails at the first alert, so require the model and key first.
+  // configured and fails at the first alert, so require what it needs first.
   const block = await readProviderRow(provider);
-  if (!block?.model || !block.apiKeyEncrypted) {
+  if (!block?.model || !hasKeyAndAddress(provider, block)) {
     logger.warn(
       { provider },
-      "NIGHTWARDEN_LLM_PROVIDER is set but that provider has no model and key; finish setup in the frontend",
+      "NIGHTWARDEN_LLM_PROVIDER is set but that provider is not fully set up; finish setup in the frontend",
     );
     return;
   }
   await updateConfig({ provider });
   logger.info({ provider }, "active LLM provider seeded from environment");
+}
+
+// What readiness would ask of the stored block: the key where one is required,
+// and an address where the provider has none of its own.
+function hasKeyAndAddress(
+  provider: LLMProviderName,
+  block: ProviderRow,
+): boolean {
+  const keyed = !optionFor(provider).requiresKey || !!block.apiKeyEncrypted;
+  return keyed && baseUrlFor(provider, block.baseUrl ?? undefined) !== null;
 }
 
 async function seedProviderFromEnv(provider: LLMProviderName): Promise<void> {
@@ -275,16 +287,22 @@ async function seedProviderFromEnv(provider: LLMProviderName): Promise<void> {
   const existing = await readProviderRow(provider);
   if (existing?.model || existing?.apiKeyEncrypted) return;
 
-  const prefix = provider.toUpperCase();
+  // A hyphen is not legal in a variable name.
+  const prefix = provider.toUpperCase().replaceAll("-", "_");
   const model = process.env[`${prefix}_MODEL`];
   const apiKey = process.env[`${prefix}_API_KEY`];
   const baseUrl = process.env[`${prefix}_BASE_URL`];
   if (!model && !apiKey && !baseUrl) return;
 
-  if (!model || !apiKey) {
-    const missing: string[] = [];
-    if (!model) missing.push(`${prefix}_MODEL`);
-    if (!apiKey) missing.push(`${prefix}_API_KEY`);
+  const missing: string[] = [];
+  if (!model) missing.push(`${prefix}_MODEL`);
+  if (!apiKey && optionFor(provider).requiresKey) {
+    missing.push(`${prefix}_API_KEY`);
+  }
+  if (!baseUrl && optionFor(provider).defaultBaseUrl === null) {
+    missing.push(`${prefix}_BASE_URL`);
+  }
+  if (!model || missing.length > 0) {
     logger.warn(
       { provider, missing },
       "incomplete provider environment; skipping seed for it",
@@ -294,8 +312,8 @@ async function seedProviderFromEnv(provider: LLMProviderName): Promise<void> {
 
   await updateProvider(provider, {
     model,
-    apiKey,
-    ...(baseUrl !== undefined && baseUrl !== "" && { baseUrl }),
+    ...(apiKey ? { apiKey } : {}),
+    ...(baseUrl ? { baseUrl } : {}),
   });
   logger.info({ provider, model }, "seeded provider settings from environment");
 }

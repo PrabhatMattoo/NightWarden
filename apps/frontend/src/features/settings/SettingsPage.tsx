@@ -28,6 +28,7 @@ import { useDebounced } from "@/shared/hooks/useDebounced";
 
 const CATALOG_ERRORS: Record<CatalogError, string> = {
   needs_key: "Add an API key to load models.",
+  needs_url: "Enter the Base URL to load models.",
   bad_key: "That key was rejected. Check it and try again.",
   unreachable: "Could not reach that endpoint. Check the Base URL.",
 };
@@ -83,6 +84,22 @@ export function SettingsPage(): React.JSX.Element {
   const save = useConfigAutosave();
   const queryClient = useQueryClient();
 
+  // A result is void once the model, address or key it was asked with changes.
+  const checkModel = useMutation({
+    mutationFn: (vars: {
+      provider: LLMProviderName;
+      model: string;
+      baseUrl?: string;
+      apiKey?: string;
+    }) => dataOrThrow(api.POST("/api/config/model-check", { body: vars })),
+    onError: (error) =>
+      toast.show({
+        title: "Check failed",
+        message: error.message,
+        variant: "error",
+      }),
+  });
+
   // The provider block is a draft, seeded once and held while it is edited: a
   // background refetch would otherwise replace what is being typed.
   const [form, setForm] = useState<AgentConfig>(() => config);
@@ -92,6 +109,7 @@ export function SettingsPage(): React.JSX.Element {
   function changeApiKey(value: string): void {
     setNewApiKey(value);
     setKeyRevision((n) => n + 1);
+    checkModel.reset();
   }
 
   const availableProviders = config.providerOptions;
@@ -177,6 +195,7 @@ export function SettingsPage(): React.JSX.Element {
     name: LLMProviderName,
     patch: Record<string, unknown>,
   ): void {
+    checkModel.reset();
     setForm((prev) =>
       prev
         ? {
@@ -227,7 +246,21 @@ export function SettingsPage(): React.JSX.Element {
     Object.keys(providerDelta).length > 0 ||
     newApiKey.trim() !== "" ||
     (form != null && config != null && form.provider !== config.provider);
-  const unchosen = form.provider != null && !block?.model;
+  const option = availableProviders.find((p) => p.name === form.provider);
+  // A model, and an address where the provider has none of its own.
+  const unchosen =
+    form.provider != null &&
+    (!block?.model || (option?.defaultBaseUrl === null && !block.baseUrl));
+
+  function handleCheckModel(): void {
+    if (!form.provider || !block?.model) return;
+    checkModel.mutate({
+      provider: form.provider,
+      model: block.model,
+      ...(block.baseUrl && { baseUrl: block.baseUrl }),
+      ...(newApiKey.trim() && { apiKey: newApiKey.trim() }),
+    });
+  }
 
   async function handleSaveProvider(): Promise<void> {
     if (!form.provider) return;
@@ -283,9 +316,15 @@ export function SettingsPage(): React.JSX.Element {
           dirty={providerDirty}
           saving={saveConfig.isPending || saveApiKey.isPending}
           unchosen={unchosen}
-          onProviderChange={(provider) =>
-            setForm((prev) => (prev ? { ...prev, provider } : prev))
-          }
+          modelCheck={{
+            pending: checkModel.isPending,
+            result: checkModel.data ?? null,
+          }}
+          onCheckModel={handleCheckModel}
+          onProviderChange={(provider) => {
+            checkModel.reset();
+            setForm((prev) => (prev ? { ...prev, provider } : prev));
+          }}
           onProviderField={setProviderField}
           onModelChange={setModel}
           onApiKeyChange={changeApiKey}

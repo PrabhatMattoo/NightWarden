@@ -3,6 +3,8 @@ import { Pencil } from "lucide-react";
 import {
   REASONING_LEVELS,
   type AgentConfig,
+  type ModelCheck,
+  type ModelCheckReason,
   type ModelOption,
   type ProviderOption,
   type ProviderSettings,
@@ -42,6 +44,28 @@ export type CatalogState =
   | { kind: "ready"; models: ModelOption[] }
   | { kind: "empty"; message: string };
 
+const CHECK_FAILURES: Record<ModelCheckReason, string> = {
+  unreachable: "Could not reach that server. Check the Base URL.",
+  needs_url: "Enter the Base URL first.",
+  bad_key: "That key was rejected. Check it and try again.",
+  refused: "The server refused the request.",
+  no_tool_call:
+    "The model answered in words and did not call the tool, so it cannot run an investigation. Pick another model.",
+};
+
+function checkMessage(result: ModelCheck): string {
+  if (result.ok)
+    return "The model called the tool, so it can run an investigation.";
+  const detail = "detail" in result && result.detail ? ` ${result.detail}` : "";
+  return `${CHECK_FAILURES[result.reason]}${detail}`;
+}
+
+interface ModelCheckState {
+  pending: boolean;
+  // Absent until a check has run for the model on screen.
+  result: ModelCheck | null;
+}
+
 interface ProviderSectionProps {
   form: AgentConfig;
   block: ProviderSettings | null;
@@ -52,6 +76,8 @@ interface ProviderSectionProps {
   dirty: boolean;
   saving: boolean;
   unchosen: boolean;
+  modelCheck: ModelCheckState;
+  onCheckModel: () => void;
   onProviderChange: (provider: AgentConfig["provider"]) => void;
   onProviderField: <K extends keyof ProviderSettings>(
     key: K,
@@ -74,6 +100,8 @@ export function ProviderSection({
   dirty,
   saving,
   unchosen,
+  modelCheck,
+  onCheckModel,
   onProviderChange,
   onProviderField,
   onModelChange,
@@ -90,6 +118,13 @@ export function ProviderSection({
   // model actually selected.
   const reasoning =
     models.find((m) => m.id === block?.model)?.reasoning ?? null;
+  const option = providers.find((p) => p.name === form.provider);
+  // A provider with no address of its own is a server the operator runs: it may
+  // run open, may not list its models, and may be small.
+  const selfHosted = option?.defaultBaseUrl === null;
+  const keyOptional = option?.requiresKey === false;
+  // A list that did not come back leaves the id to be typed.
+  const typedModel = selfHosted && catalog.kind === "empty";
   const providerItems: Record<string, string> = Object.fromEntries(
     providers.map((provider) => [provider.name, provider.label]),
   );
@@ -138,17 +173,18 @@ export function ProviderSection({
           id="settings-base-url"
           unavailable={noProvider}
           title="Base URL"
-          description="Where to reach that service."
+          description={
+            selfHosted
+              ? "Where the server answers, including the /v1 part."
+              : "Where to reach that service."
+          }
         >
           <Input
             aria-labelledby={rowLabel("settings-base-url")}
             measure="beside"
             disabled={noProvider}
-            value={
-              block?.baseUrl ??
-              providers.find((p) => p.name === form.provider)?.defaultBaseUrl ??
-              ""
-            }
+            {...(selfHosted && { placeholder: "http://localhost:11434/v1" })}
+            value={block?.baseUrl ?? option?.defaultBaseUrl ?? ""}
             onChange={(e) =>
               onProviderField("baseUrl", e.currentTarget.value || undefined)
             }
@@ -159,7 +195,11 @@ export function ProviderSection({
           id="settings-api-key"
           unavailable={noProvider}
           title="API key"
-          description="Stored encrypted and never shown again."
+          description={
+            keyOptional
+              ? "Optional: leave it empty when the server needs none. Stored encrypted and never shown again."
+              : "Stored encrypted and never shown again."
+          }
         >
           {keyInputOpen ? (
             <Input
@@ -193,51 +233,91 @@ export function ProviderSection({
           id="settings-model"
           unavailable={noProvider}
           title="Model"
-          description="One of the models that endpoint lists."
+          description={
+            typedModel
+              ? "That server did not list its models, so type the id it expects."
+              : "One of the models that endpoint lists."
+          }
         >
-          <Combobox
-            items={models.map((m) => m.id)}
-            value={block?.model ?? ""}
-            inputValue={typed ?? block?.model ?? ""}
-            /* What is in the box is the answer and it stays there: Base UI would
-               otherwise put the saved id back the moment the list closed. */
-            onInputValueChange={(text, details) => {
-              if (!OPERATOR_EDIT.has(details.reason)) return;
-              setTyped(text);
-              onModelChange(models.some((m) => m.id === text) ? text : null);
-            }}
-            openOnInputClick
-          >
-            <ComboboxInput
+          {typedModel ? (
+            <Input
               aria-labelledby={rowLabel("settings-model")}
-              className="w-full sm:w-control"
-              onKeyDownCapture={(e) => {
-                if (e.key !== "Enter") return;
-                if (document.querySelector('[role="option"][data-highlighted]'))
-                  return;
-                e.preventDefault();
-                e.stopPropagation();
-              }}
-              disabled={noProvider}
-              placeholder={
-                noProvider ? "Choose a provider first" : "Search models"
+              measure="beside"
+              placeholder="llama3.1:8b"
+              value={block?.model ?? ""}
+              onChange={(e) =>
+                onModelChange(e.currentTarget.value.trim() || null)
               }
             />
-            <ComboboxContent
-              side="bottom"
-              collisionAvoidance={{ side: "none" }}
+          ) : (
+            <Combobox
+              items={models.map((m) => m.id)}
+              value={block?.model ?? ""}
+              inputValue={typed ?? block?.model ?? ""}
+              /* What is in the box is the answer and it stays there: Base UI would
+               otherwise put the saved id back the moment the list closed. */
+              onInputValueChange={(text, details) => {
+                if (!OPERATOR_EDIT.has(details.reason)) return;
+                setTyped(text);
+                onModelChange(models.some((m) => m.id === text) ? text : null);
+              }}
+              openOnInputClick
             >
-              <ComboboxEmpty>{emptyMessage(catalog)}</ComboboxEmpty>
-              <ComboboxList>
-                {(id: string) => (
-                  <ComboboxItem key={id} value={id}>
-                    <span className="min-w-0 truncate font-mono">{id}</span>
-                  </ComboboxItem>
-                )}
-              </ComboboxList>
-            </ComboboxContent>
-          </Combobox>
+              <ComboboxInput
+                aria-labelledby={rowLabel("settings-model")}
+                className="w-full sm:w-control"
+                onKeyDownCapture={(e) => {
+                  if (e.key !== "Enter") return;
+                  if (
+                    document.querySelector('[role="option"][data-highlighted]')
+                  )
+                    return;
+                  e.preventDefault();
+                  e.stopPropagation();
+                }}
+                disabled={noProvider}
+                placeholder={
+                  noProvider ? "Choose a provider first" : "Search models"
+                }
+              />
+              <ComboboxContent
+                side="bottom"
+                collisionAvoidance={{ side: "none" }}
+              >
+                <ComboboxEmpty>{emptyMessage(catalog)}</ComboboxEmpty>
+                <ComboboxList>
+                  {(id: string) => (
+                    <ComboboxItem key={id} value={id}>
+                      <span className="min-w-0 truncate font-mono">{id}</span>
+                    </ComboboxItem>
+                  )}
+                </ComboboxList>
+              </ComboboxContent>
+            </Combobox>
+          )}
         </SettingsRow>
+
+        {selfHosted && (
+          <SettingsRow
+            id="settings-model-check"
+            unavailable={!block?.model}
+            title="Tool calling"
+            description={
+              modelCheck.result === null
+                ? "An investigation needs a model that calls tools. This sends it one request to find out."
+                : checkMessage(modelCheck.result)
+            }
+          >
+            <Button
+              type="button"
+              variant="outline"
+              disabled={!block?.model || modelCheck.pending}
+              onClick={onCheckModel}
+            >
+              {modelCheck.pending ? "Checking…" : "Check model"}
+            </Button>
+          </SettingsRow>
+        )}
 
         {levels.length > 0 && (
           <SettingsRow
@@ -267,6 +347,12 @@ export function ProviderSection({
           </SettingsRow>
         )}
       </SettingsGroup>
+
+      {selfHosted && (
+        <p className="type-body text-pretty text-ink-muted">
+          Small local models produce weaker investigations than hosted ones.
+        </p>
+      )}
 
       <div className="flex justify-end">
         <Button

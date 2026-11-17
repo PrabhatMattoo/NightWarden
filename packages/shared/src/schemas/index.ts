@@ -78,6 +78,7 @@ export {
   configPatchSchema,
   llmProviderNameSchema,
   modelCatalogSchema,
+  modelCheckSchema,
   providerKeySavedSchema,
   themePreferenceSchema,
 } from "./config.js";
