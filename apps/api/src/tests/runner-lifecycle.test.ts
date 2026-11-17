@@ -5,7 +5,7 @@ import WebSocket from "ws";
 
 import { getFleetView } from "../fleet/connections.js";
 import { getDb } from "../db.js";
-import { generateRunnerToken, touchLastUsed } from "../fleet/runners-store.js";
+import { createRunner, touchLastUsed } from "../fleet/runners-store.js";
 import { createSession } from "../session/store.js";
 import { frameText } from "./wire-helper.js";
 
@@ -51,11 +51,11 @@ describe("Runner token lifecycle", () => {
     vi.unstubAllEnvs();
   });
 
-  describe("POST /tokens", () => {
+  describe("POST /runners", () => {
     it("returns nwr_-prefixed plaintext with a UUID id", async () => {
       const res = await nw.server.inject({
         method: "POST",
-        url: "/api/tokens",
+        url: "/api/runners",
         payload: { platform: "docker", serverName: "srv-01" },
         headers: { cookie: `${SESSION}` },
       });
@@ -70,7 +70,7 @@ describe("Runner token lifecycle", () => {
     it("stores only the SHA-256 hash in the DB, never the plaintext", async () => {
       const res = await nw.server.inject({
         method: "POST",
-        url: "/api/tokens",
+        url: "/api/runners",
         payload: { platform: "docker", serverName: "srv-02" },
         headers: { cookie: `${SESSION}` },
       });
@@ -93,7 +93,7 @@ describe("Runner token lifecycle", () => {
     it("refuses to issue one without a platform", async () => {
       const res = await nw.server.inject({
         method: "POST",
-        url: "/api/tokens",
+        url: "/api/runners",
         headers: { cookie: `${SESSION}` },
         payload: { serverName: "no-platform" },
       });
@@ -106,7 +106,7 @@ describe("Runner token lifecycle", () => {
     it("refuses a platform it does not recognise", async () => {
       const res = await nw.server.inject({
         method: "POST",
-        url: "/api/tokens",
+        url: "/api/runners",
         headers: { cookie: `${SESSION}` },
         payload: { platform: "nomad" },
       });
@@ -116,7 +116,7 @@ describe("Runner token lifecycle", () => {
     it("stores the platform on the row and returns it", async () => {
       const res = await nw.server.inject({
         method: "POST",
-        url: "/api/tokens",
+        url: "/api/runners",
         headers: { cookie: `${SESSION}` },
         payload: { platform: "kubernetes", serverName: "prod-cluster" },
       });
@@ -137,7 +137,7 @@ describe("Runner token lifecycle", () => {
     it("stores and returns serverName when provided", async () => {
       const res = await nw.server.inject({
         method: "POST",
-        url: "/api/tokens",
+        url: "/api/runners",
         headers: { cookie: `${SESSION}` },
         payload: { platform: "docker", serverName: "web-01" },
       });
@@ -151,7 +151,7 @@ describe("Runner token lifecycle", () => {
     it("returns 400 when serverName is absent", async () => {
       const res = await nw.server.inject({
         method: "POST",
-        url: "/api/tokens",
+        url: "/api/runners",
         headers: { cookie: `${SESSION}` },
         payload: { platform: "docker" },
       });
@@ -164,22 +164,22 @@ describe("Runner token lifecycle", () => {
     it("returns 400 when serverName is empty", async () => {
       const res = await nw.server.inject({
         method: "POST",
-        url: "/api/tokens",
+        url: "/api/runners",
         headers: { cookie: `${SESSION}` },
         payload: { platform: "docker", serverName: "" },
       });
       expect(res.statusCode).toBe(400);
-      // serverNameError owns every rule about the name, so an empty one reads
-      // the same here as it does in the wizard.
-      expect(JSON.parse(res.body)).toMatchObject({
-        error: "Server name is required",
-      });
+      // serverNameError owns every rule about the name, so the API and the
+      // wizard refuse it in the same words.
+      expect((JSON.parse(res.body) as { error: string }).error).toContain(
+        "Server name is required",
+      );
     });
 
     it("returns 400 when serverName contains a forward slash", async () => {
       const res = await nw.server.inject({
         method: "POST",
-        url: "/api/tokens",
+        url: "/api/runners",
         headers: { cookie: `${SESSION}` },
         payload: { platform: "docker", serverName: "prod/web-01" },
       });
@@ -189,7 +189,7 @@ describe("Runner token lifecycle", () => {
     it("reclaims a server name whose runner never connected (abandoned setup)", async () => {
       const first = await nw.server.inject({
         method: "POST",
-        url: "/api/tokens",
+        url: "/api/runners",
         headers: { cookie: `${SESSION}` },
         payload: { platform: "docker", serverName: "db-server-01" },
       });
@@ -197,7 +197,7 @@ describe("Runner token lifecycle", () => {
 
       const second = await nw.server.inject({
         method: "POST",
-        url: "/api/tokens",
+        url: "/api/runners",
         headers: { cookie: `${SESSION}` },
         payload: { platform: "docker", serverName: "db-server-01" },
       });
@@ -216,7 +216,7 @@ describe("Runner token lifecycle", () => {
     it("returns 409 when the server name belongs to a runner that has connected", async () => {
       const first = await nw.server.inject({
         method: "POST",
-        url: "/api/tokens",
+        url: "/api/runners",
         headers: { cookie: `${SESSION}` },
         payload: { platform: "docker", serverName: "web-prod-01" },
       });
@@ -226,7 +226,7 @@ describe("Runner token lifecycle", () => {
 
       const res = await nw.server.inject({
         method: "POST",
-        url: "/api/tokens",
+        url: "/api/runners",
         headers: { cookie: `${SESSION}` },
         payload: { platform: "docker", serverName: "web-prod-01" },
       });
@@ -234,11 +234,11 @@ describe("Runner token lifecycle", () => {
     });
   });
 
-  describe("DELETE /tokens/:id", () => {
+  describe("DELETE /runners/:id", () => {
     it("returns 204 and removes the token row entirely", async () => {
       const issued = await nw.server.inject({
         method: "POST",
-        url: "/api/tokens",
+        url: "/api/runners",
         headers: { cookie: `${SESSION}` },
         payload: {
           platform: "docker",
@@ -250,7 +250,7 @@ describe("Runner token lifecycle", () => {
 
       const del = await nw.server.inject({
         method: "DELETE",
-        url: `/api/tokens/${id}`,
+        url: `/api/runners/${id}`,
         headers: { cookie: `${SESSION}` },
       });
       expect(del.statusCode).toBe(204);
@@ -260,7 +260,7 @@ describe("Runner token lifecycle", () => {
     it("returns 404 for unknown id", async () => {
       const res = await nw.server.inject({
         method: "DELETE",
-        url: "/api/tokens/00000000-0000-0000-0000-000000000000",
+        url: "/api/runners/00000000-0000-0000-0000-000000000000",
         headers: { cookie: `${SESSION}` },
       });
       expect(res.statusCode).toBe(404);
@@ -269,7 +269,7 @@ describe("Runner token lifecycle", () => {
     it("denies reconnect with the deleted token", async () => {
       const issued = await nw.server.inject({
         method: "POST",
-        url: "/api/tokens",
+        url: "/api/runners",
         payload: { platform: "docker", serverName: "srv-07" },
         headers: { cookie: `${SESSION}` },
       });
@@ -280,7 +280,7 @@ describe("Runner token lifecycle", () => {
 
       await nw.server.inject({
         method: "DELETE",
-        url: `/api/tokens/${id}`,
+        url: `/api/runners/${id}`,
         headers: { cookie: `${SESSION}` },
       });
 
@@ -292,7 +292,7 @@ describe("Runner token lifecycle", () => {
     it("accepts a valid token and sends connected", async () => {
       const issued = await nw.server.inject({
         method: "POST",
-        url: "/api/tokens",
+        url: "/api/runners",
         payload: { platform: "docker", serverName: "srv-08" },
         headers: { cookie: `${SESSION}` },
       });
@@ -320,7 +320,7 @@ describe("Runner token lifecycle", () => {
     it("refuses a runner whose manifest contradicts its row", async () => {
       const issued = await nw.server.inject({
         method: "POST",
-        url: "/api/tokens",
+        url: "/api/runners",
         payload: { platform: "docker", serverName: "mismatch-host" },
         headers: { cookie: `${SESSION}` },
       });
@@ -360,7 +360,7 @@ describe("Runner token lifecycle", () => {
     it("drops a manifest the protocol does not describe, and acts on none of it", async () => {
       const issued = await nw.server.inject({
         method: "POST",
-        url: "/api/tokens",
+        url: "/api/runners",
         payload: { platform: "docker", serverName: "malformed-host" },
         headers: { cookie: `${SESSION}` },
       });
@@ -407,7 +407,7 @@ describe("Runner token lifecycle", () => {
     it("disconnects live runner sockets immediately on token delete", async () => {
       const issued = await nw.server.inject({
         method: "POST",
-        url: "/api/tokens",
+        url: "/api/runners",
         payload: { platform: "docker", serverName: "srv-09" },
         headers: { cookie: `${SESSION}` },
       });
@@ -428,7 +428,7 @@ describe("Runner token lifecycle", () => {
             nw.server
               .inject({
                 method: "DELETE",
-                url: `/api/tokens/${id}`,
+                url: `/api/runners/${id}`,
                 headers: { cookie: `${SESSION}` },
               })
               .catch(reject);
@@ -444,7 +444,7 @@ describe("Runner token lifecycle", () => {
     it("is set after the runner sends its manifest", async () => {
       const issued = await nw.server.inject({
         method: "POST",
-        url: "/api/tokens",
+        url: "/api/runners",
         payload: { platform: "docker", serverName: "srv-10" },
         headers: { cookie: `${SESSION}` },
       });
@@ -490,7 +490,7 @@ describe("Runner token lifecycle", () => {
     it("is set when the runner authenticates, before any manifest arrives", async () => {
       const issued = await nw.server.inject({
         method: "POST",
-        url: "/api/tokens",
+        url: "/api/runners",
         payload: { platform: "docker", serverName: "srv-12" },
         headers: { cookie: `${SESSION}` },
       });
@@ -521,7 +521,7 @@ describe("Runner token lifecycle", () => {
       // So its name is no longer free, and the live runner keeps its token.
       const second = await nw.server.inject({
         method: "POST",
-        url: "/api/tokens",
+        url: "/api/runners",
         headers: { cookie: `${SESSION}` },
         payload: { platform: "docker", serverName: "srv-12" },
       });
@@ -531,10 +531,7 @@ describe("Runner token lifecycle", () => {
 
   describe("session history after token deletion", () => {
     it("session row survives hard-deleting its runner token", async () => {
-      const { id: runnerId } = await generateRunnerToken(
-        "docker",
-        "history-test",
-      );
+      const { id: runnerId } = await createRunner("docker", "history-test");
       await createSession({
         sessionId: "sess-history-1",
         title: "history session",
@@ -543,7 +540,7 @@ describe("Runner token lifecycle", () => {
 
       await nw.server.inject({
         method: "DELETE",
-        url: `/api/tokens/${runnerId}`,
+        url: `/api/runners/${runnerId}`,
         headers: { cookie: `${SESSION}` },
       });
 

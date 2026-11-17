@@ -13,6 +13,7 @@ import { getDb } from "../db.js";
 import { configuredPublicUrl, extraTrustedOrigins } from "../public-url.js";
 import { authSecret } from "../secrets.js";
 import { ownerExists } from "./owner-store.js";
+import { ADMIN_ROLE, MEMBER_ROLE } from "./permissions.js";
 
 /* Snake_case throughout, because Postgres folds an unquoted identifier to
    lowercase and camelCase columns would need quoting for the rest of time. */
@@ -28,8 +29,8 @@ const TIMESTAMPS = {
   updatedAt: "updated_at",
 } as const;
 
-// Five attempts a minute on the credential paths, which is what the hand-rolled
-// limiter allowed. Better Auth's own default of 100 per 10s is far looser.
+// Five attempts a minute on the credential paths; Better Auth's own default of
+// 100 per 10s would let a password be guessed far faster.
 const SIGN_IN_LIMIT = { window: 60, max: 5 };
 
 // Built through a function so the return type keeps the options Better Auth
@@ -39,6 +40,15 @@ function buildAuth() {
   // The public URL is a trusted origin as well as the address NightWarden
   // answers on; an install reached at a second address names that one too.
   const trusted = [...(publicUrl ? [publicUrl] : []), ...extraTrustedOrigins()];
+  const adminPlugin = admin({
+    defaultRole: MEMBER_ROLE,
+    schema: {
+      user: {
+        fields: { banReason: "ban_reason", banExpires: "ban_expires" },
+      },
+      session: { fields: { impersonatedBy: "impersonated_by" } },
+    },
+  });
   return betterAuth({
     // The one handle Kysely already holds, so both write through one connection.
     database: { db: getDb(), type: "sqlite" },
@@ -48,6 +58,11 @@ function buildAuth() {
     // Stated rather than inferred: the default turns this check off under a
     // test runner, so the suite would never exercise it.
     advanced: { disableOriginCheck: false },
+    // Nothing calls the plugin over HTTP, so none of its paths, impersonation
+    // among them, answers; the server still calls them through auth.api.
+    disabledPaths: Object.values(adminPlugin.endpoints).map(
+      (endpoint) => endpoint.path,
+    ),
     emailAndPassword: {
       enabled: true,
       minPasswordLength: PASSWORD_MIN_LENGTH,
@@ -111,12 +126,12 @@ function buildAuth() {
     databaseHooks: {
       user: {
         create: {
-          // The plugin stamps every account 'user', so the install would have
-          // no administrator without this.
+          // The plugin stamps every account a member, so the install would
+          // have no administrator without this.
           before: async (user) => {
             return (await ownerExists())
               ? { data: user }
-              : { data: { ...user, role: "admin" } };
+              : { data: { ...user, role: ADMIN_ROLE } };
           },
         },
         update: {
@@ -144,16 +159,7 @@ function buildAuth() {
         "/change-password": SIGN_IN_LIMIT,
       },
     },
-    plugins: [
-      admin({
-        schema: {
-          user: {
-            fields: { banReason: "ban_reason", banExpires: "ban_expires" },
-          },
-          session: { fields: { impersonatedBy: "impersonated_by" } },
-        },
-      }),
-    ],
+    plugins: [adminPlugin],
   });
 }
 

@@ -2,7 +2,7 @@ import { probeSignal } from "./reachability.js";
 import { z } from "zod";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
-import { requireSession } from "../auth/session.js";
+import type { Permission } from "../auth/permissions.js";
 import {
   deleteGitHubIntegration,
   getGitHubIntegration,
@@ -223,7 +223,10 @@ export async function registerIntegrationRoutes(
   // is no reveal use case; regenerate on GitHub via the deep link instead.
   app.get(
     "/integrations/github",
-    { onRequest: requireSession, schema: answersGitHub },
+    {
+      config: { permission: { integration: ["read"] } },
+      schema: answersGitHub,
+    },
     async () => await statusPayload(),
   );
 
@@ -232,7 +235,7 @@ export async function registerIntegrationRoutes(
   app.post(
     "/integrations/github/preflight",
     {
-      onRequest: requireSession,
+      config: { permission: { integration: ["manage"] } },
       schema: {
         response: { 200: sandboxPreflightSchema, ...refusals() },
       },
@@ -245,7 +248,7 @@ export async function registerIntegrationRoutes(
   app.post(
     "/integrations/github/repos",
     {
-      onRequest: requireSession,
+      config: { permission: { integration: ["manage"] } },
       schema: {
         body: ReposBodySchema,
         response: { 200: gitHubRepoPageSchema, ...gitHubRefusals },
@@ -284,7 +287,7 @@ export async function registerIntegrationRoutes(
   app.post(
     "/integrations/github",
     {
-      onRequest: requireSession,
+      config: { permission: { integration: ["manage"] } },
       schema: {
         body: ConnectBodySchema,
         response: { 201: gitHubIntegrationStatusSchema, ...gitHubRefusals },
@@ -321,7 +324,7 @@ export async function registerIntegrationRoutes(
   app.patch(
     "/integrations/github",
     {
-      onRequest: requireSession,
+      config: { permission: { integration: ["manage"] } },
       schema: { body: RebindBodySchema, ...answersGitHub },
     },
     async (request, reply) => {
@@ -352,7 +355,10 @@ export async function registerIntegrationRoutes(
   // Test connection: the stored token must still reach the bound repository.
   app.post(
     "/integrations/github/test",
-    { onRequest: requireSession, schema: answersGitHub },
+    {
+      config: { permission: { integration: ["manage"] } },
+      schema: answersGitHub,
+    },
     async (_request, reply) => {
       const stored = await getGitHubIntegration();
       if (!stored) {
@@ -380,7 +386,10 @@ export async function registerIntegrationRoutes(
   // GitHub. Sandboxes are torn down first, while the token still works.
   app.delete(
     "/integrations/github",
-    { onRequest: requireSession, schema: refusalsOnly },
+    {
+      config: { permission: { integration: ["manage"] } },
+      schema: refusalsOnly,
+    },
     async (_request, reply) => {
       await teardownAll("disconnected");
       await deleteGitHubIntegration();
@@ -396,7 +405,7 @@ export async function registerIntegrationRoutes(
 
   app.get(
     "/integrations/loki",
-    { onRequest: requireSession, schema: answersLoki },
+    { config: { permission: { integration: ["read"] } }, schema: answersLoki },
     async () => await lokiStatusPayload(),
   );
 
@@ -405,7 +414,7 @@ export async function registerIntegrationRoutes(
   app.post(
     "/integrations/loki",
     {
-      onRequest: requireSession,
+      config: { permission: { integration: ["manage"] } },
       schema: {
         body: LokiConnectSchema,
         response: { 201: lokiIntegrationStatusSchema, ...lokiRefusals },
@@ -430,7 +439,10 @@ export async function registerIntegrationRoutes(
 
   app.post(
     "/integrations/loki/test",
-    { onRequest: requireSession, schema: answersLoki },
+    {
+      config: { permission: { integration: ["manage"] } },
+      schema: answersLoki,
+    },
     async (_request, reply) => {
       const stored = await getLokiIntegration();
       if (!stored) {
@@ -456,7 +468,10 @@ export async function registerIntegrationRoutes(
 
   app.delete(
     "/integrations/loki",
-    { onRequest: requireSession, schema: refusalsOnly },
+    {
+      config: { permission: { integration: ["manage"] } },
+      schema: refusalsOnly,
+    },
     async (_request, reply) => {
       await deleteLokiIntegration();
       logger.info("loki integration disconnected");
@@ -471,7 +486,10 @@ export async function registerIntegrationRoutes(
 
   app.get(
     "/integrations/sentry",
-    { onRequest: requireSession, schema: answersSentry },
+    {
+      config: { permission: { integration: ["read"] } },
+      schema: answersSentry,
+    },
     async () => await sentryStatusPayload(),
   );
 
@@ -480,7 +498,7 @@ export async function registerIntegrationRoutes(
   app.post(
     "/integrations/sentry",
     {
-      onRequest: requireSession,
+      config: { permission: { integration: ["manage"] } },
       schema: {
         body: SentryConnectSchema,
         response: { 201: sentryIntegrationStatusSchema, ...sentryRefusals },
@@ -501,7 +519,10 @@ export async function registerIntegrationRoutes(
 
   app.post(
     "/integrations/sentry/test",
-    { onRequest: requireSession, schema: answersSentry },
+    {
+      config: { permission: { integration: ["manage"] } },
+      schema: answersSentry,
+    },
     async (_request, reply) => {
       const stored = await getSentryIntegration();
       if (!stored) {
@@ -521,7 +542,10 @@ export async function registerIntegrationRoutes(
 
   app.delete(
     "/integrations/sentry",
-    { onRequest: requireSession, schema: refusalsOnly },
+    {
+      config: { permission: { integration: ["manage"] } },
+      schema: refusalsOnly,
+    },
     async (_request, reply) => {
       await deleteSentryIntegration();
       logger.info("sentry integration disconnected");
@@ -531,8 +555,14 @@ export async function registerIntegrationRoutes(
 
   // Credential issued here (the config plane); deliveries hit /alerts/ingest
   // (the data plane) with it. One family, so a new sender is a kind.
-  const knownSender = {
-    onRequest: requireSession,
+  const reads: Permission = { integration: ["read"] };
+  const manages: Permission = { integration: ["manage"] };
+  const readSender = {
+    config: { permission: reads },
+    preHandler: requireKnownAlertSource,
+  };
+  const manageSender = {
+    config: { permission: manages },
     preHandler: requireKnownAlertSource,
   };
   // Any string, so a kind outside the shared list is a 404 naming nothing.
@@ -541,7 +571,7 @@ export async function registerIntegrationRoutes(
   app.get(
     "/integrations/alerting/:kind",
     {
-      ...knownSender,
+      ...readSender,
       schema: {
         params,
         response: { 200: alertSourceStatusSchema, ...refusals() },
@@ -560,7 +590,7 @@ export async function registerIntegrationRoutes(
   app.post(
     "/integrations/alerting/:kind/credential",
     {
-      ...knownSender,
+      ...manageSender,
       schema: {
         params,
         response: { 201: alertSourceCredentialSchema, ...refusals() },
@@ -576,7 +606,7 @@ export async function registerIntegrationRoutes(
   // delivery, which is the only place it is ever checked.
   app.delete(
     "/integrations/alerting/:kind",
-    { ...knownSender, schema: { params, ...refusalsOnly } },
+    { ...manageSender, schema: { params, ...refusalsOnly } },
     async (request, reply) => {
       await deleteAlertSource(senderOf(request.params));
       logger.info({ kind: request.params.kind }, "alert source disconnected");

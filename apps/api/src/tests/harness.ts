@@ -9,7 +9,7 @@ import {
 } from "@nightwarden/shared";
 import { parseRunnerMessage } from "@nightwarden/shared/schemas";
 import type { Dispatcher } from "../dispatcher.js";
-import { generateRunnerToken } from "../fleet/runners-store.js";
+import { createRunner } from "../fleet/runners-store.js";
 import {
   registerRunner,
   setRunnerManifest,
@@ -203,7 +203,7 @@ export async function harness(options: HarnessOptions = {}): Promise<Harness> {
     (options.runners ?? []).map(async (spec, index) => {
       const platform = spec.platform ?? "docker";
       const name = spec.name ?? `test-runner-${index + 1}`;
-      const id = (await generateRunnerToken(platform, name)).id;
+      const id = (await createRunner(platform, name)).id;
       return fakeRunner({ ...spec, platform, name, id });
     }),
   );

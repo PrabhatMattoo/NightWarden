@@ -17,7 +17,6 @@ export interface Account {
   created_at: string;
   id: string;
   id_token: string | null;
-  issuer: string;
   password: string | null;
   provider_id: string;
   refresh_token: string | null;

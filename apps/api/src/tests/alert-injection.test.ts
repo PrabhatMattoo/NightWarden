@@ -18,7 +18,7 @@ import {
   type ScriptedTurn,
 } from "./fake-model.js";
 import { fakeRunner, harness, type Harness } from "./harness.js";
-import { generateRunnerToken } from "../fleet/runners-store.js";
+import { createRunner } from "../fleet/runners-store.js";
 
 // One server for the whole file, so every key here names the same machine.
 const SERVER = "inject-host";
@@ -167,7 +167,7 @@ describe("mid-run alert injection (loop seam)", () => {
   });
 
   it("an injected alert's labels cannot close the harness tag", async () => {
-    const runnerId = (await generateRunnerToken("docker", "inject-marker")).id;
+    const runnerId = (await createRunner("docker", "inject-marker")).id;
     const conn = fakeRunner({
       id: runnerId,
       name: SERVER,
@@ -206,7 +206,7 @@ describe("mid-run alert injection (loop seam)", () => {
   });
 
   it("an alert in the same group joins a suspended session; another group opens its own", async () => {
-    const runnerId = (await generateRunnerToken("docker", "inject-sus")).id;
+    const runnerId = (await createRunner("docker", "inject-sus")).id;
     // connection with a synced cache is required, mirroring ws/server.ts's reconciliation.
     const susConn = fakeRunner({
       id: runnerId,
@@ -293,7 +293,7 @@ describe("mid-run alert injection (loop seam)", () => {
   // from the session itself, or correlated alerts misroute into new sessions and re-fires go undeduped.
   it("after approve-resume, a correlated alert injects into the resumed session and the original alert is deduped", async () => {
     expectDuplicateAlert();
-    const runnerId = (await generateRunnerToken("docker", "inject-resume")).id;
+    const runnerId = (await createRunner("docker", "inject-resume")).id;
     const tokenPlaintext = await generateAlertSourceToken("alertmanager");
     const conn = fakeRunner({
       manifest: webOneManifest(),
@@ -419,8 +419,7 @@ describe.each(LLM_PROVIDER_NAMES)(
     });
 
     it("alert injected mid-run reaches the model as its own turn, unseen by the user", async () => {
-      const runnerId = (await generateRunnerToken("docker", "inject-midrun"))
-        .id;
+      const runnerId = (await createRunner("docker", "inject-midrun")).id;
       const conn = fakeRunner({
         id: runnerId,
         name: SERVER,

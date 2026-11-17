@@ -30,7 +30,8 @@ import {
 import { buildSessionMeta } from "../agent/loop/run-session.js";
 import { listSessionPage } from "./list.js";
 import { buildTranscript } from "./transcript.js";
-import { currentUser, actorOf, requireSession } from "../auth/session.js";
+import { signedInUser } from "../auth/authorize.js";
+import { actorOf } from "../auth/session.js";
 import { logger } from "../logger.js";
 import { buildSeed } from "./seed.js";
 import { teardown } from "../sandbox/workspace.js";
@@ -56,7 +57,7 @@ export async function registerSessionRoutes(
   app.get(
     "/sessions",
     {
-      onRequest: requireSession,
+      config: { permission: { session: ["read"] } },
       schema: {
         querystring: sessionPageQuerySchema,
         response: { 200: sessionListPageSchema, ...refusals() },
@@ -76,7 +77,7 @@ export async function registerSessionRoutes(
   app.get(
     "/sessions/:id",
     {
-      onRequest: requireSession,
+      config: { permission: { session: ["read"] } },
       schema: {
         params,
         response: { 200: sessionDetailSchema, ...refusals() },
@@ -106,7 +107,7 @@ export async function registerSessionRoutes(
   app.get(
     "/sessions/:id/report",
     {
-      onRequest: requireSession,
+      config: { permission: { session: ["read"] } },
       schema: {
         params,
         response: { 200: sessionReportResponseSchema, ...refusals() },
@@ -132,7 +133,7 @@ export async function registerSessionRoutes(
   app.delete(
     "/sessions/:id",
     {
-      onRequest: requireSession,
+      config: { permission: { session: ["delete"] } },
       schema: { params, response: { 204: z.undefined(), ...refusals() } },
     },
     async (request, reply) => {
@@ -153,7 +154,7 @@ export async function registerSessionRoutes(
   app.post(
     "/sessions/:id/stop",
     {
-      onRequest: requireSession,
+      config: { permission: { session: ["run"] } },
       schema: {
         params,
         response: { 200: sessionStoppedSchema, ...refusals() },
@@ -171,7 +172,7 @@ export async function registerSessionRoutes(
   app.post(
     "/sessions/:id/respond",
     {
-      onRequest: requireSession,
+      config: { permission: { session: ["approve"] } },
       schema: {
         params,
         // Either half may stand alone, so a missing body is an empty answer.
@@ -180,18 +181,12 @@ export async function registerSessionRoutes(
       },
     },
     async (request, reply) => {
-      // Behind requireSession, so a null here is a race with sign-out, not an
-      // anonymous caller: refuse rather than record a decision with no author.
-      const user = await currentUser(request);
-      if (user === null) {
-        return reply.code(401).send({ error: "authentication required" });
-      }
       try {
         const response = await respondToPendingHumanInput(
           dispatcher,
           request.params.id,
           request.body,
-          actorOf(user),
+          actorOf(signedInUser(request)),
         );
         return reply.code(200).send(response);
       } catch (error) {
@@ -208,7 +203,7 @@ export async function registerSessionRoutes(
   app.post(
     "/chat",
     {
-      onRequest: requireSession,
+      config: { permission: { session: ["run"] } },
       schema: { body: chatRequestSchema, ...accepted },
     },
     async (request, reply) => {
@@ -237,7 +232,7 @@ export async function registerSessionRoutes(
   app.post(
     "/sessions/:id/messages",
     {
-      onRequest: requireSession,
+      config: { permission: { session: ["run"] } },
       schema: {
         params,
         body: sessionMessageRequestSchema,
@@ -280,7 +275,10 @@ export async function registerSessionRoutes(
   // A person starting what the hourly limit held, on the alerts its session holds.
   app.post(
     "/sessions/:id/start",
-    { onRequest: requireSession, schema: { params, ...accepted } },
+    {
+      config: { permission: { session: ["run"] } },
+      schema: { params, ...accepted },
+    },
     async (request, reply) => {
       const sessionId = request.params.id;
       if (!(await sessionExists(sessionId))) {
@@ -312,7 +310,7 @@ export async function registerSessionRoutes(
   app.post(
     "/sessions/:id/reopen",
     {
-      onRequest: requireSession,
+      config: { permission: { session: ["run"] } },
       schema: {
         params,
         body: reopenRequestSchema,

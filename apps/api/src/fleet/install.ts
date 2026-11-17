@@ -3,7 +3,6 @@ import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { refusals } from "@nightwarden/shared/schemas";
 import type { Platform } from "@nightwarden/shared";
-import { requireSession } from "../auth/session.js";
 import { extractBearerToken } from "../auth/bearer.js";
 import { findRunnerByToken } from "../fleet/runners-store.js";
 import { publicWsUrl } from "../public-url.js";
@@ -43,7 +42,7 @@ export async function registerInstallRoutes(
   // artifact comes back, so the wrong one cannot be fetched for a runner.
   app.get(
     "/runners/install",
-    { onRequest: requireSession, schema },
+    { config: { permission: { runner: ["manage"] } }, schema },
     async (request, reply) => {
       const token = extractBearerToken(request.headers.authorization);
       if (!token) {

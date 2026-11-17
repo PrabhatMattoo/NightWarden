@@ -23,9 +23,16 @@ type RunnerMeta = {
   lastUsedAt: string | null;
 };
 
+// Two runners of one name would make every target key under it ambiguous.
+export class ServerNameTakenError extends Error {
+  constructor(serverName: string) {
+    super(`A runner named ${serverName} already exists`);
+  }
+}
+
 // The plaintext is returned once and only its hash stored. Neither platform nor
 // serverName defaults: a runner not knowing what or where it is is the bug.
-export async function generateRunnerToken(
+export async function createRunner(
   platform: Platform,
   serverName: string,
 ): Promise<{ plaintext: string } & RunnerMeta> {
@@ -37,13 +44,13 @@ export async function generateRunnerToken(
     .transaction()
     .execute(async (trx) => {
       // A row with this server_name that never connected is an orphan from an
-      // aborted setup - free it. A connected row is real, left for the UNIQUE 409.
+      // aborted setup - free it. A connected row is real, and keeps its name.
       await trx
         .deleteFrom("runner")
         .where("server_name", "=", serverName)
         .where("last_used_at", "is", null)
         .execute();
-      await trx
+      const inserted = await trx
         .insertInto("runner")
         .values({
           id,
@@ -52,7 +59,11 @@ export async function generateRunnerToken(
           server_name: serverName,
           created_at: createdAt,
         })
-        .execute();
+        .onConflict((conflict) => conflict.column("server_name").doNothing())
+        .executeTakeFirst();
+      if (inserted.numInsertedOrUpdatedRows === 0n) {
+        throw new ServerNameTakenError(serverName);
+      }
     });
 
   return {

@@ -157,7 +157,7 @@ CREATE TABLE user (
   image          TEXT,
   created_at     DATE     NOT NULL,
   updated_at     DATE     NOT NULL,
-  -- The admin plugin's. It stamps 'user' on signup, so the first owner is
+  -- 'admin' or 'member'. The admin plugin stamps 'member', so the first owner is
   -- raised to 'admin' by a create hook rather than by this column's default.
   role           TEXT,
   banned         INTEGER,
@@ -184,7 +184,6 @@ CREATE TABLE auth_session (
 -- provider_id 'credential' holding the argon2id hash; SSO would add a second.
 CREATE TABLE account (
   id                          TEXT     NOT NULL PRIMARY KEY,
-  issuer                      TEXT     NOT NULL,
   account_id                  TEXT     NOT NULL,
   provider_id                 TEXT     NOT NULL,
   user_id                     TEXT     NOT NULL REFERENCES user (id) ON DELETE CASCADE,
@@ -213,4 +212,3 @@ CREATE TABLE verification (
 CREATE INDEX auth_session_user_id_idx ON auth_session (user_id);
 CREATE INDEX account_user_id_idx ON account (user_id);
 CREATE INDEX verification_identifier_idx ON verification (identifier);
-CREATE UNIQUE INDEX account_issuer_account_id_uidx ON account (issuer, account_id);

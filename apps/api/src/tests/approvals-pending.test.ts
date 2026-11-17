@@ -9,7 +9,7 @@ import { type ScriptedTurn } from "./fake-model.js";
 const anthropic = fakeAnthropic();
 const setScript = (turns: ScriptedTurn[]): void => anthropic.script(turns);
 
-import { generateRunnerToken } from "../fleet/runners-store.js";
+import { createRunner } from "../fleet/runners-store.js";
 import { waitFor } from "./wait.js";
 
 import {
@@ -64,7 +64,7 @@ describe("a suspended session serves its pending row with its transcript", async
   async function connectRunner(
     label: string,
   ): Promise<{ conn: HarnessRunner }> {
-    const id = (await generateRunnerToken("docker", label)).id;
+    const id = (await createRunner("docker", label)).id;
     return { conn: fakeRunner({ id, name: label }) };
   }
 

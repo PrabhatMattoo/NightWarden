@@ -3,7 +3,9 @@ import Fastify from "fastify";
 import type { FastifyInstance, FastifySchema } from "fastify";
 import { registerApi } from "../api.js";
 import { dispatcherFor } from "../server.js";
+import { installAuthorization } from "../auth/authorize.js";
 import { fakeAnthropic } from "./fake-anthropic.js";
+import { issueTestSession } from "./session-helper.js";
 import { useTempDb } from "./temp-db.js";
 
 // One walk of the whole surface, so tomorrow's route is covered. A route not
@@ -27,13 +29,41 @@ const PUBLIC: ReadonlyArray<{ route: string; why: string }> = [
 
 const PUBLIC_ROUTES = new Set(PUBLIC.map((entry) => entry.route));
 
+// A member chats, investigates and approves writes; what changes the install
+// itself, or erases a session's record, is an admin's.
+const ADMIN_ONLY = [
+  "POST /api/runners",
+  "DELETE /api/runners/:id",
+  "GET /api/runners/install",
+  "PATCH /api/config",
+  "POST /api/config/models",
+  "PATCH /api/config/key",
+  "DELETE /api/sessions/:id",
+  "POST /api/integrations/github/preflight",
+  "POST /api/integrations/github/repos",
+  "POST /api/integrations/github",
+  "PATCH /api/integrations/github",
+  "POST /api/integrations/github/test",
+  "DELETE /api/integrations/github",
+  "POST /api/integrations/loki",
+  "POST /api/integrations/loki/test",
+  "DELETE /api/integrations/loki",
+  "POST /api/integrations/sentry",
+  "POST /api/integrations/sentry/test",
+  "DELETE /api/integrations/sentry",
+  "POST /api/integrations/alerting/:kind/credential",
+  "DELETE /api/integrations/alerting/:kind",
+  "POST /api/integrations/metrics",
+  "POST /api/integrations/metrics/test",
+  "DELETE /api/integrations/metrics",
+].sort();
+
 // A concrete value for every path parameter, so the request reaches the guard
 // rather than dying in routing.
 const STAND_INS: Record<string, string> = {
   id: "00000000-0000-4000-8000-000000000000",
   kind: "alertmanager",
   platform: "docker",
-  token: "nwr_stand-in",
 };
 
 function fill(url: string): string {
@@ -51,6 +81,7 @@ describe("the route surface", () => {
     method: string;
     url: string;
     schema: FastifySchema | undefined;
+    streams: boolean;
   }> = [];
 
   beforeAll(async () => {
@@ -62,7 +93,12 @@ describe("the route surface", () => {
         : [route.method];
       for (const method of methods) {
         if (method === "HEAD" || method === "OPTIONS") continue;
-        routes.push({ method, url: route.url, schema: route.schema });
+        routes.push({
+          method,
+          url: route.url,
+          schema: route.schema,
+          streams: route.sse !== undefined,
+        });
       }
     });
     // Hooked before the routes register, so it registers them itself.
@@ -82,19 +118,50 @@ describe("the route surface", () => {
     expect(routes.length).toBeGreaterThan(25);
   });
 
+  function send(method: string, url: string, cookie?: string) {
+    return server.inject({
+      method: method as "GET",
+      url: fill(url),
+      payload: method === "GET" ? undefined : {},
+      ...(cookie !== undefined && { headers: { cookie } }),
+    });
+  }
+
   it("answers 401 on every route that is not deliberately public", async () => {
     const allowed: string[] = [];
     for (const { method, url } of routes) {
       const route = `${method} ${url}`;
       if (PUBLIC_ROUTES.has(route)) continue;
-      const res = await server.inject({
-        method: method as "GET",
-        url: fill(url),
-        payload: method === "GET" ? undefined : {},
-      });
+      const res = await send(method, url);
       if (res.statusCode !== 401) allowed.push(`${route} -> ${res.statusCode}`);
     }
     expect(allowed).toEqual([]);
+  });
+
+  it("refuses a member exactly the routes reserved for an admin", async () => {
+    const member = await issueTestSession("member");
+    const refused: string[] = [];
+    for (const { method, url, streams } of routes) {
+      const route = `${method} ${url}`;
+      // A stream a member may open never ends, so inject would wait forever.
+      if (PUBLIC_ROUTES.has(route) || streams) continue;
+      if ((await send(method, url, member)).statusCode === 403) {
+        refused.push(route);
+      }
+    }
+    expect(refused.sort()).toEqual(ADMIN_ONLY);
+  });
+
+  // Checked as each route registers, so an undeclared one stops the boot.
+  it("refuses to register a route that declares no permission", async () => {
+    const bare = Fastify({ logger: false });
+    await expect(
+      bare.register(async (api) => {
+        installAuthorization(api);
+        api.get("/undeclared", async () => ({ ok: true }));
+      }),
+    ).rejects.toThrow(/permission/);
+    await bare.close();
   });
 
   /* The serializer encodes a reply through the schema for its status and drops

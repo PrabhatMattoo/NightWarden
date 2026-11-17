@@ -19,6 +19,8 @@ export async function registerAuthRoutes(
   fastify.route({
     method: ["GET", "POST"],
     url: "/auth/*",
+    // Better Auth answers for itself, sign-in included, which needs no session.
+    config: { permission: "public" },
     schema: { hide: true },
     async handler(request, reply) {
       const url = new URL(
@@ -45,6 +47,8 @@ export async function registerAuthRoutes(
   app.get(
     "/auth-status",
     {
+      // Read before sign-in to decide which page to show.
+      config: { permission: "public" },
       schema: {
         response: { 200: authStatusResponseSchema, ...refusals() },
       },

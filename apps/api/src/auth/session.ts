@@ -1,6 +1,6 @@
 import { fromNodeHeaders } from "better-auth/node";
 import type { Actor, ThemePreference } from "@nightwarden/shared";
-import type { FastifyReply, FastifyRequest } from "fastify";
+import type { FastifyRequest } from "fastify";
 import { getAuth } from "./instance.js";
 
 export interface SignedInUser {
@@ -36,20 +36,4 @@ export async function currentUser(
     role: typeof role === "string" ? role : null,
     theme,
   };
-}
-
-export async function isAuthenticated(
-  request: FastifyRequest,
-): Promise<boolean> {
-  return (await currentUser(request)) !== null;
-}
-
-// The preHandler every authenticated route already names, so replacing what
-// backs it moved no call site.
-export async function requireSession(
-  request: FastifyRequest,
-  reply: FastifyReply,
-): Promise<void> {
-  if (await isAuthenticated(request)) return;
-  await reply.code(401).send({ error: "authentication required" });
 }

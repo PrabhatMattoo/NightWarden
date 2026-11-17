@@ -112,18 +112,18 @@ function setup(opts: { runners?: RunnerRecord[] } = {}) {
   const runners = opts.runners ?? [AWAITING_RUNNER];
 
   const api = stubApi(({ path, method }) => {
-    if (path === "/api/runners") return json(runners);
-    if (path === "/api/tokens" && method === "POST")
+    if (path === "/api/runners" && method === "POST")
       return json(GENERATED_TOKEN, 201);
-    if (path.startsWith("/api/tokens/") && method === "DELETE")
+    if (path === "/api/runners") return json(runners);
+    if (path.startsWith("/api/runners/") && method === "DELETE")
       return new Response(null, { status: 204 });
     if (path === "/api/runners/install") return new Response(INSTALL_SCRIPT);
     return json({});
   });
   const mints = () =>
-    api.requests("/api/tokens").filter((r) => r.method === "POST");
+    api.requests("/api/runners").filter((r) => r.method === "POST");
   const revokes = () =>
-    api.requests("/api/tokens/").filter((r) => r.method === "DELETE");
+    api.requests("/api/runners/").filter((r) => r.method === "DELETE");
 
   return { api, mints, revokes, ...renderAddServerRoute() };
 }
@@ -188,7 +188,7 @@ describe("AddRunnerPage", () => {
 
       await waitFor(() => {
         expect(revokes().map((r) => r.path)).toEqual([
-          `/api/tokens/${GENERATED_TOKEN.id}`,
+          `/api/runners/${GENERATED_TOKEN.id}`,
         ]);
       });
       expect(screen.getByRole("textbox", { name: /server name/i })).toHaveValue(
@@ -270,7 +270,7 @@ describe("AddRunnerPage", () => {
 
       await waitFor(() => {
         expect(revokes().map((r) => r.path)).toEqual([
-          `/api/tokens/${GENERATED_TOKEN.id}`,
+          `/api/runners/${GENERATED_TOKEN.id}`,
         ]);
       });
       expect(

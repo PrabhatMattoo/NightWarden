@@ -63,7 +63,6 @@ export {
   sessionMessageRequestSchema,
   reopenRequestSchema,
   respondRequestSchema,
-  mintTokenRequestSchema,
   sessionPageQuerySchema,
 } from "./http.js";
 export type {
@@ -71,7 +70,6 @@ export type {
   SessionMessageRequest,
   ReopenRequest,
   RespondRequest,
-  MintTokenRequest,
   SessionPageQuery,
 } from "./http.js";
 
@@ -86,7 +84,7 @@ export {
 export type { ConfigPatch, SettingsPatch } from "./config.js";
 
 export { errorBodySchema, refusals } from "./http.js";
-export { authStatusResponseSchema, mintedTokenSchema } from "./auth.js";
+export { authStatusResponseSchema } from "./auth.js";
 export {
   alertSourceCredentialSchema,
   alertSourceStatusSchema,
@@ -103,7 +101,11 @@ export {
   sentryIntegrationStatusSchema,
 } from "./integrations.js";
 export { sessionReportResponseSchema } from "./report.js";
-export { runnerRecordsSchema } from "./runner.js";
+export {
+  createRunnerRequestSchema,
+  createdRunnerSchema,
+  runnerRecordsSchema,
+} from "./runner.js";
 export {
   approvalResponseSchema,
   sessionAcceptedSchema,

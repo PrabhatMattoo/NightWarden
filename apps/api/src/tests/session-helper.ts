@@ -73,20 +73,27 @@ export async function seedChatSession(
 
 /* A real signed-in session, issued the way production does: the owner is created
    through the signup door, so the cookie is one Better Auth actually issued. */
-export async function issueTestSession(): Promise<string> {
+export async function issueTestSession(
+  role: "admin" | "member" = "admin",
+): Promise<string> {
   const auth = getAuth();
-  const body = {
+  const owner = {
     email: "owner@example.test",
     password: "a-long-enough-password",
     name: "Owner",
   };
-  const existing = await getDb()
-    .selectFrom("user")
-    .select("id")
-    .executeTakeFirst();
-  const response = existing
-    ? await auth.api.signInEmail({ body, asResponse: true })
-    : await auth.api.signUpEmail({ body, asResponse: true });
+  const member = { ...owner, email: "member@example.test", name: "Member" };
+  const existing = await getDb().selectFrom("user").select("email").execute();
+  const emails = new Set(existing.map((row) => row.email));
+  if (!emails.has(owner.email)) await auth.api.signUpEmail({ body: owner });
+  // Created the way an admin adds a colleague, so it carries the default role.
+  if (role === "member" && !emails.has(member.email)) {
+    await auth.api.createUser({ body: member });
+  }
+  const response = await auth.api.signInEmail({
+    body: role === "admin" ? owner : member,
+    asResponse: true,
+  });
   // Returned as a Cookie request header, which is what every caller sends back.
   return response.headers
     .getSetCookie()

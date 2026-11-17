@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import type { RunnerManifest, NormalizedAlert } from "@nightwarden/shared";
-import { generateRunnerToken } from "../fleet/runners-store.js";
+import { createRunner } from "../fleet/runners-store.js";
 import { dispatcherFor } from "../server.js";
 import { isRunning } from "../session/status-store.js";
 import { fakeAnthropic } from "./fake-anthropic.js";
@@ -79,7 +79,7 @@ describe("fleet summary injection", () => {
     ] as const) {
       runners.push(
         fakeRunner({
-          id: (await generateRunnerToken("docker", server)).id,
+          id: (await createRunner("docker", server)).id,
           name: server,
           manifest: dockerManifest(server, [...services]),
         }),

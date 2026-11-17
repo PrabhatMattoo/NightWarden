@@ -6,8 +6,8 @@ import {
   jsonSchemaTransformObject,
 } from "fastify-type-provider-zod";
 import { registerAlertRoutes } from "./alerts/ingest.js";
+import { installAuthorization } from "./auth/authorize.js";
 import { registerAuthRoutes } from "./auth/routes.js";
-import { registerTokenRoutes } from "./auth/token.js";
 import { registerConfigRoutes } from "./config/routes.js";
 import type { Dispatcher } from "./dispatcher.js";
 import { registerInstallRoutes } from "./fleet/install.js";
@@ -26,7 +26,6 @@ interface ApiDeps {
 
 const ROUTES: Array<(api: FastifyInstance, deps: ApiDeps) => Promise<void>> = [
   registerAuthRoutes,
-  registerTokenRoutes,
   registerWsRoutes,
   registerFrontendEventRoutes,
   registerAlertRoutes,
@@ -59,6 +58,7 @@ export async function registerApi(
   await fastify.register(
     async (api) => {
       installRouteSchemas(api);
+      installAuthorization(api);
       for (const register of ROUTES) await register(api, deps);
     },
     { prefix: "/api" },

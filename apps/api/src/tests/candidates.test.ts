@@ -17,7 +17,7 @@ import {
   supersededIds,
 } from "@nightwarden/shared";
 import { buildTranscript } from "../session/transcript.js";
-import { generateRunnerToken } from "../fleet/runners-store.js";
+import { createRunner } from "../fleet/runners-store.js";
 import { fakeAnthropic } from "./fake-anthropic.js";
 import { messagesSentTo, toolsSentTo } from "./fake-model.js";
 import { fakeRunner, type HarnessRunner } from "./harness.js";
@@ -51,7 +51,7 @@ describe("candidates, the frontier and falsification", () => {
   afterAll(() => cleanupDb());
   beforeEach(async () => {
     runner = fakeRunner({
-      id: (await generateRunnerToken("docker", "cand-host")).id,
+      id: (await createRunner("docker", "cand-host")).id,
       name: "cand-host",
       manifest: manifest("cand-host"),
     });

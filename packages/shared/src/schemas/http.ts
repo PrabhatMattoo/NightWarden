@@ -1,5 +1,4 @@
 import { z } from "zod";
-import { PLATFORMS } from "../runner.js";
 import { STATUS_FILTERS } from "../sessions.js";
 
 // Every refusal a route answers, whatever its status, so a client reads one field.
@@ -67,14 +66,6 @@ export const respondRequestSchema = z.object({
   text: z.string().optional(),
 });
 export type RespondRequest = z.infer<typeof respondRequestSchema>;
-
-// The name is only required to be a string here: serverNameError owns every
-// rule about its content, so the route reports one voice rather than two.
-export const mintTokenRequestSchema = z.object({
-  platform: z.enum(PLATFORMS),
-  serverName: z.string(),
-});
-export type MintTokenRequest = z.infer<typeof mintTokenRequestSchema>;
 
 /* One message per bound, whatever the value failed on: a caller who sent "abc"
    needs to know what a limit is, not that coercing it produced NaN. */

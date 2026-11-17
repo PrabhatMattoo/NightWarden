@@ -45,7 +45,7 @@ import { highestEvidenceNumber, resultParts } from "../agent/evidence-id.js";
 import { buildSessionMeta } from "../agent/loop/run-session.js";
 import { seedAlertSession, seedChatSession } from "./session-helper.js";
 import { seedCandidates, seedCompleteReport } from "./report-helper.js";
-import { generateRunnerToken } from "../fleet/runners-store.js";
+import { createRunner } from "../fleet/runners-store.js";
 import { buildTranscript } from "../session/transcript.js";
 import { fakeAnthropic } from "./fake-anthropic.js";
 import {
@@ -89,7 +89,7 @@ describe("the investigation record", () => {
   // failed is issued no handle, so a fixture without one cites nothing.
   async function connectRunner(): Promise<HarnessRunner> {
     return fakeRunner({
-      id: (await generateRunnerToken("docker", "rc-host")).id,
+      id: (await createRunner("docker", "rc-host")).id,
       name: "rc-host",
       manifest: manifest("rc-host"),
     });

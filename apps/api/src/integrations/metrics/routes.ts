@@ -9,7 +9,6 @@ import {
   metricsErrorBodySchema,
   metricsSourceStatusSchema,
 } from "@nightwarden/shared/schemas";
-import { requireSession } from "../../auth/session.js";
 import {
   deleteMetricsSource,
   metricsSourceRow,
@@ -56,7 +55,10 @@ export async function registerMetricsRoutes(
   // Status only - like every other integration, no credential rides a response.
   app.get(
     "/integrations/metrics",
-    { onRequest: requireSession, schema: answersStatus },
+    {
+      config: { permission: { integration: ["read"] } },
+      schema: answersStatus,
+    },
     async () => await statusPayload(),
   );
 
@@ -65,7 +67,7 @@ export async function registerMetricsRoutes(
   app.post(
     "/integrations/metrics",
     {
-      onRequest: requireSession,
+      config: { permission: { integration: ["manage"] } },
       schema: {
         body: metricsConnectInputSchema,
         response: { 201: metricsSourceStatusSchema, ...metricsRefusals },
@@ -115,7 +117,10 @@ export async function registerMetricsRoutes(
 
   app.post(
     "/integrations/metrics/test",
-    { onRequest: requireSession, schema: answersStatus },
+    {
+      config: { permission: { integration: ["manage"] } },
+      schema: answersStatus,
+    },
     async (_request, reply) => {
       const source = await getMetricsSource();
       if (source === null) {
@@ -141,7 +146,7 @@ export async function registerMetricsRoutes(
   app.delete(
     "/integrations/metrics",
     {
-      onRequest: requireSession,
+      config: { permission: { integration: ["manage"] } },
       schema: { response: { 204: z.undefined(), ...refusals() } },
     },
     async (_request, reply) => {

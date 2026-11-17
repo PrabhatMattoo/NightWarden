@@ -20,7 +20,7 @@ import {
 // Every investigation an accepted delivery opens ends in one free-form turn.
 const anthropic = fakeAnthropic();
 
-import { generateRunnerToken } from "../fleet/runners-store.js";
+import { createRunner } from "../fleet/runners-store.js";
 import {
   deleteLokiIntegration,
   saveLokiIntegration,
@@ -108,9 +108,8 @@ describe("POST /alerts/ingest auth", () => {
   });
 
   it("rejects runner tokens - a runner credential grants runner things, never ingest", async () => {
-    const runnerToken = (
-      await generateRunnerToken("docker", "not-an-alert-source")
-    ).plaintext;
+    const runnerToken = (await createRunner("docker", "not-an-alert-source"))
+      .plaintext;
     const res = await server.inject({
       method: "POST",
       url: "/api/alerts/ingest",

@@ -15,7 +15,6 @@ import {
   offeredModels,
 } from "../llm/catalog.js";
 import { maskKey } from "../secrets.js";
-import { requireSession } from "../auth/session.js";
 import { logger } from "../logger.js";
 import type {
   LLMProviderName,
@@ -85,14 +84,14 @@ export async function registerConfigRoutes(
   // gated: config includes provider/model/baseUrl — not for unauthenticated eyes
   app.get(
     "/config",
-    { onRequest: requireSession, schema: answersConfig },
+    { config: { permission: { settings: ["read"] } }, schema: answersConfig },
     async () => await loadConfig(),
   );
 
   app.patch(
     "/config",
     {
-      onRequest: requireSession,
+      config: { permission: { settings: ["manage"] } },
       schema: { body: configPatchSchema, ...answersConfig },
     },
     async (request) => {
@@ -118,7 +117,7 @@ export async function registerConfigRoutes(
   app.post(
     "/config/models",
     {
-      onRequest: requireSession,
+      config: { permission: { settings: ["manage"] } },
       schema: {
         body: CatalogBodySchema,
         response: { 200: modelCatalogSchema, ...refusals() },
@@ -156,7 +155,7 @@ export async function registerConfigRoutes(
   app.patch(
     "/config/key",
     {
-      onRequest: requireSession,
+      config: { permission: { settings: ["manage"] } },
       schema: {
         body: KeyBodySchema,
         response: { 200: providerKeySavedSchema, ...refusals() },

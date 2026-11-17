@@ -1,5 +1,4 @@
 import { z } from "zod";
-import { PLATFORMS } from "../runner.js";
 import { themePreferenceSchema } from "./config.js";
 
 // `ownerExists` is the one question Better Auth cannot answer: it knows whether
@@ -17,13 +16,3 @@ export const authStatusResponseSchema = z.union([
   }),
 ]);
 export type AuthStatusResponse = z.infer<typeof authStatusResponseSchema>;
-
-// The plaintext nwr_... token is returned exactly once, here, and never stored.
-export const mintedTokenSchema = z.object({
-  id: z.string(),
-  token: z.string(),
-  platform: z.enum(PLATFORMS),
-  serverName: z.string(),
-  createdAt: z.string(),
-});
-export type MintedToken = z.infer<typeof mintedTokenSchema>;

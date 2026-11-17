@@ -160,7 +160,7 @@ export {
 // The HTTP contract, inferred from the route schemas. Type-only, so the
 // frontend that reads them never ships zod.
 export type { paths } from "./openapi.js";
-export type { AuthStatusResponse, MintedToken } from "./schemas/auth.js";
+export type { AuthStatusResponse } from "./schemas/auth.js";
 export type {
   AgentConfig,
   CatalogError,
@@ -215,7 +215,7 @@ export type {
   KubernetesWorkloadEntry,
   RunnerManifest,
 } from "./schemas/runner-protocol.js";
-export type { RunnerRecord } from "./schemas/runner.js";
+export type { CreatedRunner, RunnerRecord } from "./schemas/runner.js";
 export type {
   AlertGroupContext,
   ApprovalResponse,

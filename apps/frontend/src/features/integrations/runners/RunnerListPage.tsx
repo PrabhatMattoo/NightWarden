@@ -110,7 +110,9 @@ export function RunnerListPage({
   const [removing, setRemoving] = useState<RunnerRecord | null>(null);
   const remove = useMutation({
     mutationFn: (id: string) =>
-      dataOrThrow(api.DELETE("/api/tokens/{id}", { params: { path: { id } } })),
+      dataOrThrow(
+        api.DELETE("/api/runners/{id}", { params: { path: { id } } }),
+      ),
     onSuccess: () =>
       queryClient.invalidateQueries({ queryKey: runnersQuery().queryKey }),
   });

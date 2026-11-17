@@ -1,6 +1,5 @@
 import type { FastifyInstance, FastifyPluginAsync } from "fastify";
 import * as fastifySSEModule from "@fastify/sse";
-import { requireSession } from "../auth/session.js";
 import { subscribeFrontend } from "./bus.js";
 
 // @fastify/sse's types declare ESM exports, but CJS interop puts the runtime
@@ -16,7 +15,11 @@ export async function registerFrontendEventRoutes(
 
   fastify.get(
     "/frontend/events",
-    { sse: "only", onRequest: requireSession, schema: { hide: true } },
+    {
+      sse: "only",
+      config: { permission: { session: ["read"] } },
+      schema: { hide: true },
+    },
     async (_request, reply) => {
       reply.sse.keepAlive();
 

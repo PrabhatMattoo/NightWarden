@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useMutation, useSuspenseQuery } from "@tanstack/react-query";
 import { useBlocker, useNavigate } from "@tanstack/react-router";
-import type { MintedToken, Platform } from "@nightwarden/shared";
+import type { CreatedRunner, Platform } from "@nightwarden/shared";
 import { serverNameError } from "@nightwarden/shared";
 
 import { Alert, AlertTitle, AlertDescription } from "@/shared/ui/alert";
@@ -54,7 +54,7 @@ export function AddRunnerPage({
 
   const [serverName, setServerName] = useState("");
   const [touched, setTouched] = useState(false);
-  const [mintedToken, setMintedToken] = useState<MintedToken | null>(null);
+  const [mintedToken, setCreatedRunner] = useState<CreatedRunner | null>(null);
   const [committed, setCommitted] = useState(false);
 
   // The same rule the mint route enforces, so a name passing here cannot come
@@ -85,11 +85,11 @@ export function AddRunnerPage({
   const prepare = useMutation({
     mutationFn: async () => {
       const minted = await dataOrThrow(
-        api.POST("/api/tokens", {
+        api.POST("/api/runners", {
           body: { platform, serverName: serverName.trim() },
         }),
       );
-      setMintedToken(minted);
+      setCreatedRunner(minted);
       // One endpoint for both platforms: the row the token names picks the artifact.
       return await dataOrThrow(
         api.GET("/api/runners/install", {
@@ -99,7 +99,7 @@ export function AddRunnerPage({
       );
     },
     onError: (err) => {
-      if (err instanceof ApiError && err.status === 409) setMintedToken(null);
+      if (err instanceof ApiError && err.status === 409) setCreatedRunner(null);
     },
   });
   const installText = prepare.data ?? null;
@@ -125,13 +125,15 @@ export function AddRunnerPage({
   // Best effort: leaving never waits on it.
   const revoke = useMutation({
     mutationFn: (id: string) =>
-      dataOrThrow(api.DELETE("/api/tokens/{id}", { params: { path: { id } } })),
+      dataOrThrow(
+        api.DELETE("/api/runners/{id}", { params: { path: { id } } }),
+      ),
   });
 
   // A different name needs a different token, so the one already minted goes.
   function startOver(): void {
     if (mintedToken !== null) revoke.mutate(mintedToken.id);
-    setMintedToken(null);
+    setCreatedRunner(null);
     prepare.reset();
   }
 

@@ -1,12 +1,10 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import Fastify from "fastify";
 import type { FastifyInstance } from "fastify";
 import type { AuthStatusResponse } from "@nightwarden/shared";
 import { useTempDb } from "./temp-db.js";
-import { resetAuth } from "../auth/instance.js";
-import { registerAuthRoutes } from "../auth/routes.js";
-import { requireSession } from "../auth/session.js";
-import { mountApi } from "./api-server.js";
+import { getAuth, resetAuth } from "../auth/instance.js";
+import { getDb } from "../db.js";
+import { buildServer as buildApiServer } from "../server.js";
 
 const OWNER = {
   email: "admin@example.com",
@@ -19,11 +17,7 @@ const OWNER = {
 const BROWSER_ORIGIN = "http://localhost";
 
 async function buildServer(): Promise<FastifyInstance> {
-  const server = Fastify({ logger: false, trustProxy: true });
-  await mountApi(server, registerAuthRoutes);
-  server.get("/protected", { preHandler: requireSession }, async () => ({
-    ok: true,
-  }));
+  const { server } = await buildApiServer();
   await server.ready();
   return server;
 }
@@ -106,34 +100,36 @@ describe("the first account", () => {
 
   /* An admin adding a colleague is not self-registration, so the rule that
      closes the door must not close it on them - which is how invitations work. */
-  it("lets an admin create an account once the door is shut", async () => {
-    const cookie = cookieFrom(await signIn(server, OWNER));
-    const res = await server.inject({
-      method: "POST",
-      url: "/api/auth/admin/create-user",
-      headers: { cookie, origin: BROWSER_ORIGIN },
-      payload: {
+  it("lets an admin's server-side call add a member once the door is shut", async () => {
+    await getAuth().api.createUser({
+      body: {
         email: "colleague@example.com",
         password: "another-long-password",
         name: "Colleague",
       },
     });
-    expect(res.statusCode).toBe(200);
+    const colleague = await getDb()
+      .selectFrom("user")
+      .select("role")
+      .where("email", "=", "colleague@example.com")
+      .executeTakeFirst();
+    expect(colleague?.role).toBe("member");
   });
 
-  // The role stamp belongs to the first account alone.
-  it("leaves an admin-created account off the admin role", async () => {
+  // Nothing in NightWarden calls the admin plugin over HTTP, impersonation least of all.
+  it("answers none of the admin plugin's paths, however the URL is spelled", async () => {
     const cookie = cookieFrom(await signIn(server, OWNER));
-    const res = await server.inject({
-      method: "GET",
-      url: "/api/auth/admin/list-users?limit=10",
-      headers: { cookie },
-    });
-    const { users } = JSON.parse(res.body) as {
-      users: Array<{ email: string; role: string | null }>;
-    };
-    const colleague = users.find((u) => u.email === "colleague@example.com");
-    expect(colleague?.role).toBe("user");
+    for (const path of ["admin/impersonate-user", "admin/create-user"]) {
+      for (const url of [`/api/auth/${path}`, `/api/auth//${path}`]) {
+        const res = await server.inject({
+          method: "POST",
+          url,
+          headers: { cookie, origin: BROWSER_ORIGIN },
+          payload: { userId: "x", email: "x@example.com", password: "x" },
+        });
+        expect(res.statusCode, url).toBe(404);
+      }
+    }
   });
 });
 
@@ -297,7 +293,7 @@ describe("trusted origins", () => {
   });
 });
 
-describe("requireSession gate", () => {
+describe("the authorization gate", () => {
   let server: FastifyInstance;
   let cleanupDb: () => void;
   let cookie: string;
@@ -316,7 +312,7 @@ describe("requireSession gate", () => {
   it("refuses a tampered cookie", async () => {
     const res = await server.inject({
       method: "GET",
-      url: "/protected",
+      url: "/api/sessions",
       headers: { cookie: cookie.slice(0, -4) + "XXXX" },
     });
     expect(res.statusCode).toBe(401);

@@ -84,13 +84,13 @@ function renderRunnerServersRoute(qc: QueryClient) {
 function setup(runners: RunnerRecord[] = []) {
   const api = stubApi(({ path, method }) => {
     if (path === "/api/runners") return json(runners);
-    if (path.startsWith("/api/tokens/") && method === "DELETE") {
+    if (path.startsWith("/api/runners/") && method === "DELETE") {
       return new Response(null, { status: 204 });
     }
     return json({});
   });
   const revokes = () =>
-    api.requests("/api/tokens/").filter((r) => r.method === "DELETE");
+    api.requests("/api/runners/").filter((r) => r.method === "DELETE");
 
   const qc = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: 0 } },
@@ -139,7 +139,7 @@ describe("RunnerListPage", () => {
 
       await waitFor(() => {
         expect(revokes().map((r) => r.path)).toEqual([
-          `/api/tokens/${WEB_RUNNER.id}`,
+          `/api/runners/${WEB_RUNNER.id}`,
         ]);
       });
     });

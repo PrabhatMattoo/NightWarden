@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { harness, type Harness } from "./harness.js";
-import { generateRunnerToken } from "../fleet/runners-store.js";
+import { createRunner } from "../fleet/runners-store.js";
 import { kubernetesInstallManifest } from "../fleet/install-kubernetes.js";
 
 const URL = "/api/runners/install";
@@ -14,10 +14,8 @@ describe("GET /runners/install", () => {
   beforeAll(async () => {
     nw = await harness();
     SESSION = nw.session;
-    DOCKER_TOKEN = (await generateRunnerToken("docker", "test-server"))
-      .plaintext;
-    K8S_TOKEN = (await generateRunnerToken("kubernetes", "k8s-server"))
-      .plaintext;
+    DOCKER_TOKEN = (await createRunner("docker", "test-server")).plaintext;
+    K8S_TOKEN = (await createRunner("kubernetes", "k8s-server")).plaintext;
   });
 
   afterAll(async () => {
