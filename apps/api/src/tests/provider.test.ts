@@ -8,11 +8,7 @@ import type {
 import { messagePartsToText } from "@nightwarden/shared";
 import type { MessagePart, ResolvedLLMConfig } from "@nightwarden/shared";
 import { CHUNK_TIMEOUT_MS } from "../llm/config.js";
-import {
-  createProvider,
-  languageModel,
-  requestOptions,
-} from "../llm/factory.js";
+import { createProvider, requestOptions } from "../llm/factory.js";
 import { isRetryableLLMError } from "../llm/failures.js";
 import { SdkProvider } from "../llm/provider.js";
 import type {
@@ -21,12 +17,11 @@ import type {
   StreamDelta,
   ToolSchema,
 } from "../llm/types.js";
-import { fakeAnthropic } from "./fake-anthropic.js";
-import { fakeOpenAICompatible } from "./fake-openai-compatible.js";
+import { fakeModel } from "./fake-model.js";
 
 /* The vendor's own double, so the adapter is tested against the interface a
    provider package implements. Turns are consumed in order, the last repeating. */
-function fakeModel(
+function mockModel(
   ...turns: LanguageModelV4StreamPart[][]
 ): MockLanguageModelV4 {
   let call = 0;
@@ -98,7 +93,7 @@ const opening = (text: string): ProviderMessage[] => [
 
 describe("what the run sends a model, and what it makes of the answer", () => {
   it("marks the system prompt for caching, since a run repeats it every turn", async () => {
-    const model = fakeModel([...text("t", "Hi"), finish("stop")]);
+    const model = mockModel([...text("t", "Hi"), finish("stop")]);
     const p = provider(model);
 
     await p.chat(opening("first"), NO_TOOLS);
@@ -111,7 +106,7 @@ describe("what the run sends a model, and what it makes of the answer", () => {
   });
 
   it("names the tool a result answers, and carries the handle a claim cites it by", async () => {
-    const model = fakeModel([
+    const model = mockModel([
       {
         type: "tool-call",
         toolCallId: "tu-1",
@@ -164,7 +159,7 @@ describe("what the run sends a model, and what it makes of the answer", () => {
   // The flag is the wire's own, so a provider that words failure differently
   // still reads this result as one.
   it("sends a failed result as an error rather than as prose", async () => {
-    const model = fakeModel([...text("t", "ok"), finish("stop")]);
+    const model = mockModel([...text("t", "ok"), finish("stop")]);
     const p = provider(model);
 
     await p.chat(
@@ -190,7 +185,7 @@ describe("what the run sends a model, and what it makes of the answer", () => {
   /* An alert that arrives with a turn's results is a user turn of its own here,
      because a tool message carries no room for it. */
   it("splits results and text into the two messages they are", async () => {
-    const model = fakeModel([...text("t", "ok"), finish("stop")]);
+    const model = mockModel([...text("t", "ok"), finish("stop")]);
     const p = provider(model);
     await p.chat(
       [
@@ -214,7 +209,7 @@ describe("what the run sends a model, and what it makes of the answer", () => {
   });
 
   it("carries a thinking signature back on the block it belongs to", async () => {
-    const model = fakeModel([
+    const model = mockModel([
       { type: "reasoning-start", id: "r" },
       { type: "reasoning-delta", id: "r", delta: "weighing it" },
       {
@@ -263,7 +258,7 @@ describe("what the run sends a model, and what it makes of the answer", () => {
         ],
       },
     };
-    const model = fakeModel([
+    const model = mockModel([
       {
         type: "tool-call",
         toolCallId: "call-1",
@@ -295,7 +290,7 @@ describe("what the run sends a model, and what it makes of the answer", () => {
   });
 
   it("takes a summary back as the block it arrived as, not as prose", async () => {
-    const model = fakeModel([
+    const model = mockModel([
       {
         type: "text-start",
         id: "c",
@@ -323,7 +318,7 @@ describe("what the run sends a model, and what it makes of the answer", () => {
   // A block with no text said nothing, and a compaction that produced no summary
   // is the no-op the provider treats it as.
   it("keeps no empty block on the record", async () => {
-    const model = fakeModel([
+    const model = mockModel([
       ...text("t"),
       {
         type: "text-start",
@@ -341,7 +336,7 @@ describe("what the run sends a model, and what it makes of the answer", () => {
   /* Reasoning and a compaction are kept in the record and replayed to the model,
      but the reader never sees either, so only the answer streams. */
   it("streams the visible answer alone, never reasoning", async () => {
-    const model = fakeModel([
+    const model = mockModel([
       { type: "reasoning-start", id: "r" },
       { type: "reasoning-delta", id: "r", delta: "weighing it up" },
       ...text("t", "answer"),
@@ -372,7 +367,7 @@ describe("what the run sends a model, and what it makes of the answer", () => {
   ] as const)(
     "reads a %s (%s) finish as %s",
     async (unified, raw, expected) => {
-      const model = fakeModel([...text("t", "x"), finish(unified, raw)]);
+      const model = mockModel([...text("t", "x"), finish(unified, raw)]);
       const p = provider(model);
 
       expect((await p.chat(opening("first"), NO_TOOLS)).stopReason).toBe(
@@ -384,7 +379,7 @@ describe("what the run sends a model, and what it makes of the answer", () => {
   /* Per-tool validation refuses empty arguments with a correction the model can
      act on, which is a better answer than killing the run. */
   it("survives tool arguments that are not JSON", async () => {
-    const model = fakeModel([
+    const model = mockModel([
       {
         type: "tool-call",
         toolCallId: "tu-1",
@@ -402,7 +397,7 @@ describe("what the run sends a model, and what it makes of the answer", () => {
 
   // Returning what arrived would read as a turn the model finished.
   it("throws when the stream fails part way rather than returning a short turn", async () => {
-    const model = fakeModel([
+    const model = mockModel([
       ...text("t", "half a th"),
       { type: "error", error: new Error("upstream died") },
     ]);
@@ -414,7 +409,7 @@ describe("what the run sends a model, and what it makes of the answer", () => {
   });
 
   it("resumes from a stored transcript, which is all a seed carries", async () => {
-    const model = fakeModel([...text("t", "x"), finish("stop")]);
+    const model = mockModel([...text("t", "x"), finish("stop")]);
     const parts: MessagePart[] = [
       { type: "text", text: "look at web-01" },
       {
@@ -448,17 +443,17 @@ describe("what the run sends a model, and what it makes of the answer", () => {
   });
 });
 
-/* The real Anthropic adapter over a stubbed fetch, so the retries, timeouts and
-   cache markers under test are the SDK's own, read off the wire it writes. */
-describe("talking to Anthropic over the wire", () => {
-  let fake = fakeAnthropic();
+/* The SDK's own retries and timeouts, read through the scripted model, so the
+   attempts, the notices between them and the verdict on the failure are NightWarden's. */
+describe("retrying a reply that fails part way", () => {
+  let fake = fakeModel();
 
   afterEach(() => {
-    fake = fakeAnthropic();
+    fake = fakeModel();
     vi.useRealTimers();
   });
 
-  function anthropic(maxRetries: number, onRetry?: () => void): LLMProvider {
+  function retrying(maxRetries: number, onRetry?: () => void): LLMProvider {
     const config: ResolvedLLMConfig = {
       provider: "anthropic",
       model: "claude-test",
@@ -470,7 +465,7 @@ describe("talking to Anthropic over the wire", () => {
       reasoning: null,
     };
     return createProvider(
-      languageModel(config, "sk-test", fake.fetch),
+      fake.model,
       "SYSTEM",
       config,
       onRetry === undefined ? undefined : { onRetry },
@@ -484,7 +479,7 @@ describe("talking to Anthropic over the wire", () => {
     ]);
     const seen: (StreamDelta | "retry")[] = [];
 
-    const turn = await anthropic(2, () => seen.push("retry")).chat(
+    const turn = await retrying(2, () => seen.push("retry")).chat(
       opening("first"),
       NO_TOOLS,
       (d) => seen.push(d),
@@ -502,7 +497,7 @@ describe("talking to Anthropic over the wire", () => {
   it("fails retryable once the overload outlasts every retry", async () => {
     fake.script([{ text: "Half", overloadedAfter: true }]);
 
-    const failure: unknown = await anthropic(1)
+    const failure: unknown = await retrying(1)
       .chat(opening("first"), NO_TOOLS)
       .catch((err: unknown) => err);
 
@@ -514,7 +509,7 @@ describe("talking to Anthropic over the wire", () => {
     vi.useFakeTimers();
     fake.script([{ text: "Half", stall: true }]);
 
-    const pending = anthropic(0)
+    const pending = retrying(0)
       .chat(opening("first"), NO_TOOLS)
       .catch((err: unknown) => err);
     await vi.advanceTimersByTimeAsync(CHUNK_TIMEOUT_MS);
@@ -522,126 +517,6 @@ describe("talking to Anthropic over the wire", () => {
 
     expect(failure).toMatchObject({ name: "TimeoutError" });
     expect(isRetryableLLMError(failure)).toBe(true);
-  });
-
-  it("caches a long conversation from its tail within the four markers allowed", async () => {
-    fake.script([{ text: "ok", toolUses: [] }]);
-    const history = Array.from({ length: 12 }, (_, i): ProviderMessage[] => [
-      msg("assistant", [
-        {
-          type: "tool_call",
-          toolCallId: `tu-${i}`,
-          name: "GetDockerLogs",
-          input: {},
-        },
-      ]),
-      msg("user", [
-        { type: "tool_result", toolCallId: `tu-${i}`, output: `lines ${i}` },
-      ]),
-    ]).flat();
-
-    await anthropic(0).chat([...opening("first"), ...history], NO_TOOLS);
-
-    const body = fake.requests[0] ?? {};
-    expect(body["cache_control"]).toEqual({ type: "ephemeral" });
-    const markers = JSON.stringify(body).match(/"cache_control"/g) ?? [];
-    expect(markers.length).toBeLessThanOrEqual(4);
-  });
-});
-
-/* The real OpenAI-compatible adapter over a stubbed fetch, so what a local server
-   would be sent is read off the wire the adapter writes. */
-describe("talking to an OpenAI-compatible server over the wire", () => {
-  const LOOKUP: ToolSchema = {
-    name: "GetDockerLogs",
-    description: "Reads logs.",
-    input_schema: {
-      type: "object",
-      properties: {
-        service: { type: "string", format: "hostname" },
-        tail: { type: "integer", minimum: 1 },
-      },
-      required: ["service"],
-    },
-  };
-
-  function server(over: Partial<ResolvedLLMConfig> = {}) {
-    const config: ResolvedLLMConfig = {
-      provider: "openai-compatible",
-      model: "llama3.1:8b",
-      baseUrl: "http://localhost:11434/v1",
-      maxOutputTokens: 4096,
-      maxInputTokens: null,
-      compaction: false,
-      maxRetries: 0,
-      reasoningLevel: null,
-      reasoning: null,
-      ...over,
-    };
-    const fake = fakeOpenAICompatible();
-    const bearers: Array<string | null> = [];
-    const chat = (apiKey?: string): Promise<unknown> =>
-      createProvider(
-        languageModel(config, apiKey, (input, init) => {
-          bearers.push(new Headers(init?.headers).get("authorization"));
-          return fake.fetch(input, init);
-        }),
-        "SYSTEM",
-        config,
-      ).chat(opening("first"), [LOOKUP]);
-    return { fake, bearers, chat };
-  }
-
-  it("offers a tool in strict mode's subset, with its optional field required and nullable", async () => {
-    const { fake, chat } = server();
-
-    await chat();
-
-    expect(fake.requests[0]?.tools?.[0]).toEqual({
-      type: "function",
-      function: {
-        name: "GetDockerLogs",
-        description: "Reads logs.",
-        parameters: {
-          type: "object",
-          properties: {
-            service: { type: "string" },
-            tail: { type: ["integer", "null"] },
-          },
-          required: ["service", "tail"],
-          additionalProperties: false,
-        },
-        strict: true,
-      },
-    });
-  });
-
-  it("states a ladder under its own key when the server published one, and sends none otherwise", async () => {
-    const laddered = server({
-      reasoningLevel: "low",
-      reasoning: {
-        levels: [{ value: "low", label: "Low" }],
-        defaultLevel: "low",
-      },
-    });
-    await laddered.chat();
-    const plain = server();
-    await plain.chat();
-
-    expect(laddered.fake.requests[0]).toMatchObject({
-      reasoning_effort: "low",
-    });
-    expect(plain.fake.requests[0]).not.toHaveProperty("reasoning_effort");
-  });
-
-  it("sends a bearer only when there is a key", async () => {
-    const { bearers, chat } = server();
-
-    // A run with no key stored hands the factory an empty one.
-    await chat("");
-    await chat("sk-gateway");
-
-    expect(bearers).toEqual([null, "Bearer sk-gateway"]);
   });
 });
 
@@ -687,6 +562,7 @@ describe("what each provider is asked for", () => {
       },
     ],
     ["openai", { openai: { reasoningEffort: "high" } }],
+    ["openai-compatible", { openaiCompatible: { reasoningEffort: "high" } }],
     [
       "openrouter",
       {
@@ -698,6 +574,15 @@ describe("what each provider is asked for", () => {
     ],
   ] as const)("sends %s the rung in its own wording", (provider, expected) => {
     expect(requestOptions(config({ provider }))).toEqual(expected);
+  });
+
+  // A local server states a ladder only when its list does, and otherwise gets nothing.
+  it("sends an OpenAI-compatible server nothing when it published no ladder", () => {
+    expect(
+      requestOptions(
+        config({ provider: "openai-compatible", reasoningLevel: null }),
+      ),
+    ).toEqual({});
   });
 
   // A four-word title needs the cheapest rung, not the one a run was configured for.

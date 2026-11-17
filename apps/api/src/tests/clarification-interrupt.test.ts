@@ -3,16 +3,10 @@ import { messageBody } from "./session-helper.js";
 import { harness, type Harness } from "./harness.js";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
-import { fakeAnthropic } from "./fake-anthropic.js";
-import {
-  messagesSentTo,
-  type FakeModel,
-  type ScriptedTurn,
-} from "./fake-model.js";
-import { LLM_PROVIDER_NAMES } from "@nightwarden/shared";
+import { fakeModel, messagesSentTo, type ScriptedTurn } from "./fake-model.js";
 
-const anthropic = fakeAnthropic();
-const setScript = (turns: ScriptedTurn[]): void => anthropic.script(turns);
+const scripted = fakeModel();
+const setScript = (turns: ScriptedTurn[]): void => scripted.script(turns);
 
 import { waitFor } from "./wait.js";
 import { connectFrontendEvents } from "./frontend-events-helper.js";
@@ -43,7 +37,7 @@ describe("clarification interrupts", () => {
 
   beforeAll(async () => {
     nw = await harness({
-      model: anthropic,
+      model: scripted,
       runners: [
         {
           name: "clar-host",
@@ -483,28 +477,6 @@ describe("clarification interrupts", () => {
 
     close();
   });
-});
-
-// A question suspends the run, so each provider's wire takes the question and its answer back.
-describe.each(LLM_PROVIDER_NAMES)("answering a question on %s", (provider) => {
-  let nw: Harness;
-  let port: number;
-  let SESSION: string;
-  let model: FakeModel;
-  const setScript = (turns: ScriptedTurn[]): void => model.script(turns);
-
-  beforeAll(async () => {
-    nw = await harness({
-      provider,
-      runners: [{ name: "clar-host", services: ["web-01"] }],
-    });
-    ({ port, session: SESSION, model } = nw);
-  });
-
-  afterAll(async () => {
-    await nw.close();
-    vi.unstubAllEnvs();
-  });
 
   it("answer resolves: resumes run, tool result contains answer, reaches free-form finish", async () => {
     setScript([
@@ -576,7 +548,7 @@ describe.each(LLM_PROVIDER_NAMES)("answering a question on %s", (provider) => {
       ),
     );
     // The answer reaches the model as the question's result.
-    const resumed = messagesSentTo(model, model.requests.length - 1);
+    const resumed = messagesSentTo(scripted, scripted.requests.length - 1);
     expect(
       resumed
         .flatMap((m) => m.toolResults)

@@ -9,8 +9,8 @@ import {
 } from "vitest";
 import { harness, type Harness } from "./harness.js";
 import { expectDuplicateAlert } from "./setup.js";
-import { fakeAnthropic } from "./fake-anthropic.js";
 import {
+  fakeModel,
   createGateController,
   messagesSentTo,
   type ScriptedTurn,
@@ -36,18 +36,18 @@ const FINISH: ScriptedTurn[] = [
   { toolUses: [], text: "Investigation complete." },
 ];
 
-const anthropic = fakeAnthropic(FINISH);
+const scripted = fakeModel(FINISH);
 
 // Shared FIFO gate. In gated mode a run parks on its request so it stays live
 // long enough to assert against it; releaseAll() lets it finish.
 const gate = createGateController();
 
 function useGatedProvider(): void {
-  anthropic.park(gate.gate);
+  scripted.park(gate.gate);
 }
 
 function useImmediateProvider(): void {
-  anthropic.park();
+  scripted.park();
 }
 
 interface AlertSpec {
@@ -91,7 +91,7 @@ describe("POST /alerts/ingest: one delivery, one investigation", () => {
 
   beforeAll(async () => {
     nw = await harness({
-      model: anthropic,
+      model: scripted,
       runners: [{ name: "host-web-01", services: ["web-01"] }],
       listen: false,
     });
@@ -199,15 +199,15 @@ describe("POST /alerts/ingest: one delivery, one investigation", () => {
   it("tells the agent how many alerts the sender left out of a delivery", async () => {
     useGatedProvider();
     const before = await countInvestigations();
-    const sent = anthropic.requests.length;
+    const sent = scripted.requests.length;
 
     await ingest(
       delivery('{}:{alertname="Withheld"}', [{ fingerprint: "wh-1" }], 6),
     );
     await waitFor(async () => (await countInvestigations()) === before + 1);
 
-    await waitFor(() => anthropic.requests.length > sent);
-    expect(messagesSentTo(anthropic, sent)[0]?.texts.join("\n")).toContain(
+    await waitFor(() => scripted.requests.length > sent);
+    expect(messagesSentTo(scripted, sent)[0]?.texts.join("\n")).toContain(
       "left 6 further alerts out of this delivery",
     );
   });

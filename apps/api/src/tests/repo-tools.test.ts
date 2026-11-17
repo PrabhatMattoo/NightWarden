@@ -11,8 +11,11 @@ const { execFileMock, MockDocker } = vi.hoisted(() => ({
 vi.mock("node:child_process", () => ({ execFile: execFileMock }));
 vi.mock("dockerode", () => ({ default: MockDocker }));
 
-import { fakeAnthropic } from "./fake-anthropic.js";
-import { createGateController, messagesSentTo } from "./fake-model.js";
+import {
+  fakeModel,
+  createGateController,
+  messagesSentTo,
+} from "./fake-model.js";
 import { useTempDb } from "./temp-db.js";
 import { updateConfig } from "../config/store.js";
 import {
@@ -43,7 +46,7 @@ import type {
 import type { DiffHunk } from "../sandbox/tools/diff.js";
 import type { MessagePart } from "@nightwarden/shared";
 
-const anthropic = fakeAnthropic();
+const scripted = fakeModel();
 
 // The clone double materializes a fixture checkout, honouring what a real
 // clone produces: files on disk in the target directory.
@@ -304,7 +307,7 @@ describe("repo tools through registry dispatch", () => {
 
   it("refuses an edit to a file only read in the same turn, before the result returns", async () => {
     const sessionId = "aaaabbbb-0000-4000-8000-0000000000ed";
-    anthropic.script([
+    scripted.script([
       {
         toolUses: [
           { toolCallId: "r1", name: "Read", input: { path: "src/app.ts" } },
@@ -325,7 +328,7 @@ describe("repo tools through registry dispatch", () => {
     await seedChatSession(sessionId, "fix the repo");
     await runSession(
       { sessionId, userMessage: "fix the repo" },
-      anthropic.fetch,
+      scripted.modelFor,
     );
 
     const parts = (await getTranscriptRows(sessionId)).flatMap((r) => r.parts);
@@ -456,7 +459,7 @@ describe("repo tools through registry dispatch", () => {
 
   it("the loop tells the model once, in a sandbox_ready reminder, even when no Bash call is made", async () => {
     const sessionId = "aaaabbbb-0000-4000-8000-0000000000a1";
-    anthropic.script([
+    scripted.script([
       {
         toolUses: [
           { toolCallId: "r1", name: "Read", input: { path: "src/app.ts" } },
@@ -472,19 +475,19 @@ describe("repo tools through registry dispatch", () => {
       { toolUses: [], text: "Done." },
     ]);
     await seedChatSession(sessionId, "look at the repo");
-    const before = anthropic.requests.length;
+    const before = scripted.requests.length;
     await runSession(
       { sessionId, userMessage: "look at the repo" },
-      anthropic.fetch,
+      scripted.modelFor,
     );
 
     const rows = await getTranscriptRows(sessionId);
     expect(rows.filter((r) => r.reminder === "sandbox_ready")).toHaveLength(1);
-    const sentAfterFirstRead = messagesSentTo(anthropic, before + 1)
+    const sentAfterFirstRead = messagesSentTo(scripted, before + 1)
       .flatMap((m) => m.texts)
       .join("\n");
     expect(sentAfterFirstRead).toContain("## Sandbox ready");
-    const sentAfterSecondRead = messagesSentTo(anthropic, before + 2)
+    const sentAfterSecondRead = messagesSentTo(scripted, before + 2)
       .flatMap((m) => m.texts)
       .join("\n");
     expect(sentAfterSecondRead.match(/## Sandbox ready/g)).toHaveLength(1);
@@ -537,9 +540,9 @@ describe("repo work and the time budget", () => {
     toolName: string,
   ): Promise<void> {
     const gates = createGateController();
-    anthropic.park(gates.gate);
+    scripted.park(gates.gate);
     await updateConfig({ checkInAfterMs: 300 });
-    anthropic.script([
+    scripted.script([
       {
         toolUses: [
           { toolCallId: "t1", name: toolName, input: { path: "src/app.ts" } },
@@ -552,7 +555,7 @@ describe("repo work and the time budget", () => {
     await seedChatSession(sessionId, "fix the repo");
     const run = runSession(
       { sessionId, userMessage: "fix the repo" },
-      anthropic.fetch,
+      scripted.modelFor,
     );
     // Park turn 1 until the deadline has passed.
     await new Promise((r) => setTimeout(r, 400));
@@ -560,7 +563,7 @@ describe("repo work and the time budget", () => {
     await new Promise((r) => setTimeout(r, 150));
     gates.releaseAll();
     await run;
-    anthropic.park();
+    scripted.park();
   }
 
   it("a repo tool call does not buy the run more time", async () => {

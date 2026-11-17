@@ -7,12 +7,13 @@ import {
   it,
   vi,
 } from "vitest";
-import type { ModelCheck } from "@nightwarden/shared";
+import type { ModelCheck, ResolvedLLMConfig } from "@nightwarden/shared";
 import { checkLLMReadiness } from "../config/readiness.js";
 import { updateConfig, updateProvider } from "../config/store.js";
 import { catalogFor, fetchCatalog, forgetCatalog } from "../llm/catalog.js";
 import { forgetCapabilities } from "../llm/model-capabilities.js";
-import { fakeOpenAICompatible } from "./fake-openai-compatible.js";
+import { createProvider, languageModel } from "../llm/factory.js";
+import { fakeModel, toolsSentTo } from "./fake-model.js";
 import { harness, type Harness } from "./harness.js";
 import { clearTestLLM, configureTestLLM } from "./temp-db.js";
 import { requestHeaders, requestUrl } from "./wire-helper.js";
@@ -20,25 +21,21 @@ import { requestHeaders, requestUrl } from "./wire-helper.js";
 // A server run by the operator: no address of ours, and often no key.
 describe("an OpenAI-compatible server", () => {
   let nw: Harness;
-  // Flipped by one case to make the server vanish from the network.
-  let serverDown = false;
-  // The credential each request carried, which the fake's own record leaves out.
-  const bearers: Array<string | null> = [];
+  // The key each model was asked for, which the scripted model's own record leaves out.
+  const keys: Array<string | undefined> = [];
 
   beforeAll(async () => {
-    const fake = fakeOpenAICompatible();
+    const fake = fakeModel();
     nw = await harness({
-      provider: "openai-compatible",
       model: {
         ...fake,
-        fetch: (input, init) => {
-          bearers.push(new Headers(init?.headers).get("authorization"));
-          return serverDown
-            ? Promise.reject(new TypeError("fetch failed"))
-            : fake.fetch(input, init);
+        modelFor: (_config, apiKey) => {
+          keys.push(apiKey);
+          return fake.model;
         },
       },
     });
+    await configureTestLLM("openai-compatible");
   });
 
   afterAll(async () => {
@@ -186,6 +183,69 @@ describe("an OpenAI-compatible server", () => {
     });
   });
 
+  // The request the real adapter writes is the only place these two settings show.
+  describe("talking to the server", () => {
+    it("sends a bearer only when there is a key, and joins a trailing slash cleanly", async () => {
+      const config: ResolvedLLMConfig = {
+        provider: "openai-compatible",
+        model: "llama3.1:8b",
+        baseUrl: "http://localhost:11434/v1/",
+        maxOutputTokens: 4096,
+        maxInputTokens: null,
+        compaction: false,
+        maxRetries: 0,
+        reasoningLevel: null,
+        reasoning: null,
+      };
+      const seen: Array<{ url: string; auth: string | null }> = [];
+      vi.stubGlobal(
+        "fetch",
+        vi.fn((input: string | URL | Request, init?: RequestInit) => {
+          seen.push({
+            url: requestUrl(input),
+            auth: requestHeaders(input, init).get("Authorization"),
+          });
+          return Promise.resolve(
+            new Response(JSON.stringify({ error: { message: "stop here" } }), {
+              status: 400,
+            }),
+          );
+        }),
+      );
+      const ask = async (apiKey: string): Promise<void> => {
+        const provider = createProvider(
+          languageModel(config, apiKey),
+          "SYSTEM",
+          config,
+        );
+        await provider
+          .chat(
+            [
+              {
+                role: "user",
+                content: "hi",
+                parts: [{ type: "text", text: "hi" }],
+              },
+            ],
+            [],
+          )
+          .catch(() => undefined);
+      };
+
+      // A run with no key stored hands the factory an empty one.
+      await ask("");
+      await ask("sk-gateway");
+
+      expect(seen).toEqual([
+        { url: "http://localhost:11434/v1/chat/completions", auth: null },
+        {
+          url: "http://localhost:11434/v1/chat/completions",
+          auth: "Bearer sk-gateway",
+        },
+      ]);
+    });
+  });
+
   describe("checking a model calls a tool", () => {
     const ping = { toolCallId: "call-1", name: "Ping", input: {} };
 
@@ -208,17 +268,19 @@ describe("an OpenAI-compatible server", () => {
       nw.model.script([{ toolUses: [ping], text: "" }]);
 
       expect(await check({})).toEqual({ ok: true });
-      expect(nw.model.tools(nw.model.requests.length - 1)).toEqual(["Ping"]);
+      expect(toolsSentTo(nw.model, nw.model.requests.length - 1)).toEqual([
+        "Ping",
+      ]);
     });
 
     it("sends the key typed in the form, and otherwise the stored one", async () => {
       nw.model.script([{ toolUses: [ping], text: "" }]);
-      bearers.length = 0;
+      keys.length = 0;
 
       await check({});
       await check({ apiKey: "sk-typed" });
 
-      expect(bearers).toEqual(["Bearer test-api-key", "Bearer sk-typed"]);
+      expect(keys).toEqual(["test-api-key", "sk-typed"]);
     });
 
     it("fails a model that answers in words", async () => {
@@ -243,15 +305,12 @@ describe("an OpenAI-compatible server", () => {
     });
 
     it("says a server that never answered is unreachable", async () => {
-      serverDown = true;
-      try {
-        expect(await check({})).toMatchObject({
-          ok: false,
-          reason: "unreachable",
-        });
-      } finally {
-        serverDown = false;
-      }
+      nw.model.script([{ unreachable: true }]);
+
+      expect(await check({})).toMatchObject({
+        ok: false,
+        reason: "unreachable",
+      });
     });
 
     it("asks for the base URL when neither the form nor the install has one", async () => {

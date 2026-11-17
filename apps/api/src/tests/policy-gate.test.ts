@@ -3,11 +3,10 @@ import { messageBody } from "./session-helper.js";
 import { harness, type Harness } from "./harness.js";
 import { vi } from "vitest";
 
-import { fakeAnthropic } from "./fake-anthropic.js";
-import { type ScriptedTurn } from "./fake-model.js";
+import { fakeModel, type ScriptedTurn } from "./fake-model.js";
 
-const anthropic = fakeAnthropic();
-const setScript = (turns: ScriptedTurn[]): void => anthropic.script(turns);
+const scripted = fakeModel();
+const setScript = (turns: ScriptedTurn[]): void => scripted.script(turns);
 
 import { waitFor } from "./wait.js";
 import {
@@ -110,7 +109,7 @@ describe("policy-gate: gating is driven by tool policy", () => {
 
   beforeAll(async () => {
     nw = await harness({
-      model: anthropic,
+      model: scripted,
       runners: [
         {
           name: "access-gate-host",

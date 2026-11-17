@@ -4,8 +4,7 @@ import type { RunnerManifest, NormalizedAlert } from "@nightwarden/shared";
 import { createRunner } from "../fleet/runners-store.js";
 import { dispatcherFor } from "../server.js";
 import { isRunning } from "../session/status-store.js";
-import { fakeAnthropic } from "./fake-anthropic.js";
-import { messagesSentTo, type ScriptedTurn } from "./fake-model.js";
+import { fakeModel, messagesSentTo, type ScriptedTurn } from "./fake-model.js";
 import { fakeRunner, type HarnessRunner } from "./harness.js";
 import { dockerService, manifest } from "./manifest-helper.js";
 import { dispatchAlertSession } from "./session-helper.js";
@@ -18,8 +17,8 @@ const SERVER_B = "db-02";
 
 const FINISH: ScriptedTurn = { toolUses: [], text: "Investigation complete." };
 
-const anthropic = fakeAnthropic([FINISH]);
-const dispatcher = dispatcherFor(anthropic.fetch);
+const scripted = fakeModel([FINISH]);
+const dispatcher = dispatcherFor(scripted.modelFor);
 
 function dockerManifest(
   server: string,
@@ -52,10 +51,10 @@ function makeAlert(service: string): NormalizedAlert {
 // The opening turn an alert run sends, read off the wire.
 async function openingTurn(): Promise<string> {
   const sessionId = randomUUID();
-  const before = anthropic.requests.length;
+  const before = scripted.requests.length;
   await dispatchAlertSession(dispatcher, sessionId, [makeAlert("nginx")]);
   await waitFor(async () => !(await isRunning(sessionId)));
-  return messagesSentTo(anthropic, before)[0]?.texts.join("\n") ?? "";
+  return messagesSentTo(scripted, before)[0]?.texts.join("\n") ?? "";
 }
 
 describe("fleet summary injection", () => {

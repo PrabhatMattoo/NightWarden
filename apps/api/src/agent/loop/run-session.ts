@@ -8,7 +8,11 @@ import { stripSystemReminder } from "../system-reminder.js";
 import { connectedPlatforms } from "../policy.js";
 import { retrySummary } from "../../llm/failures.js";
 import type { RetryNotice } from "../../llm/failures.js";
-import { createProvider, languageModel } from "../../llm/factory.js";
+import {
+  createProvider,
+  languageModel,
+  type ModelFor,
+} from "../../llm/factory.js";
 import {
   checkLLMReadiness,
   notConfiguredMessage,
@@ -91,7 +95,7 @@ export interface RunSessionInput {
 // run or the time budget runs out and it parks a continue-request.
 export async function runSession(
   input: RunSessionInput,
-  providerFetch?: typeof fetch,
+  modelFor: ModelFor = languageModel,
 ): Promise<RunOutcome> {
   const { sessionId, signal } = input;
 
@@ -125,7 +129,7 @@ export async function runSession(
   // loop and sandbox budgets, which are provider-independent.
   const { config: llm, apiKey } = readiness;
   const config = await loadConfig();
-  const model = languageModel(llm, apiKey, providerFetch);
+  const model = modelFor(llm, apiKey);
 
   const chat = async (
     provider: LLMProvider,

@@ -1,9 +1,9 @@
+import { fakeModel } from "./fake-model.js";
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { fakeAnthropic } from "./fake-anthropic.js";
 import { harness, type Harness } from "./harness.js";
 
-const anthropic = fakeAnthropic();
+const scripted = fakeModel();
 
 import { buildSessionMeta } from "../agent/loop/run-session.js";
 import { isRunning } from "../session/status-store.js";
@@ -22,7 +22,7 @@ describe("POST /sessions/:id/reopen", () => {
   let nw: Harness;
 
   beforeAll(async () => {
-    nw = await harness({ model: anthropic });
+    nw = await harness({ model: scripted });
   });
 
   afterAll(async () => {
@@ -57,7 +57,7 @@ describe("POST /sessions/:id/reopen", () => {
   });
 
   async function closedInvestigation(): Promise<string> {
-    anthropic.script([
+    scripted.script([
       { toolUses: [], text: "Looking." },
       {
         toolUses: [
@@ -122,7 +122,7 @@ describe("POST /sessions/:id/reopen", () => {
     ]);
     await waitFor(() => isReopenable(id));
     // What the reopened run is answered with: one free-form turn.
-    anthropic.script([]);
+    scripted.script([]);
     return id;
   }
 

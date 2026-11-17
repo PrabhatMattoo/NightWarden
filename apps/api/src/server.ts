@@ -3,10 +3,11 @@ import type { FastifyInstance, FastifyServerOptions } from "fastify";
 import { runSession } from "./agent/loop/run-session.js";
 import { registerApi } from "./api.js";
 import { createDispatcher, type Dispatcher } from "./dispatcher.js";
+import type { ModelFor } from "./llm/factory.js";
 
 interface ServerOptions {
-  // Every request to the model provider goes through it; unset is the global fetch.
-  providerFetch?: typeof fetch;
+  // Where every run and model check gets its model; unset is the provider's own.
+  modelFor?: ModelFor;
   logger?: FastifyServerOptions["logger"];
 }
 
@@ -15,10 +16,10 @@ interface Server {
   dispatcher: Dispatcher;
 }
 
-// The dispatcher whose runs reach the provider through `providerFetch`.
-export function dispatcherFor(providerFetch?: typeof fetch): Dispatcher {
+// The dispatcher whose runs get their model from `modelFor`.
+export function dispatcherFor(modelFor?: ModelFor): Dispatcher {
   return createDispatcher({
-    run: (input) => runSession(input, providerFetch),
+    run: (input) => runSession(input, modelFor),
   });
 }
 
@@ -26,7 +27,7 @@ export function dispatcherFor(providerFetch?: typeof fetch): Dispatcher {
 export async function buildServer(
   options: ServerOptions = {},
 ): Promise<Server> {
-  const dispatcher = dispatcherFor(options.providerFetch);
+  const dispatcher = dispatcherFor(options.modelFor);
   const server = Fastify({
     logger: options.logger ?? false,
     trustProxy: true,
@@ -35,9 +36,7 @@ export async function buildServer(
   });
   await registerApi(server, {
     dispatcher,
-    ...(options.providerFetch !== undefined && {
-      providerFetch: options.providerFetch,
-    }),
+    ...(options.modelFor !== undefined && { modelFor: options.modelFor }),
   });
   // Outside /api: a container probe is infrastructure, not API surface.
   server.get("/health", async () => ({ status: "ok" }));

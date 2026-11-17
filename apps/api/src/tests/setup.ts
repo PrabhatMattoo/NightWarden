@@ -93,8 +93,8 @@ afterEach(async () => {
   if (failure) {
     throw new Error(
       'A dispatched investigation failed during this test (logger.error "investigation failed"). ' +
-        "Background run failures must surface, not be swallowed - check what fake-anthropic.ts refused " +
-        "(the seed must restore a transcript Anthropic accepts) and the resume path.",
+        "Background run failures must surface, not be swallowed - check what fake-model.ts refused " +
+        "(a tool call left without its result) and the resume path.",
     );
   }
 });

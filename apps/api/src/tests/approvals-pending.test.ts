@@ -3,11 +3,10 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { messageBody } from "./session-helper.js";
 
-import { fakeAnthropic } from "./fake-anthropic.js";
-import { type ScriptedTurn } from "./fake-model.js";
+import { fakeModel, type ScriptedTurn } from "./fake-model.js";
 
-const anthropic = fakeAnthropic();
-const setScript = (turns: ScriptedTurn[]): void => anthropic.script(turns);
+const scripted = fakeModel();
+const setScript = (turns: ScriptedTurn[]): void => scripted.script(turns);
 
 import { createRunner } from "../fleet/runners-store.js";
 import { waitFor } from "./wait.js";
@@ -52,7 +51,7 @@ describe("a suspended session serves its pending row with its transcript", async
   let SESSION: string;
 
   beforeAll(async () => {
-    nw = await harness({ model: anthropic });
+    nw = await harness({ model: scripted });
     ({ port, session: SESSION } = nw);
   });
 

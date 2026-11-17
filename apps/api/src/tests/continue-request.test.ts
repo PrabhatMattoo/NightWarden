@@ -1,11 +1,14 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { messageBody } from "./session-helper.js";
 import { harness, type Harness } from "./harness.js";
-import { fakeAnthropic } from "./fake-anthropic.js";
-import { createGateController, type ScriptedTurn } from "./fake-model.js";
+import {
+  fakeModel,
+  createGateController,
+  type ScriptedTurn,
+} from "./fake-model.js";
 
-const anthropic = fakeAnthropic();
-const setScript = (turns: ScriptedTurn[]): void => anthropic.script(turns);
+const scripted = fakeModel();
+const setScript = (turns: ScriptedTurn[]): void => scripted.script(turns);
 
 import { waitFor } from "./wait.js";
 import { connectFrontendEvents } from "./frontend-events-helper.js";
@@ -27,7 +30,7 @@ describe("continue-request interrupts", () => {
 
   beforeAll(async () => {
     nw = await harness({
-      model: anthropic,
+      model: scripted,
       runners: [{ name: "continue-host", services: ["web-01/api"] }],
     });
     ({ port, session: SESSION } = nw);
@@ -47,7 +50,7 @@ describe("continue-request interrupts", () => {
 
     let sessionId = "";
     try {
-      anthropic.park(gates.gate);
+      scripted.park(gates.gate);
       const res = await fetch(`http://127.0.0.1:${port}/api/chat`, {
         method: "POST",
         headers: {
@@ -67,7 +70,7 @@ describe("continue-request interrupts", () => {
       expect(await isRunning(sessionId)).toBe(false);
     } finally {
       gates.releaseAll();
-      anthropic.park();
+      scripted.park();
     }
 
     await fetch(`http://127.0.0.1:${port}/api/sessions/${sessionId}/respond`, {

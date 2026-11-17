@@ -1,10 +1,9 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { fakeAnthropic } from "./fake-anthropic.js";
-import { createGateController } from "./fake-model.js";
+import { fakeModel, createGateController } from "./fake-model.js";
 import { harness, type Harness } from "./harness.js";
 import { messageBody } from "./session-helper.js";
 
-const anthropic = fakeAnthropic();
+const scripted = fakeModel();
 
 import { waitFor } from "./wait.js";
 
@@ -18,7 +17,7 @@ describe("DELETE /sessions/:id", () => {
   let SESSION: string;
 
   beforeAll(async () => {
-    nw = await harness({ model: anthropic });
+    nw = await harness({ model: scripted });
     ({ port } = nw);
     SESSION = nw.session;
   });
@@ -84,7 +83,7 @@ describe("DELETE /sessions/:id", () => {
 
   it("returns 409 and does not delete a session that is currently running", async () => {
     const gateController = createGateController();
-    anthropic.park(gateController.gate);
+    scripted.park(gateController.gate);
 
     const chatRes = await fetch(`http://127.0.0.1:${port}/api/chat`, {
       method: "POST",
@@ -107,7 +106,7 @@ describe("DELETE /sessions/:id", () => {
     expect(delRes.status).toBe(409);
     expect(await getSession(sessionId)).toBeDefined();
 
-    anthropic.park();
+    scripted.park();
     gateController.releaseAll();
     await waitFor(async () => !(await isRunning(sessionId)));
   });

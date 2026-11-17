@@ -12,18 +12,15 @@ import { SdkProvider } from "./provider.js";
 import { toolSchemaFor } from "./tool-schema-dialects.js";
 import type { LLMProvider, ProviderCallOptions } from "./types.js";
 
-// `providerFetch` stands in for the network, so a test serves the provider's own wire.
 export function languageModel(
   config: Pick<ResolvedLLMConfig, "provider" | "model" | "baseUrl">,
   apiKey?: string,
-  providerFetch?: typeof fetch,
 ): LanguageModelV4 {
   const baseURL = baseUrlFor(config.provider, config.baseUrl);
   // The readiness gate refuses a provider with no address, so this is a bug.
   if (baseURL === null) throw new Error(`${config.provider} has no base URL`);
   const settings = {
     ...(apiKey !== undefined && { apiKey }),
-    ...(providerFetch !== undefined && { fetch: providerFetch }),
     baseURL,
   };
   switch (config.provider) {
@@ -42,6 +39,9 @@ export function languageModel(
       }).chatModel(config.model);
   }
 }
+
+// How a run and the model check obtain their model; a test hands in its own.
+export type ModelFor = typeof languageModel;
 
 /* The rung to ask for. Reasoning is never switched off: a model told not to
    reason writes its tool calls as prose instead of calling them. */

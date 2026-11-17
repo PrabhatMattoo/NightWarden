@@ -17,8 +17,8 @@ import {
   saveLokiIntegration,
 } from "../integrations/store.js";
 import { isRunning } from "../session/status-store.js";
-import { fakeAnthropic } from "./fake-anthropic.js";
 import {
+  fakeModel,
   messagesSentTo,
   toolsSentTo,
   type ScriptedTurn,
@@ -30,8 +30,8 @@ import { messageBody, seedChatSession } from "./session-helper.js";
 import { useTempDb } from "./temp-db.js";
 import { waitFor } from "./wait.js";
 
-const anthropic = fakeAnthropic();
-const setScript = (turns: ScriptedTurn[]): void => anthropic.script(turns);
+const scripted = fakeModel();
+const setScript = (turns: ScriptedTurn[]): void => scripted.script(turns);
 
 describe("toolset assembly by fleet capabilities", () => {
   describe("provider library injection (unit)", () => {
@@ -283,7 +283,7 @@ describe("toolset assembly by fleet capabilities", () => {
     let SESSION: string;
 
     beforeAll(async () => {
-      nw = await harness({ model: anthropic });
+      nw = await harness({ model: scripted });
       ({ port, session: SESSION } = nw);
     });
 
@@ -295,7 +295,7 @@ describe("toolset assembly by fleet capabilities", () => {
     // Nothing the model can call opens an investigation, so the report tools
     // stay absent for every turn of this run and every run after it.
     it("never gives a chat the report tools, on any turn or any later run", async () => {
-      const first = anthropic.requests.length;
+      const first = scripted.requests.length;
       setScript([
         {
           text: "Let me look.",
@@ -328,15 +328,15 @@ describe("toolset assembly by fleet capabilities", () => {
 
       // Paging is offered on every turn, so its presence proves the list is the toolset.
       for (const turn of [first, first + 1]) {
-        expect(toolsSentTo(anthropic, turn)).toContain("ReadToolResult");
-        expect(toolsSentTo(anthropic, turn)).not.toContain("RecordFinding");
+        expect(toolsSentTo(scripted, turn)).toContain("ReadToolResult");
+        expect(toolsSentTo(scripted, turn)).not.toContain("RecordFinding");
       }
 
       // And across runs: a follow-up on the same chat is still a chat.
       setScript([{ text: "Nothing has changed.", toolUses: [] }]);
       await waitFor(async () => !(await isRunning(sessionId)));
 
-      const resumed = anthropic.requests.length;
+      const resumed = scripted.requests.length;
       const followUp = await fetch(
         `http://127.0.0.1:${port}/api/sessions/${sessionId}/messages`,
         {
@@ -351,8 +351,8 @@ describe("toolset assembly by fleet capabilities", () => {
       expect(followUp.status).toBe(202);
       await waitFor(async () => !(await isRunning(sessionId)));
 
-      expect(toolsSentTo(anthropic, resumed)).toContain("ReadToolResult");
-      expect(toolsSentTo(anthropic, resumed)).not.toContain("RecordFinding");
+      expect(toolsSentTo(scripted, resumed)).toContain("ReadToolResult");
+      expect(toolsSentTo(scripted, resumed)).not.toContain("RecordFinding");
     });
   });
 
@@ -369,7 +369,7 @@ describe("toolset assembly by fleet capabilities", () => {
       /* Connected while the first turn is in flight, between the two reads of
          the toolset, where a user connecting Loki in another tab would land. */
       let inFlight = 0;
-      anthropic.park(async () => {
+      scripted.park(async () => {
         if (inFlight++ > 0) return;
         await saveLokiIntegration({
           baseUrl: "http://loki.internal:3100",
@@ -377,7 +377,7 @@ describe("toolset assembly by fleet capabilities", () => {
           authorization: null,
         });
       });
-      const first = anthropic.requests.length;
+      const first = scripted.requests.length;
       setScript([
         {
           text: "",
@@ -392,18 +392,18 @@ describe("toolset assembly by fleet capabilities", () => {
       await seedChatSession(sessionId, "what is running?");
       await runSession(
         { sessionId, userMessage: "what is running?" },
-        anthropic.fetch,
+        scripted.modelFor,
       );
-      anthropic.park();
+      scripted.park();
 
-      const told = messagesSentTo(anthropic, first + 1)
+      const told = messagesSentTo(scripted, first + 1)
         .flatMap((m) => m.texts)
         .find((c) => c.includes("connected while you were working"));
       expect(told, "the model was never told").toBeDefined();
       expect(told).toContain("QueryLogs");
 
       // And the tool is actually on the next request, not only announced.
-      expect(toolsSentTo(anthropic, first + 1)).toContain("QueryLogs");
+      expect(toolsSentTo(scripted, first + 1)).toContain("QueryLogs");
 
       await deleteLokiIntegration();
     });

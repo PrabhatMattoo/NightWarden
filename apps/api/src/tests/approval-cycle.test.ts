@@ -1,20 +1,12 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import {
-  LLM_PROVIDER_NAMES,
-  type SessionReportResponse,
-} from "@nightwarden/shared";
-import { fakeAnthropic } from "./fake-anthropic.js";
-import {
-  messagesSentTo,
-  type FakeModel,
-  type ScriptedTurn,
-} from "./fake-model.js";
+import type { SessionReportResponse } from "@nightwarden/shared";
+import { fakeModel, messagesSentTo, type ScriptedTurn } from "./fake-model.js";
 import { harness, type Harness } from "./harness.js";
 import { seedCompleteReport } from "./report-helper.js";
 import { messageBody } from "./session-helper.js";
 
-const anthropic = fakeAnthropic();
-const setScript = (turns: ScriptedTurn[]): void => anthropic.script(turns);
+const scripted = fakeModel();
+const setScript = (turns: ScriptedTurn[]): void => scripted.script(turns);
 
 import { waitFor } from "./wait.js";
 import {
@@ -40,7 +32,7 @@ describe("durable approval interrupts", () => {
 
   beforeAll(async () => {
     nw = await harness({
-      model: anthropic,
+      model: scripted,
       runners: [
         {
           name: "approval-host",
@@ -617,39 +609,6 @@ describe("durable approval interrupts", () => {
 
     close();
   });
-});
-
-// Resuming re-sends the whole conversation, so each provider's wire takes the suspended turn back.
-describe.each(LLM_PROVIDER_NAMES)("approving a write on %s", (provider) => {
-  let nw: Harness;
-  let port: number;
-  let SESSION: string;
-  let model: FakeModel;
-  const restartCommands: Array<Record<string, unknown>> = [];
-  const setScript = (turns: ScriptedTurn[]): void => model.script(turns);
-
-  beforeAll(async () => {
-    nw = await harness({
-      provider,
-      runners: [
-        {
-          name: "approval-host",
-          services: ["web-01"],
-          answer: ({ commandName, commandInput }) => {
-            if (commandName !== "RestartDockerService") return [];
-            restartCommands.push(commandInput);
-            return { restarted: true };
-          },
-        },
-      ],
-    });
-    ({ port, session: SESSION, model } = nw);
-  });
-
-  afterAll(async () => {
-    await nw.close();
-    vi.unstubAllEnvs();
-  });
 
   it("approve: executes tool on runner exactly once, run resumes, reaches free-form finish", async () => {
     restartCommands.length = 0;
@@ -721,7 +680,7 @@ describe.each(LLM_PROVIDER_NAMES)("approving a write on %s", (provider) => {
       ),
     );
     // The resumed request hands back the call, its result and the reasoning it was made with.
-    const resumed = messagesSentTo(model, model.requests.length - 1);
+    const resumed = messagesSentTo(scripted, scripted.requests.length - 1);
     const turn = resumed.find((m) =>
       m.toolUses.some((u) => u.id === "tu-apr-1"),
     );
@@ -850,7 +809,7 @@ describe.each(LLM_PROVIDER_NAMES)("approving a write on %s", (provider) => {
     );
     expect(await hasPendingHumanInput(sessionId)).toBe(false);
     // The refusal reaches the model as the call's answer, with the person's reason in it.
-    const resumed = messagesSentTo(model, model.requests.length - 1);
+    const resumed = messagesSentTo(scripted, scripted.requests.length - 1);
     const answer = resumed
       .flatMap((m) => m.toolResults)
       .find((r) => r.toolUseId === "tu-rej-1");

@@ -1,13 +1,13 @@
+import { fakeModel } from "./fake-model.js";
 import { randomUUID } from "node:crypto";
 import { seedAlertSession } from "./session-helper.js";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { NormalizedAlert, TranscriptRow } from "@nightwarden/shared";
-import { fakeAnthropic } from "./fake-anthropic.js";
 import { dispatcherFor } from "../server.js";
 
 // The reconciler's retries reach this provider.
-const anthropic = fakeAnthropic();
-const dispatcher = dispatcherFor(anthropic.fetch);
+const scripted = fakeModel();
+const dispatcher = dispatcherFor(scripted.modelFor);
 
 import { getDb } from "../db.js";
 import {
@@ -88,7 +88,7 @@ describe("recovering runs a restart interrupted", () => {
   });
 
   it("fails a run killed mid-turn as transient, answers its call as interrupted, and the reconciler retries it", async () => {
-    anthropic.script([{ text: "Done.", toolUses: [] }]);
+    scripted.script([{ text: "Done.", toolUses: [] }]);
     const sessionId = await alertSession();
     await appendTranscriptRows([callTurn(sessionId, 0, "tu-edit", "Edit")]);
     await claimRun(sessionId);

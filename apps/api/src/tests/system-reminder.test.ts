@@ -3,11 +3,10 @@ import { harness, type Harness } from "./harness.js";
 import { dispatchAlertSession, messageBody } from "./session-helper.js";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { NormalizedAlert } from "@nightwarden/shared";
-import { fakeAnthropic } from "./fake-anthropic.js";
-import { messagesSentTo, type ScriptedTurn } from "./fake-model.js";
+import { fakeModel, messagesSentTo, type ScriptedTurn } from "./fake-model.js";
 
-const anthropic = fakeAnthropic();
-const setScript = (turns: ScriptedTurn[]): void => anthropic.script(turns);
+const scripted = fakeModel();
+const setScript = (turns: ScriptedTurn[]): void => scripted.script(turns);
 
 import { waitFor } from "./wait.js";
 import { isRunning } from "../session/status-store.js";
@@ -27,14 +26,14 @@ const markerCount = (text: string): number => text.match(MARKER)?.length ?? 0;
 // Where this test's requests begin, so a test reads only the turns it caused.
 let since = 0;
 const mark = (): void => {
-  since = anthropic.requests.length;
+  since = scripted.requests.length;
 };
 
 // Every message the model was handed, across every request since the mark.
 function sentToModel() {
-  return anthropic.requests
+  return scripted.requests
     .slice(since)
-    .flatMap((_, i) => messagesSentTo(anthropic, since + i));
+    .flatMap((_, i) => messagesSentTo(scripted, since + i));
 }
 
 function firstTurnSent(): string {
@@ -64,7 +63,7 @@ describe("the marker the harness speaks by", () => {
 
   beforeAll(async () => {
     nw = await harness({
-      model: anthropic,
+      model: scripted,
       runners: [
         {
           name: "marker-host",

@@ -11,16 +11,15 @@ import {
 import { isRunning } from "../session/status-store.js";
 import { createSession } from "../session/store.js";
 import { getTranscriptRows } from "../session/transcript-store.js";
-import { fakeAnthropic } from "./fake-anthropic.js";
-import { type ScriptedTurn } from "./fake-model.js";
+import { fakeModel, type ScriptedTurn } from "./fake-model.js";
 import { connectFrontendEvents } from "./frontend-events-helper.js";
 import { harness, type Harness, type HarnessRunner } from "./harness.js";
 import { svc } from "./manifest-helper.js";
 import { messageBody } from "./session-helper.js";
 import { waitFor } from "./wait.js";
 
-const anthropic = fakeAnthropic();
-const setScript = (turns: ScriptedTurn[]): void => anthropic.script(turns);
+const scripted = fakeModel();
+const setScript = (turns: ScriptedTurn[]): void => scripted.script(turns);
 
 // A free-form text finish: no tool call ends the run successfully.
 const FINISH_TURN = {
@@ -46,7 +45,7 @@ describe("multi-runner routing", () => {
     // The server name doubles as the hostname here: this file is about where a
     // command lands, and router.test.ts is where the two are told apart.
     nw = await harness({
-      model: anthropic,
+      model: scripted,
       runners: [
         {
           name: "web-01",

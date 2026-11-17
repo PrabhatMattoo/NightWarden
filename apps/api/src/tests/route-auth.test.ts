@@ -1,10 +1,10 @@
+import { fakeModel } from "./fake-model.js";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import Fastify from "fastify";
 import type { FastifyInstance, FastifySchema } from "fastify";
 import { registerApi } from "../api.js";
 import { dispatcherFor } from "../server.js";
 import { installAuthorization } from "../auth/authorize.js";
-import { fakeAnthropic } from "./fake-anthropic.js";
 import { issueTestSession } from "./session-helper.js";
 import { useTempDb } from "./temp-db.js";
 
@@ -104,7 +104,7 @@ describe("the route surface", () => {
     });
     // Hooked before the routes register, so it registers them itself.
     await registerApi(server, {
-      dispatcher: dispatcherFor(fakeAnthropic().fetch),
+      dispatcher: dispatcherFor(fakeModel().modelFor),
     });
     await server.ready();
   });

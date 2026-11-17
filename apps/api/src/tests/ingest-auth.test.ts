@@ -1,3 +1,4 @@
+import { fakeModel } from "./fake-model.js";
 import { randomUUID } from "node:crypto";
 import {
   afterAll,
@@ -9,7 +10,6 @@ import {
   vi,
 } from "vitest";
 import type { FastifyInstance } from "fastify";
-import { fakeAnthropic } from "./fake-anthropic.js";
 import {
   fakeRunner,
   harness,
@@ -18,7 +18,7 @@ import {
 } from "./harness.js";
 
 // Every investigation an accepted delivery opens ends in one free-form turn.
-const anthropic = fakeAnthropic();
+const scripted = fakeModel();
 
 import { createRunner } from "../fleet/runners-store.js";
 import {
@@ -77,7 +77,7 @@ describe("POST /alerts/ingest auth", () => {
   let runner: HarnessRunner;
 
   beforeAll(async () => {
-    nw = await harness({ model: anthropic, listen: false });
+    nw = await harness({ model: scripted, listen: false });
     ({ server } = nw);
     VALID_TOKEN = await generateAlertSourceToken("alertmanager");
     // A connected runner is an evidence source, so an accepted delivery opens an investigation.
@@ -194,7 +194,7 @@ describe("POST /alerts/ingest with nwi_ fleet-wide credential", () => {
   let INGEST_TOKEN: string;
 
   beforeAll(async () => {
-    nw = await harness({ model: anthropic, listen: false });
+    nw = await harness({ model: scripted, listen: false });
     ({ server } = nw);
     INGEST_TOKEN = await generateAlertSourceToken("alertmanager");
   });

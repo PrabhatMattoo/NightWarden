@@ -4,7 +4,6 @@ import type { FastifyInstance } from "fastify";
 import {
   dockerServiceKey,
   type Platform,
-  type LLMProviderName,
   type RunnerManifest,
 } from "@nightwarden/shared";
 import { parseRunnerMessage } from "@nightwarden/shared/schemas";
@@ -19,11 +18,7 @@ import type { RunnerConnection } from "../fleet/connections.js";
 import { resolveCommand } from "../fleet/transport.js";
 import { buildServer } from "../server.js";
 import { runningSessionIds } from "../session/status-store.js";
-import { fakeAnthropic } from "./fake-anthropic.js";
-import type { FakeModel } from "./fake-model.js";
-import { fakeOpenAI } from "./fake-openai.js";
-import { fakeOpenAICompatible } from "./fake-openai-compatible.js";
-import { fakeOpenRouter } from "./fake-openrouter.js";
+import { fakeModel, type FakeModel } from "./fake-model.js";
 import {
   dockerService,
   kubernetesManifest,
@@ -31,7 +26,7 @@ import {
   manifest,
 } from "./manifest-helper.js";
 import { issueTestSession } from "./session-helper.js";
-import { configureTestLLM, useTempDb } from "./temp-db.js";
+import { useTempDb } from "./temp-db.js";
 import { waitFor } from "./wait.js";
 
 // It decides nothing: what a runner replies is the test's own, passed in as
@@ -73,7 +68,7 @@ export interface HarnessRunner {
 export interface Harness {
   server: FastifyInstance;
   dispatcher: Dispatcher;
-  // The model provider every run of this server reaches.
+  // The model every run of this server reaches.
   model: FakeModel;
   port: number;
   // Ready to spread into a request: { headers: harness.headers }.
@@ -87,24 +82,10 @@ export interface Harness {
 
 export interface HarnessOptions {
   runners?: RunnerSpec[];
-  // Which provider runs reach, configured as a person would; Anthropic unless named.
-  provider?: LLMProviderName;
-  // A fake the test keeps a handle on, speaking that provider's wire.
+  // A model the test keeps a handle on; a fresh one when omitted.
   model?: FakeModel;
   // Off for a test that only needs inject(), which needs no open port.
   listen?: boolean;
-}
-
-const FAKES: Record<LLMProviderName, () => FakeModel> = {
-  anthropic: fakeAnthropic,
-  openai: fakeOpenAI,
-  openrouter: fakeOpenRouter,
-  "openai-compatible": fakeOpenAICompatible,
-};
-
-// A fake speaking `provider`'s wire, for a test that builds its own dispatcher.
-export function fakeModelFor(provider: LLMProviderName): FakeModel {
-  return FAKES[provider]();
 }
 
 function manifestFor(
@@ -210,11 +191,9 @@ export async function harness(options: HarnessOptions = {}): Promise<Harness> {
     }),
   );
 
-  const provider = options.provider ?? "anthropic";
-  if (provider !== "anthropic") await configureTestLLM(provider);
-  const model = options.model ?? FAKES[provider]();
+  const model = options.model ?? fakeModel();
   const { server, dispatcher } = await buildServer({
-    providerFetch: model.fetch,
+    modelFor: model.modelFor,
   });
   let port = 0;
   if (options.listen === false) {

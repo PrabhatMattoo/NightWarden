@@ -8,11 +8,10 @@ import type {
   SessionListPage,
 } from "@nightwarden/shared";
 
-import { fakeAnthropic } from "./fake-anthropic.js";
-import { type ScriptedTurn } from "./fake-model.js";
+import { fakeModel, type ScriptedTurn } from "./fake-model.js";
 
-const anthropic = fakeAnthropic();
-const setScript = (turns: ScriptedTurn[]): void => anthropic.script(turns);
+const scripted = fakeModel();
+const setScript = (turns: ScriptedTurn[]): void => scripted.script(turns);
 
 import { useTempDb } from "./temp-db.js";
 import { waitFor } from "./wait.js";
@@ -32,7 +31,7 @@ describe("state inversion: persistence and reads are API-local", () => {
 
   beforeAll(async () => {
     nw = await harness({
-      model: anthropic,
+      model: scripted,
     });
     ({ port } = nw);
     SESSION = nw.session;

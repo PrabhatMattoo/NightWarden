@@ -18,14 +18,13 @@ import {
 } from "@nightwarden/shared";
 import { buildTranscript } from "../session/transcript.js";
 import { createRunner } from "../fleet/runners-store.js";
-import { fakeAnthropic } from "./fake-anthropic.js";
-import { messagesSentTo, toolsSentTo } from "./fake-model.js";
+import { fakeModel, messagesSentTo, toolsSentTo } from "./fake-model.js";
 import { fakeRunner, type HarnessRunner } from "./harness.js";
 import { manifest } from "./manifest-helper.js";
 import { seedAlertSession } from "./session-helper.js";
 import { useTempDb } from "./temp-db.js";
 
-const anthropic = fakeAnthropic();
+const scripted = fakeModel();
 // Where the current run's requests begin.
 let since = 0;
 
@@ -158,9 +157,9 @@ describe("candidates, the frontier and falsification", () => {
 
   // What the harness said in the run's last request, past what it opened with.
   function harnessMessages(): string[] {
-    const last = anthropic.requests.length - 1;
-    const opening = messagesSentTo(anthropic, since).length;
-    return messagesSentTo(anthropic, last)
+    const last = scripted.requests.length - 1;
+    const opening = messagesSentTo(scripted, since).length;
+    return messagesSentTo(scripted, last)
       .slice(opening)
       .filter((m) => m.role === "user")
       .flatMap((m) => m.texts);
@@ -168,12 +167,12 @@ describe("candidates, the frontier and falsification", () => {
 
   async function start(id: string): Promise<void> {
     await seedAlertSession(buildSessionMeta(id, null, undefined), [alert(id)]);
-    since = anthropic.requests.length;
-    await runSession({ sessionId: id, alerts: [alert(id)] }, anthropic.fetch);
+    since = scripted.requests.length;
+    await runSession({ sessionId: id, alerts: [alert(id)] }, scripted.modelFor);
   }
 
   it("forces candidates after the first read, and keeps the open ones in view", async () => {
-    anthropic.script([
+    scripted.script([
       readTurn(),
       openTurn([POOL, PG]),
       readTurn(),
@@ -230,7 +229,7 @@ describe("candidates, the frontier and falsification", () => {
       ],
       text: "",
     });
-    anthropic.script([
+    scripted.script([
       readTurn(),
       openTurn([POOL, PG]),
       readTurn(),
@@ -274,7 +273,7 @@ describe("candidates, the frontier and falsification", () => {
   /* The order the reader needs: the write-up is filed, and only then is the
      model given a turn with no tools to speak in. Silence used to do both. */
   it("files the write-up before it speaks, and speaks with no tools offered", async () => {
-    anthropic.script([
+    scripted.script([
       readTurn(),
       openTurn([POOL, PG]),
       readTurn(),
@@ -287,9 +286,9 @@ describe("candidates, the frontier and falsification", () => {
     const id = randomUUID();
     await start(id);
 
-    const offered = anthropic.requests
+    const offered = scripted.requests
       .slice(since)
-      .map((_, i) => toolsSentTo(anthropic, since + i));
+      .map((_, i) => toolsSentTo(scripted, since + i));
     // The write-up turn offers one tool; the turn after it offers none.
     expect(offered.at(-2)).toEqual(["ComposeReport"]);
     expect(offered.at(-1)).toEqual([]);
@@ -303,7 +302,7 @@ describe("candidates, the frontier and falsification", () => {
   });
 
   it("draws the board live and keeps a row for each finding it records", async () => {
-    anthropic.script([
+    scripted.script([
       readTurn(),
       openTurn([POOL, PG]),
       readTurn(),
@@ -337,7 +336,7 @@ describe("candidates, the frontier and falsification", () => {
   });
 
   it("runs a falsification turn naming every candidate before the report", async () => {
-    anthropic.script([
+    scripted.script([
       readTurn(),
       openTurn([POOL, PG]),
       readTurn(),
@@ -360,7 +359,7 @@ describe("candidates, the frontier and falsification", () => {
   });
 
   it("lets a later finding about one candidate carry the verdict that stands", async () => {
-    anthropic.script([
+    scripted.script([
       readTurn(),
       openTurn([POOL, PG]),
       readTurn(),
@@ -388,7 +387,7 @@ describe("candidates, the frontier and falsification", () => {
   });
 
   it("stands down without a report when a candidate is never settled", async () => {
-    anthropic.script([
+    scripted.script([
       readTurn(),
       openTurn([POOL, PG]),
       readTurn(),

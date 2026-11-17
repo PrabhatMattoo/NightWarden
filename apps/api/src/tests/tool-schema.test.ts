@@ -7,6 +7,7 @@ import { COMPOSE_REPORT_TOOL } from "../agent/tools/report.js";
 import {
   anthropicToolSchema,
   openAIToolSchema,
+  toolSchemaFor,
 } from "../llm/tool-schema-dialects.js";
 import type { ToolSchema } from "../llm/types.js";
 
@@ -343,4 +344,43 @@ describe("a skipped field reaches the handler as an omission", () => {
     expect(parsed.ok).toBe(false);
     expect(parsed.ok === false && parsed.failure.isError).toBe(true);
   });
+});
+
+describe("which provider gets which dialect", () => {
+  const LOOKUP: ToolSchema["input_schema"] = {
+    type: "object",
+    properties: {
+      service: { type: "string", format: "hostname" },
+      tail: { type: "integer", minimum: 1 },
+    },
+    required: ["service"],
+  };
+
+  it("keeps Anthropic's own list for Anthropic", () => {
+    expect(toolSchemaFor("anthropic", LOOKUP)).toEqual({
+      type: "object",
+      properties: {
+        service: { type: "string", format: "hostname" },
+        tail: { type: "integer" },
+      },
+      required: ["service"],
+      additionalProperties: false,
+    });
+  });
+
+  // A gateway that enforces strict mode refuses anything wider, so no other provider is sent more.
+  it.each(["openai", "openrouter", "openai-compatible"] as const)(
+    "gives %s strict mode's subset, with the optional field required and nullable",
+    (provider) => {
+      expect(toolSchemaFor(provider, LOOKUP)).toEqual({
+        type: "object",
+        properties: {
+          service: { type: "string" },
+          tail: { type: ["integer", "null"] },
+        },
+        required: ["service", "tail"],
+        additionalProperties: false,
+      });
+    },
+  );
 });

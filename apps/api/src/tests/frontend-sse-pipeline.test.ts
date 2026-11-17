@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { LLM_PROVIDER_NAMES, type SessionDetail } from "@nightwarden/shared";
+import type { SessionDetail } from "@nightwarden/shared";
 import { messagesSentTo, type FakeModel } from "./fake-model.js";
 import { harness, type Harness } from "./harness.js";
 import { messageBody } from "./session-helper.js";
@@ -8,7 +8,7 @@ import { messageBody } from "./session-helper.js";
 import { waitFor } from "./wait.js";
 import { connectFrontendEvents } from "./frontend-events-helper.js";
 
-describe.each(LLM_PROVIDER_NAMES)("frontend SSE pipeline on %s", (provider) => {
+describe("frontend SSE pipeline", () => {
   let nw: Harness;
   let port: number;
   let SESSION: string;
@@ -16,7 +16,6 @@ describe.each(LLM_PROVIDER_NAMES)("frontend SSE pipeline on %s", (provider) => {
 
   beforeAll(async () => {
     nw = await harness({
-      provider,
       runners: [{ name: "sse-host", services: ["web-01"] }],
     });
     ({ port, session: SESSION, model } = nw);

@@ -1,22 +1,21 @@
+import { fakeModel } from "./fake-model.js";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type {
   FrontendEvent,
   NormalizedAlert,
   ResolvedLLMConfig,
 } from "@nightwarden/shared";
-import { languageModel } from "../llm/factory.js";
 import { subscribeFrontend } from "../session/bus.js";
 import { createSession, getSession } from "../session/store.js";
 import {
   buildAlertTitleSource,
   generateSessionTitle,
 } from "../session/title.js";
-import { fakeAnthropic } from "./fake-anthropic.js";
 import { harness, type Harness } from "./harness.js";
 import { messageBody } from "./session-helper.js";
 import { waitFor } from "./wait.js";
 
-const anthropic = fakeAnthropic();
+const scripted = fakeModel();
 
 // Title generation only runs inside a configured session, so the test states
 // that precondition rather than depending on what an empty config returns.
@@ -42,17 +41,12 @@ function configuredConfig(): ResolvedLLMConfig {
 
 async function title(sessionId: string, source: string): Promise<void> {
   const config = configuredConfig();
-  await generateSessionTitle(
-    sessionId,
-    source,
-    languageModel(config, "test-api-key", anthropic.fetch),
-    config,
-  );
+  await generateSessionTitle(sessionId, source, scripted.model, config);
 }
 
 // The title arrives in a field: the model files it rather than saying it.
 function scriptTitleOnce(filed: string): void {
-  anthropic.titles({
+  scripted.titles({
     toolUses: [
       { toolCallId: "tu-title", name: "SetTitle", input: { title: filed } },
     ],
@@ -62,7 +56,7 @@ function scriptTitleOnce(filed: string): void {
 
 // A model that answers in prose instead, which the text path still reads.
 function scriptTitleAsProse(text: string): void {
-  anthropic.titles({ toolUses: [], text });
+  scripted.titles({ toolUses: [], text });
 }
 
 async function seedSession(
@@ -82,7 +76,7 @@ describe("session title generation", () => {
   let SESSION: string;
 
   beforeAll(async () => {
-    nw = await harness({ model: anthropic });
+    nw = await harness({ model: scripted });
     ({ port } = nw);
     SESSION = nw.session;
   });
@@ -99,11 +93,13 @@ describe("session title generation", () => {
 
     await title(sessionId, "Hey there, how's it going?");
 
-    const request = anthropic.titleRequests.at(-1);
-    const framed = JSON.stringify(request?.messages[0]?.content);
+    const request = scripted.titleRequests.at(-1);
+    const framed = JSON.stringify(
+      request?.prompt.find((m) => m.role === "user")?.content,
+    );
     expect(framed).toContain("Hey there, how's it going?");
     expect(framed).toContain("<content>");
-    expect(request?.["max_tokens"]).toBe(1024);
+    expect(request?.maxOutputTokens).toBe(1024);
     expect((await getSession(sessionId))?.title).toBe("Greeting");
   });
 
@@ -167,7 +163,7 @@ describe("session title generation", () => {
   });
 
   it("refines the title end-to-end when a chat session starts", async () => {
-    anthropic.script([{ toolUses: [], text: "Done." }]);
+    scripted.script([{ toolUses: [], text: "Done." }]);
     scriptTitleOnce('"Checkout Latency Spike".');
     const events: FrontendEvent[] = [];
     const unsubscribe = subscribeFrontend((e) => events.push(e));

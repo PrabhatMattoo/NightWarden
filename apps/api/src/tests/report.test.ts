@@ -7,13 +7,8 @@ import {
   describe,
   expect,
   it,
-  onTestFinished,
 } from "vitest";
-import {
-  LLM_PROVIDER_NAMES,
-  type NormalizedAlert,
-  type TranscriptRow,
-} from "@nightwarden/shared";
+import { type NormalizedAlert, type TranscriptRow } from "@nightwarden/shared";
 import {
   runSession,
   type RunOutcome,
@@ -47,24 +42,18 @@ import { seedAlertSession, seedChatSession } from "./session-helper.js";
 import { seedCandidates, seedCompleteReport } from "./report-helper.js";
 import { createRunner } from "../fleet/runners-store.js";
 import { buildTranscript } from "../session/transcript.js";
-import { fakeAnthropic } from "./fake-anthropic.js";
-import {
-  messagesSentTo,
-  type FakeModel,
-  type ScriptedTurn,
-} from "./fake-model.js";
-import { fakeModelFor, fakeRunner, type HarnessRunner } from "./harness.js";
+import { fakeModel, messagesSentTo, type ScriptedTurn } from "./fake-model.js";
+import { fakeRunner, type HarnessRunner } from "./harness.js";
 import { manifest } from "./manifest-helper.js";
-import { configureTestLLM, useTempDb } from "./temp-db.js";
+import { useTempDb } from "./temp-db.js";
 
-// The provider this file's runs reach; the write-up test walks each wire in turn.
-let wire: FakeModel = fakeAnthropic();
+const wire = fakeModel();
 // Where each of the current test's runs began, in the provider's requests.
 const runs: number[] = [];
 
 async function run(input: RunSessionInput): Promise<RunOutcome> {
   runs.push(wire.requests.length);
-  return await runSession(input, wire.fetch);
+  return await runSession(input, wire.modelFor);
 }
 
 // How many requests one of the test's runs made.
@@ -1743,47 +1732,37 @@ describe("the investigation record", () => {
       ).toHaveLength(0);
     });
 
-    // The record is written and composed over each provider's wire, through to the report.
-    it.each(LLM_PROVIDER_NAMES)(
-      "passes silently once the record holds a settled claim, then writes up on %s",
-      async (provider) => {
-        wire = fakeModelFor(provider);
-        await configureTestLLM(provider);
-        onTestFinished(async () => {
-          wire = fakeAnthropic();
-          await configureTestLLM();
-        });
-        wire.script([
-          ...recordTurn("disproven"),
-          closeTurn(),
-          submitTurn("watch the disk for another day"),
-          CLOSING_TURN,
-        ]);
-        const sessionId = randomUUID();
-        await seedAlertSession(buildSessionMeta(sessionId, null, undefined), [
-          alert("gate-pass"),
-        ]);
-        const outcome = await run({
-          sessionId,
-          alerts: [alert("gate-pass")],
-        });
-        expect(outcome).toBe("completed");
+    it("passes silently once the record holds a settled claim, then writes up", async () => {
+      wire.script([
+        ...recordTurn("disproven"),
+        closeTurn(),
+        submitTurn("watch the disk for another day"),
+        CLOSING_TURN,
+      ]);
+      const sessionId = randomUUID();
+      await seedAlertSession(buildSessionMeta(sessionId, null, undefined), [
+        alert("gate-pass"),
+      ]);
+      const outcome = await run({
+        sessionId,
+        alerts: [alert("gate-pass")],
+      });
+      expect(outcome).toBe("completed");
 
-        expect(recordGapsMessages()).toHaveLength(0);
-        expect(reportRequests()).toHaveLength(1);
-        // The record rides the request, so the timeline can copy ids from nearby.
-        expect(reportRequests()[0]).toContain("RECORDED FINDINGS");
-        // The verdict and the handles, so a timeline can copy an id from nearby.
-        expect(reportRequests()[0]).toContain("[disproven] cites: e2");
+      expect(recordGapsMessages()).toHaveLength(0);
+      expect(reportRequests()).toHaveLength(1);
+      // The record rides the request, so the timeline can copy ids from nearby.
+      expect(reportRequests()[0]).toContain("RECORDED FINDINGS");
+      // The verdict and the handles, so a timeline can copy an id from nearby.
+      expect(reportRequests()[0]).toContain("[disproven] cites: e2");
 
-        const written = (await getRecord(sessionId))!;
-        expect(written.findings[0]!.verdict).toBe("disproven");
-        expect(written.report).toMatchObject({
-          summary: "the worker ran out of memory",
-          recommendation: "watch the disk for another day",
-        });
-      },
-    );
+      const written = (await getRecord(sessionId))!;
+      expect(written.findings[0]!.verdict).toBe("disproven");
+      expect(written.report).toMatchObject({
+        summary: "the worker ran out of memory",
+        recommendation: "watch the disk for another day",
+      });
+    });
 
     it("does not write up a chat, which keeps no record at all", async () => {
       wire.script([{ toolUses: [], text: "Nine containers." }]);

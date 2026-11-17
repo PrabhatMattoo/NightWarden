@@ -10,6 +10,7 @@ import { installAuthorization } from "./auth/authorize.js";
 import { registerAuthRoutes } from "./auth/routes.js";
 import { registerConfigRoutes } from "./config/routes.js";
 import type { Dispatcher } from "./dispatcher.js";
+import type { ModelFor } from "./llm/factory.js";
 import { registerInstallRoutes } from "./fleet/install.js";
 import { registerRunnerRoutes } from "./fleet/routes.js";
 import { registerWsRoutes } from "./fleet/server.js";
@@ -22,8 +23,8 @@ import { registerSessionRoutes } from "./session/routes.js";
 // What a route needs from the composition root, beyond the request itself.
 interface ApiDeps {
   dispatcher: Dispatcher;
-  // Every request to the model provider goes through it; unset is the global fetch.
-  providerFetch?: typeof fetch;
+  // Where the model check gets its model; unset is the provider's own.
+  modelFor?: ModelFor;
 }
 
 const ROUTES: Array<(api: FastifyInstance, deps: ApiDeps) => Promise<void>> = [

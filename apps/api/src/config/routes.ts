@@ -15,7 +15,7 @@ import {
   fetchCatalog,
   offeredModels,
 } from "../llm/catalog.js";
-import { languageModel } from "../llm/factory.js";
+import { languageModel, type ModelFor } from "../llm/factory.js";
 import { checkModelCallsTool } from "../llm/model-check.js";
 import { maskKey } from "../secrets.js";
 import { logger } from "../logger.js";
@@ -88,7 +88,7 @@ function validLevel(model: ModelOption, level: string | null): string | null {
 
 export async function registerConfigRoutes(
   fastify: FastifyInstance,
-  { providerFetch }: { providerFetch?: typeof fetch },
+  { modelFor = languageModel }: { modelFor?: ModelFor },
 ): Promise<void> {
   const app = fastify.withTypeProvider<ZodTypeProvider>();
   const answersConfig = {
@@ -187,7 +187,7 @@ export async function registerConfigRoutes(
       if (baseUrl === null) return { ok: false, reason: "needs_url" };
       const key = apiKey ?? (await loadApiKey(provider)) ?? "";
       const check = await checkModelCallsTool(
-        languageModel({ provider, model, baseUrl }, key, providerFetch),
+        modelFor({ provider, model, baseUrl }, key),
       );
       logger.info(
         { provider, model, ok: check.ok },
