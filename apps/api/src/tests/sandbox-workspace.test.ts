@@ -28,6 +28,7 @@ vi.mock("dockerode", () => ({ default: MockDocker }));
 
 import {
   releaseContainers,
+  takeSandboxNote,
   teardown,
   withWorkspace,
   type Workspace,
@@ -35,7 +36,6 @@ import {
 } from "../sandbox/workspace.js";
 import { salvageWorkspaces } from "../sandbox/salvage.js";
 import { reapOrphans, resetIsolationCache } from "../sandbox/docker.js";
-import { SandboxUnavailableError } from "../sandbox/errors.js";
 import { createTempFolder } from "./temp-folder.js";
 import { waitFor } from "./wait.js";
 
@@ -128,6 +128,9 @@ const dockerState = {
   // exec:<command> entries in arrival order.
   events: [] as string[],
   execCmds: [] as string[][],
+  // Which container, by name, ran each command, in arrival order.
+  ranIn: [] as Array<{ container: string; command: string }>,
+  names: {} as Record<string, string>,
   execHandler: ((_command: string) => ({ exitCode: 0, output: "ok\n" })) as (
     command: string,
   ) => { exitCode: number; output: string },
@@ -142,6 +145,7 @@ const dockerState = {
     labels: Record<string, string>;
   },
   pingFails: false,
+  createFails: false,
   gvisor: false,
   nextId: 1,
 };
@@ -208,6 +212,9 @@ function dockerFake(): Record<string, unknown> {
       ) => cb(null, []),
     },
     createContainer: (opts: Record<string, unknown>) => {
+      if (dockerState.createFails) {
+        return Promise.reject(new Error("no such runtime"));
+      }
       dockerState.createArgs.push(opts);
       if (opts["name"] === PROXY_NAME) {
         const labels = opts["Labels"] as Record<string, string>;
@@ -221,6 +228,7 @@ function dockerFake(): Record<string, unknown> {
         });
       }
       const id = `container-${dockerState.nextId++}`;
+      dockerState.names[id] = String(opts["name"]);
       return Promise.resolve({ id, start: () => Promise.resolve() });
     },
     getContainer: (id: string) => {
@@ -249,6 +257,10 @@ function dockerFake(): Record<string, unknown> {
           const command = String(opts.Cmd[opts.Cmd.length - 1] ?? "");
           dockerState.events.push(`exec:${command}`);
           dockerState.execCmds.push(opts.Cmd);
+          dockerState.ranIn.push({
+            container: dockerState.names[id] ?? id,
+            command,
+          });
           const result = dockerState.execHandler(command);
           return Promise.resolve({
             start: () => Promise.resolve(fakeStream(result.output)),
@@ -291,7 +303,7 @@ function options(overrides?: Partial<WorkspaceOptions>): WorkspaceOptions {
     limits: { cpus: 2, memoryMb: 4096 },
     idleTimeoutMs: 60_000,
     workspacesDir,
-    requireGvisor: false,
+    miseDir: join(workspacesDir, "mise"),
     network: "none",
     allowlistHosts: ["registry.npmjs.org"],
     proxyConfigDir: join(workspacesDir, "proxy-config"),
@@ -334,6 +346,8 @@ afterEach(async () => {
   dockerState.listResult = [];
   dockerState.events = [];
   dockerState.execCmds = [];
+  dockerState.ranIn = [];
+  dockerState.names = {};
   dockerState.execHandler = () => ({ exitCode: 0, output: "ok\n" });
   dockerState.builtImages = [];
   dockerState.imageLabels = {};
@@ -341,6 +355,7 @@ afterEach(async () => {
   dockerState.sandboxNetExists = false;
   dockerState.proxyInfo = null;
   dockerState.pingFails = false;
+  dockerState.createFails = false;
   dockerState.gvisor = false;
   resetIsolationCache();
 });
@@ -394,10 +409,15 @@ describe("workspace lifecycle", () => {
     expect(host["SecurityOpt"]).toEqual(["no-new-privileges"]);
     expect(host["NanoCpus"]).toBe(2_000_000_000);
     expect(host["Memory"]).toBe(4096 * 1024 * 1024);
+    // Every sandbox reads the shared runtimes, and none can write them.
     expect(host["Binds"]).toEqual([
       `${join(workspacesDir, sessionId)}:/workspace`,
       `${join(workspacesDir, sessionId)}.home:/home/sandbox`,
+      `${join(workspacesDir, "mise")}:/mise:ro`,
     ]);
+    expect(create["Env"]).toContain(
+      "MISE_SHARED_INSTALL_DIRS=/mise/data/installs",
+    );
     // Wall reinforcements: real memory cap (swap == memory), fork-bomb and fd
     // limits, non-root ownership-matched user, no-dev tmpfs.
     expect(host["MemorySwap"]).toBe(4096 * 1024 * 1024);
@@ -424,17 +444,6 @@ describe("workspace lifecycle", () => {
       unknown
     >;
     expect(host["Runtime"]).toBe("runsc");
-  });
-
-  it("refuses to create a sandbox when requireGvisor is on but the host lacks it", async () => {
-    dockerState.gvisor = false;
-    const sessionId = nextSessionId();
-    await expect(
-      withWorkspace(sessionId, options({ requireGvisor: true }), () =>
-        Promise.resolve(),
-      ),
-    ).rejects.toBeInstanceOf(SandboxUnavailableError);
-    expect(dockerState.createArgs).toHaveLength(0);
   });
 
   it("reuses the live workspace across calls in a burst", async () => {
@@ -663,6 +672,11 @@ describe("sandbox network modes", () => {
     expect(env).toContain("HTTP_PROXY=http://nightwarden-sandbox-proxy:8888");
     expect(env).toContain("HTTPS_PROXY=http://nightwarden-sandbox-proxy:8888");
     expect(env).toContain("NO_PROXY=localhost,127.0.0.1");
+    // Yarn 2 and later read only their own variables, so without these they
+    // would try to reach the registry directly and fail on the internal network.
+    expect(env).toContain(
+      "YARN_HTTPS_PROXY=http://nightwarden-sandbox-proxy:8888",
+    );
 
     // Proxy built locally, dual-homed onto the bridge, filter carries the hosts.
     expect(dockerState.builtImages).toContain("nightwarden-tinyproxy");
@@ -728,12 +742,17 @@ describe("sandbox network modes", () => {
     expect(cmd.at(-1)).toBe("pnpm install");
   });
 
-  it("locally excludes node_modules so a repo without .gitignore never commits it", async () => {
-    gitState.cloneFiles = { "package.json": '{ "name": "fixture" }\n' };
-    const ws = await createWorkspace();
-    expect(
-      readFileSync(join(`${ws.dir}.git`, "info", "exclude"), "utf8"),
-    ).toContain("node_modules/");
+  // A Go repository may commit vendor/, so only an install that writes it hides it.
+  it("locally excludes what the repository's own installs write, and node_modules always", async () => {
+    const excluded = async (files: Record<string, string>) => {
+      gitState.cloneFiles = files;
+      const ws = await createWorkspace();
+      return readFileSync(join(`${ws.dir}.git`, "info", "exclude"), "utf8");
+    };
+    const php = await excluded({ "composer.lock": "{}\n" });
+    expect(php).toContain("vendor/");
+    expect(php).toContain("node_modules/");
+    expect(await excluded({ "go.sum": "\n" })).not.toContain("vendor/");
   });
 
   it("reports provisioning stages in order: cloning, starting, ready (networkless skips installing)", async () => {
@@ -745,14 +764,14 @@ describe("sandbox network modes", () => {
   it("a provisioning failure ends the stage stream with failed", async () => {
     const stages: string[] = [];
     const sessionId = nextSessionId();
+    dockerState.createFails = true;
     await expect(
       withWorkspace(
         sessionId,
-        // gVisor required but absent: container creation refuses.
-        options({ requireGvisor: true, onStatus: (s) => stages.push(s) }),
+        options({ onStatus: (s) => stages.push(s) }),
         () => Promise.resolve(),
       ),
-    ).rejects.toBeInstanceOf(SandboxUnavailableError);
+    ).rejects.toThrow("no such runtime");
     expect(stages).toEqual(["cloning", "starting", "failed"]);
   });
 });
@@ -859,82 +878,109 @@ describe("boot salvage", () => {
   });
 });
 
-describe("provision-time dependency install", () => {
+describe("provision-time install", () => {
   async function provision(
     overrides?: Partial<WorkspaceOptions>,
-  ): Promise<Workspace> {
+  ): Promise<string> {
     const sessionId = nextSessionId();
-    let captured: Workspace | undefined;
     await withWorkspace(
       sessionId,
       options({ network: "open", ...overrides }),
-      (ws) => {
-        captured = ws;
-        return Promise.resolve();
-      },
+      () => Promise.resolve(),
     );
-    return captured!;
+    return sessionId;
   }
 
-  it("installs from the lockfile before ready and hands the note to exactly one taker", async () => {
-    gitState.cloneFiles = { "pnpm-lock.yaml": "lockfileVersion: 9\n" };
-    const stages: string[] = [];
-    const ws = await provision({ onStatus: (s) => stages.push(s) });
-    expect(stages).toEqual(["cloning", "starting", "installing", "ready"]);
-    expect(execEvents()).toContain("pnpm install");
-    // coreutils timeout enforces the fixed 10-minute install budget.
-    const cmd = dockerState.execCmds.at(-1)!;
-    expect(cmd.slice(0, 2)).toEqual(["timeout", "600"]);
-    const note = ws.takeInstallNote();
-    expect(note).toContain("pnpm install");
-    expect(note).toContain("exited 0");
-    expect(ws.takeInstallNote()).toBeNull();
-  });
-
-  it("a pinned packageManager routes through corepack; yarn lockfiles always do", async () => {
-    gitState.cloneFiles = {
-      "package.json": '{ "packageManager": "pnpm@9.12.0" }\n',
-      "pnpm-lock.yaml": "lockfileVersion: 9\n",
-    };
-    await provision();
-    expect(execEvents()).toContain("corepack pnpm install");
-
-    gitState.cloneFiles = { "yarn.lock": "# yarn lockfile v1\n" };
-    await provision();
-    expect(execEvents()).toContain("corepack yarn install");
-  });
-
-  it("an npm lockfile installs with npm", async () => {
-    gitState.cloneFiles = { "package-lock.json": "{}\n" };
-    await provision();
-    expect(execEvents()).toContain("npm install");
-  });
-
-  it("fail-open: a failing install still reaches ready, with the failure in the note", async () => {
-    gitState.cloneFiles = { "pnpm-lock.yaml": "lockfileVersion: 9\n" };
+  it("runs mise install, then the lockfile's install, before ready, and hands the note to one taker", async () => {
+    gitState.cloneFiles = { "pnpm-lock.yaml": "lockfileVersion: '9.0'\n" };
     dockerState.execHandler = (command) =>
-      command === "pnpm install"
-        ? { exitCode: 1, output: "ERR_PNPM_SOMETHING broke\n" }
-        : { exitCode: 0, output: "ok\n" };
+      command === "mise ls --current"
+        ? { exitCode: 0, output: "node  22.1.0  /workspace/.nvmrc  22\n" }
+        : { exitCode: 0, output: "" };
     const stages: string[] = [];
-    const ws = await provision({ onStatus: (s) => stages.push(s) });
+    const sessionId = await provision({ onStatus: (s) => stages.push(s) });
+
     expect(stages).toEqual(["cloning", "starting", "installing", "ready"]);
-    const note = ws.takeInstallNote();
-    expect(note).toContain("exited 1");
+    expect(execEvents()).toEqual([
+      "mise install",
+      "pnpm --version >/dev/null 2>&1 || mise use --global pnpm@10",
+      "pnpm install --frozen-lockfile",
+      "mise ls --current",
+    ]);
+
+    /* Only mise writes the shared runtimes, from a short-lived installer that
+       cannot write the checkout; a package's own scripts run in the session. */
+    const session = dockerState.createArgs[0]!;
+    const installer = dockerState.createArgs[1]!;
+    const binds = (args: Record<string, unknown>) =>
+      (args["HostConfig"] as Record<string, unknown>)["Binds"];
+    expect(installer["name"]).toBe(`nightwarden-sandbox-${sessionId}-runtimes`);
+    expect(binds(installer)).toEqual(
+      expect.arrayContaining([
+        expect.stringMatching(/:\/workspace:ro$/),
+        expect.stringMatching(/mise:\/mise$/),
+      ]),
+    );
+    expect(binds(session)).toContain(`${join(workspacesDir, "mise")}:/mise:ro`);
+    const ran = (container: string) =>
+      dockerState.ranIn
+        .filter((r) => r.container === container)
+        .map((r) => r.command);
+    expect(ran(`nightwarden-sandbox-${sessionId}-runtimes`)).toEqual([
+      "mise install",
+      "pnpm --version >/dev/null 2>&1 || mise use --global pnpm@10",
+    ]);
+    expect(ran(`nightwarden-sandbox-${sessionId}`)).toEqual([
+      "pnpm install --frozen-lockfile",
+      "mise ls --current",
+    ]);
+    expect(dockerState.removed.map((id) => dockerState.names[id])).toContain(
+      `nightwarden-sandbox-${sessionId}-runtimes`,
+    );
+    // coreutils timeout enforces the fixed 10-minute install budget.
+    expect(dockerState.execCmds[0]!.slice(0, 2)).toEqual(["timeout", "600"]);
+
+    const note = takeSandboxNote(sessionId);
+    expect(note).toContain("node  22.1.0");
+    expect(note).toContain("`pnpm install --frozen-lockfile` exited 0");
+    expect(takeSandboxNote(sessionId)).toBeNull();
+  });
+
+  it("fail-open: failed installs still reach ready, and the note carries each failure", async () => {
+    gitState.cloneFiles = { "pnpm-lock.yaml": "lockfileVersion: '9.0'\n" };
+    dockerState.execHandler = (command) => {
+      if (command === "mise install") {
+        return { exitCode: 2, output: "mise ERROR no such version\n" };
+      }
+      if (command === "pnpm install --frozen-lockfile") {
+        return { exitCode: 1, output: "ERR_PNPM_SOMETHING broke\n" };
+      }
+      return { exitCode: 0, output: "" };
+    };
+    const stages: string[] = [];
+    const sessionId = await provision({ onStatus: (s) => stages.push(s) });
+
+    expect(stages).toEqual(["cloning", "starting", "installing", "ready"]);
+    // A failed mise install does not stop the lockfile's install.
+    expect(execEvents()).toContain("pnpm install --frozen-lockfile");
+    const note = takeSandboxNote(sessionId);
+    expect(note).toContain("`mise install` exited 2");
+    expect(note).toContain("no such version");
+    expect(note).toContain("`pnpm install --frozen-lockfile` exited 1");
     expect(note).toContain("ERR_PNPM_SOMETHING");
   });
 
-  it("no lockfile: nothing runs and the note says so", async () => {
-    gitState.cloneFiles = { "package.json": '{ "name": "fixture" }\n' };
-    const ws = await provision();
-    expect(execEvents()).toHaveLength(0);
-    expect(ws.takeInstallNote()).toContain("No Node lockfile");
+  it("a repository with no lockfile gets mise alone, and the note says nothing was installed", async () => {
+    gitState.cloneFiles = { "pom.xml": "<project/>\n" };
+    const sessionId = await provision();
+    expect(execEvents()).toEqual(["mise install", "mise ls --current"]);
+    expect(takeSandboxNote(sessionId)).toContain("no lockfile");
   });
 
-  it("networkless: install is skipped with an explanatory note", async () => {
-    gitState.cloneFiles = { "pnpm-lock.yaml": "lockfileVersion: 9\n" };
-    const ws = await provision({ network: "none" });
+  it("networkless: neither mise nor an install runs, and the note says why", async () => {
+    gitState.cloneFiles = { "pnpm-lock.yaml": "lockfileVersion: '9.0'\n" };
+    const sessionId = await provision({ network: "none" });
     expect(execEvents()).toHaveLength(0);
-    expect(ws.takeInstallNote()).toContain("networkless");
+    expect(takeSandboxNote(sessionId)).toContain("no network");
   });
 });

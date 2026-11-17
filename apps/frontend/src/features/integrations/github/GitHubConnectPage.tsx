@@ -400,6 +400,13 @@ export function GitHubConnectPage(): React.JSX.Element {
       rejection={status.rejection}
     >
       {preflightIssue !== null && <PreflightWarning issue={preflightIssue} />}
+      {preflight?.ok === true && preflight.isolation !== undefined && (
+        <p className="type-small text-ink-muted">
+          {preflight.isolation === "gvisor"
+            ? "Sandboxes run under gVisor."
+            : "Sandboxes run in plain Docker; install gVisor on this host for kernel isolation."}
+        </p>
+      )}
 
       <div className="flex flex-col gap-3">
         <SettingsGroup

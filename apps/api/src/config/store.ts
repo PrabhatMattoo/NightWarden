@@ -7,7 +7,6 @@ import {
   DEFAULT_SANDBOX_IDLE_TIMEOUT_MS,
   DEFAULT_SANDBOX_MEMORY_MB,
   DEFAULT_SANDBOX_NETWORK,
-  DEFAULT_SANDBOX_REQUIRE_GVISOR,
   DEFAULT_TOOL_CALL_CEILING_MS,
   MAX_RETRIES,
 } from "../llm/config.js";
@@ -40,7 +39,6 @@ type ConfigRow = {
   sandboxIdleTimeoutMs: number;
   sandboxCpus: number;
   sandboxMemoryMb: number;
-  sandboxRequireGvisor: number;
   sandboxNetwork: string;
   sandboxAllowlistHosts: string;
 };
@@ -67,7 +65,6 @@ function readConfigRow(): Promise<ConfigRow | undefined> {
       "sandbox_idle_timeout_ms as sandboxIdleTimeoutMs",
       "sandbox_cpus as sandboxCpus",
       "sandbox_memory_mb as sandboxMemoryMb",
-      "sandbox_require_gvisor as sandboxRequireGvisor",
       "sandbox_network as sandboxNetwork",
       "sandbox_allowlist_hosts as sandboxAllowlistHosts",
     ])
@@ -139,7 +136,6 @@ export async function loadConfig(): Promise<AgentConfig> {
       sandboxIdleTimeoutMs: DEFAULT_SANDBOX_IDLE_TIMEOUT_MS,
       sandboxCpus: DEFAULT_SANDBOX_CPUS,
       sandboxMemoryMb: DEFAULT_SANDBOX_MEMORY_MB,
-      sandboxRequireGvisor: DEFAULT_SANDBOX_REQUIRE_GVISOR,
       sandboxNetwork: DEFAULT_SANDBOX_NETWORK,
       sandboxAllowlistHosts: [...DEFAULT_SANDBOX_ALLOWLIST_HOSTS],
     };
@@ -156,7 +152,6 @@ export async function loadConfig(): Promise<AgentConfig> {
     sandboxIdleTimeoutMs: row.sandboxIdleTimeoutMs,
     sandboxCpus: row.sandboxCpus,
     sandboxMemoryMb: row.sandboxMemoryMb,
-    sandboxRequireGvisor: row.sandboxRequireGvisor === 1,
     sandboxNetwork: row.sandboxNetwork as SandboxNetwork,
     sandboxAllowlistHosts: splitHosts(row.sandboxAllowlistHosts),
   };
@@ -183,7 +178,6 @@ export async function updateConfig(patch: SettingsPatch): Promise<AgentConfig> {
     sandbox_idle_timeout_ms: next.sandboxIdleTimeoutMs,
     sandbox_cpus: next.sandboxCpus,
     sandbox_memory_mb: next.sandboxMemoryMb,
-    sandbox_require_gvisor: next.sandboxRequireGvisor ? 1 : 0,
     sandbox_network: next.sandboxNetwork,
     sandbox_allowlist_hosts: next.sandboxAllowlistHosts.join("\n"),
     updated_at: new Date().toISOString(),

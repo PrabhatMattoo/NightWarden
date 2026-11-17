@@ -91,7 +91,6 @@ const CONFIG: AgentConfig = {
   sandboxIdleTimeoutMs: 3600000,
   sandboxCpus: 2,
   sandboxMemoryMb: 4096,
-  sandboxRequireGvisor: false,
   sandboxNetwork: "none",
   sandboxAllowlistHosts: ["registry.npmjs.org"],
 };

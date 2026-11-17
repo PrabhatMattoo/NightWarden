@@ -51,7 +51,6 @@ export const configPatchSchema = z.object({
   sandboxIdleTimeoutMs: bounded("sandboxIdleTimeoutMs").optional(),
   sandboxCpus: bounded("sandboxCpus").optional(),
   sandboxMemoryMb: bounded("sandboxMemoryMb").optional(),
-  sandboxRequireGvisor: z.boolean().optional(),
   sandboxNetwork: z.enum(SANDBOX_NETWORKS).optional(),
   sandboxAllowlistHosts: z
     .array(
@@ -165,7 +164,6 @@ export const agentConfigSchema = z.object({
   sandboxIdleTimeoutMs: z.number(),
   sandboxCpus: z.number(),
   sandboxMemoryMb: z.number(),
-  sandboxRequireGvisor: z.boolean(),
   sandboxNetwork: z.enum(SANDBOX_NETWORKS),
   sandboxAllowlistHosts: z.array(z.string()),
 });

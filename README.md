@@ -56,7 +56,7 @@ NightWarden runs as one image - the API and the frontend on a single origin, wit
 - **It weighs competing explanations.** It opens at least two candidate causes together, tests each against the evidence, and challenges its own conclusion before it writes up - so it goes past the first plausible answer. The write-up waits until every candidate it opened carries a verdict.
 - **It records what it ruled out.** The dead ends land on the report beside the cause, so the next person starts where you finished.
 - **Resolved is verified.** An investigation reads resolved once the alert that opened it clears, confirmed from your alert source's own recovery notification or its rules API.
-- **Code fixes as draft pull requests.** Connect a GitHub repository and the agent builds and tests a fix in an isolated sandbox, then opens a draft pull request for you to review and merge.
+- **Code fixes as draft pull requests.** Connect a GitHub repository and the agent builds and tests a fix in an isolated sandbox, which installs the runtime and dependencies the repository pins, then opens a draft pull request for you to review and merge.
 - **Bring your own monitoring.** Point Prometheus, Loki, Sentry, and Alertmanager or Grafana at NightWarden. Any sender that speaks the Alertmanager envelope fits too, including Mimir, Thanos and VictoriaMetrics.
 - **Bring your own model.** Use Anthropic, OpenAI, OpenRouter, or a server you run yourself that speaks OpenAI's Chat Completions API, such as Ollama, vLLM or LM Studio. Inference goes straight to your provider and your key stays on your network.
 - **Your data stays put.** One SQLite file on your own infrastructure, no telemetry.

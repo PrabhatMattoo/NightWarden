@@ -18,12 +18,41 @@ CREATE TABLE IF NOT EXISTS config (
   sandbox_idle_timeout_ms       INTEGER  NOT NULL DEFAULT 3600000,
   sandbox_cpus                  INTEGER  NOT NULL DEFAULT 2,
   sandbox_memory_mb             INTEGER  NOT NULL DEFAULT 4096,
-  sandbox_require_gvisor        INTEGER  NOT NULL DEFAULT 0,
   sandbox_network               TEXT     NOT NULL DEFAULT 'allowlist',
   -- Newline-joined, which is the Settings textarea's own shape.
   sandbox_allowlist_hosts       TEXT     NOT NULL DEFAULT 'registry.npmjs.org
 registry.yarnpkg.com
-repo.yarnpkg.com',
+repo.yarnpkg.com
+classic.yarnpkg.com
+pypi.org
+files.pythonhosted.org
+crates.io
+index.crates.io
+static.crates.io
+static.rust-lang.org
+sh.rustup.rs
+proxy.golang.org
+sum.golang.org
+dl.google.com
+go.dev
+rubygems.org
+index.rubygems.org
+repo.packagist.org
+packagist.org
+repo.hex.pm
+hex.pm
+builds.hex.pm
+api.nuget.org
+builds.dotnet.microsoft.com
+dot.net
+ci.dot.net
+nodejs.org
+github.com
+release-assets.githubusercontent.com
+objects.githubusercontent.com
+mise-versions.jdx.dev
+mise-java.jdx.dev
+tuf-repo-cdn.sigstore.dev',
   key_check                     TEXT,
   updated_at                    TEXT     NOT NULL
 );
@@ -133,7 +162,8 @@ CREATE TABLE IF NOT EXISTS session_transcript (
                             'candidates_opening', 'frontier', 'falsification',
                             'report_request', 'report_retry', 'closing',
                             'text_only', 'reopen', 'record_check',
-                            'toolset_change', 'injected_alerts')),
+                            'toolset_change', 'injected_alerts',
+                            'sandbox_ready')),
   PRIMARY KEY (session_id, seq)
 );
 

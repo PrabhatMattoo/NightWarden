@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { proxyDir, workspacesDir } from "../../paths.js";
+import { miseDir, proxyDir, workspacesDir } from "../../paths.js";
 import { loadConfig } from "../../config/store.js";
 import { getGitHubIntegration } from "../../integrations/store.js";
 import { withStoredCredential } from "../../integrations/credential-health.js";
@@ -123,7 +123,7 @@ async function workspaceOptionsFor(
     limits: { cpus: config.sandboxCpus, memoryMb: config.sandboxMemoryMb },
     idleTimeoutMs: config.sandboxIdleTimeoutMs,
     workspacesDir: workspacesDir(),
-    requireGvisor: config.sandboxRequireGvisor,
+    miseDir: miseDir(),
     network: config.sandboxNetwork,
     allowlistHosts: config.sandboxAllowlistHosts,
     proxyConfigDir: proxyDir(),
@@ -425,19 +425,15 @@ export const REPO_TOOLS: Tool[] = [
     timeoutMs: 300_000,
     execute: async (input: z.infer<typeof BASH_INPUT>, ctx) => {
       const { command, cwd } = input;
-      return await runRepoTool(ctx, async (ws) => {
-        const result = await execInRepo(
-          ws,
-          { command, ...(cwd !== undefined && { cwd }) },
-          ctx.toolTimeoutMs,
-        );
-        // The provision-time install outcome rides the first Bash result -
-        // the system prompt is already sent when the sandbox provisions.
-        const note = ws.takeInstallNote();
-        return note === null
-          ? result
-          : { ...result, output: `${note}\n\n${result.output}` };
-      });
+      return await runRepoTool(
+        ctx,
+        async (ws) =>
+          await execInRepo(
+            ws,
+            { command, ...(cwd !== undefined && { cwd }) },
+            ctx.toolTimeoutMs,
+          ),
+      );
     },
   }),
   apiTool({

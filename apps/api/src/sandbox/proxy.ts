@@ -165,5 +165,8 @@ export function proxyEnv(proxyUrl: string): string[] {
     `https_proxy=${proxyUrl}`,
     "NO_PROXY=localhost,127.0.0.1",
     "no_proxy=localhost,127.0.0.1",
+    // Yarn 2 and later ignore the variables above and read only their own.
+    `YARN_HTTP_PROXY=${proxyUrl}`,
+    `YARN_HTTPS_PROXY=${proxyUrl}`,
   ];
 }

@@ -12,7 +12,7 @@ vi.mock("node:child_process", () => ({ execFile: execFileMock }));
 vi.mock("dockerode", () => ({ default: MockDocker }));
 
 import { fakeAnthropic } from "./fake-anthropic.js";
-import { createGateController } from "./fake-model.js";
+import { createGateController, messagesSentTo } from "./fake-model.js";
 import { useTempDb } from "./temp-db.js";
 import { updateConfig } from "../config/store.js";
 import {
@@ -33,7 +33,7 @@ import {
   findTool,
 } from "../agent/tools/toolset.js";
 import { REPO_TOOL_NAMES } from "../agent/tools/repo.js";
-import { releaseContainers } from "../sandbox/workspace.js";
+import { releaseContainers, takeSandboxNote } from "../sandbox/workspace.js";
 import { parsedContent } from "./tool-result.js";
 import type {
   Tool,
@@ -445,18 +445,49 @@ describe("repo tools through registry dispatch", () => {
     expect(result.content).toContain("escapes the repository");
   });
 
-  it("the first Bash result opens with the provision-time install note, later ones don't", async () => {
-    // This fixture has no lockfile, so the note is the honest skip variant.
+  it("a Bash result carries only what the command printed; the install note waits for the tool boundary, once", async () => {
     const first = await run("Bash", { command: "echo one" });
     expect(first.isError).toBeUndefined();
-    const firstOut = parsedContent<{ output: string }>(first).output;
-    expect(firstOut).toContain("No Node lockfile");
-    expect(firstOut).toContain("ok output");
+    expect(parsedContent<{ output: string }>(first).output).toBe("ok output\n");
 
-    const second = await run("Bash", { command: "echo two" });
-    expect(parsedContent<{ output: string }>(second).output).not.toContain(
-      "No Node lockfile",
+    expect(takeSandboxNote(SESSION_ID)).toContain("## Sandbox ready");
+    expect(takeSandboxNote(SESSION_ID)).toBeNull();
+  });
+
+  it("the loop tells the model once, in a sandbox_ready reminder, even when no Bash call is made", async () => {
+    const sessionId = "aaaabbbb-0000-4000-8000-0000000000a1";
+    anthropic.script([
+      {
+        toolUses: [
+          { toolCallId: "r1", name: "Read", input: { path: "src/app.ts" } },
+        ],
+        text: "",
+      },
+      {
+        toolUses: [
+          { toolCallId: "r2", name: "Read", input: { path: "package.json" } },
+        ],
+        text: "",
+      },
+      { toolUses: [], text: "Done." },
+    ]);
+    await seedChatSession(sessionId, "look at the repo");
+    const before = anthropic.requests.length;
+    await runSession(
+      { sessionId, userMessage: "look at the repo" },
+      anthropic.fetch,
     );
+
+    const rows = await getTranscriptRows(sessionId);
+    expect(rows.filter((r) => r.reminder === "sandbox_ready")).toHaveLength(1);
+    const sentAfterFirstRead = messagesSentTo(anthropic, before + 1)
+      .flatMap((m) => m.texts)
+      .join("\n");
+    expect(sentAfterFirstRead).toContain("## Sandbox ready");
+    const sentAfterSecondRead = messagesSentTo(anthropic, before + 2)
+      .flatMap((m) => m.texts)
+      .join("\n");
+    expect(sentAfterSecondRead.match(/## Sandbox ready/g)).toHaveLength(1);
   });
 
   it("execs in the container with its own timeout when that is under the ceiling", async () => {

@@ -22,7 +22,8 @@ export type ReminderKind =
   | "reopen"
   | "record_check"
   | "toolset_change"
-  | "injected_alerts";
+  | "injected_alerts"
+  | "sandbox_ready";
 
 // Whether a failed run is retried automatically or waits for a person.
 export type FailureKind = "transient" | "permanent";

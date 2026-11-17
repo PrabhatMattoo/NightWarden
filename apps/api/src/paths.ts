@@ -37,6 +37,11 @@ export function workspacesDir(): string {
   return join(nightwardenDir(), "workspaces");
 }
 
+// Shared by every sandbox: a runtime mise downloads once serves them all.
+export function miseDir(): string {
+  return join(nightwardenDir(), "mise");
+}
+
 export function proxyDir(): string {
   return join(nightwardenDir(), "proxy");
 }

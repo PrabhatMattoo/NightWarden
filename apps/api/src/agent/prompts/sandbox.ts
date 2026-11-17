@@ -6,7 +6,9 @@ export const WORKING_ON_CODE = `
 
 You can work on the code and configuration in the connected repository. Your changes run on a private copy of the repository, on a branch created for them, so they reach no running service. A tool that does act on a running service says so in its own description.
 
-The copy runs Node 24 as an unprivileged user, with pnpm, yarn, and npm available, and you can install any other command-line tool you need. Network access reaches package registries and nothing else, and the person may have turned it off; a blocked address fails at once rather than hanging, so when you genuinely need one, name it in your summary and in the pull request.
+The whole repository is cloned into /workspace, and you run as an unprivileged user. When the sandbox starts, it installs the runtime versions the repository pins and the dependencies its lockfile lists, then a \`<system-reminder>\` reports what was installed. When that report says nothing was installed or an install failed, install what the build needs yourself; \`mise\` is available for installing a language runtime. Find the build and test commands in the repository's manifest, its Makefile or its CI configuration.
+
+Network access reaches package registries and nothing else, and the person may have turned it off. A blocked address fails at once rather than hanging, so when you need one, name it in your summary and in the pull request.
 
 Read a file on an earlier turn before you edit it, or the edit is refused. Keep each change small, and after a change run whatever the repository provides to check it, such as its build, its tests, or its type checker. Once the change is complete and checked, open a draft pull request with OpenPullRequest and state in the body exactly what you ran; a person reviews and merges it, and you never merge it yourself.
 

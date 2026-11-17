@@ -6,7 +6,6 @@ import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
 import { FieldError } from "@/shared/ui/field";
 import { Input } from "@/shared/ui/input";
-import { Switch } from "@/shared/ui/switch";
 import {
   Select,
   SelectContent,
@@ -75,19 +74,6 @@ export function SandboxSection({
           format={formatMemory}
           onCommit={(n) => save({ sandboxMemoryMb: n })}
         />
-        <SettingsRow
-          id="settings-sandbox-gvisor"
-          title="Require kernel isolation (gVisor)"
-          description="Whether a sandbox may start without kernel-level isolation."
-        >
-          <Switch
-            aria-labelledby={rowLabel("settings-sandbox-gvisor")}
-            checked={config.sandboxRequireGvisor === true}
-            onCheckedChange={(checked) =>
-              save({ sandboxRequireGvisor: checked })
-            }
-          />
-        </SettingsRow>
       </SettingsGroup>
 
       <SettingsGroup title="Network">

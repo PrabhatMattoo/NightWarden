@@ -52,6 +52,7 @@ import {
   reportAsk,
   type RunPosition,
 } from "./guardrails.js";
+import { takeSandboxNote } from "../../sandbox/workspace.js";
 import { formatInjectedAlerts } from "./injection.js";
 import type { RunContext, TurnResult } from "./run-state.js";
 
@@ -548,6 +549,11 @@ export async function runOneTurn(ctx: RunContext): Promise<TurnResult> {
       "injected_alerts",
       formatInjectedAlerts(joined.map((j) => j.alert)),
     );
+  }
+  // The sandbox comes up inside a tool call, so its note is waiting here.
+  const sandboxNote = takeSandboxNote(sessionId);
+  if (sandboxNote !== null) {
+    state.sendSystemReminder("sandbox_ready", sandboxNote);
   }
   await state.flush();
   // After the flush, so a crash in between repeats the note rather than losing it.

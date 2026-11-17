@@ -10,10 +10,54 @@ const SESSION_LABEL = "nightwarden.session";
 const SANDBOX_IMAGE = "nightwarden-sandbox";
 const IMAGE_HASH_LABEL = "nightwarden.sandbox-image";
 
-// The runtime user is non-root on a read-only rootfs, so global tooling is
-// baked in at build time. Cache cleaned in the same layer, or it stays.
+// mise's release and the SHA-256 of each Linux archive, from that release's
+// SHASUMS256.txt; the image build refuses a download that differs.
+const MISE_VERSION = "2026.11.8";
+const MISE_SHA256 = {
+  x64: "d2d5a46f507bba772686e2c8f2316b3a4439dac49a37a30db5c0e7bb077c5431",
+  arm64: "b36da3c4892380325d44dee3678ba618de191254d8a4aed8011ee66b28a6cbd7",
+};
+
+// Where the shared mise directory (runtimes, downloads, install locks) mounts.
+const MISE_MOUNT = "/mise";
+
+// Runtimes whose version files mise reads; mise ignores `.nvmrc` and its kin
+// for a tool not named here. pnpm and yarn read package.json's packageManager.
+const MISE_IDIOMATIC_TOOLS = [
+  "node",
+  "python",
+  "ruby",
+  "go",
+  "java",
+  "rust",
+  "dotnet",
+  "pnpm",
+  "yarn",
+].join(",");
+
+// Tooling is baked in because the rootfs is read-only. The login profile restores
+// PATH entries that Debian's /etc/profile resets, then activates mise.
 const SANDBOX_DOCKERFILE = `FROM node:24
-RUN npm install -g pnpm && npm cache clean --force
+RUN set -eux; \\
+    case "$(uname -m)" in \\
+      x86_64) arch=x64; sha=${MISE_SHA256.x64} ;; \\
+      aarch64) arch=arm64; sha=${MISE_SHA256.arm64} ;; \\
+      *) echo "unsupported architecture" >&2; exit 1 ;; \\
+    esac; \\
+    curl -fsSL -o /tmp/mise.tar.gz "https://github.com/jdx/mise/releases/download/v${MISE_VERSION}/mise-v${MISE_VERSION}-linux-$arch.tar.gz"; \\
+    echo "$sha  /tmp/mise.tar.gz" | sha256sum -c -; \\
+    tar -xzf /tmp/mise.tar.gz -C /usr/local/bin --strip-components=2 mise/bin/mise; \\
+    rm /tmp/mise.tar.gz
+ENV MISE_IDIOMATIC_VERSION_FILE_ENABLE_TOOLS=${MISE_IDIOMATIC_TOOLS} \\
+    MISE_YES=1 \\
+    MISE_QUIET=1 \\
+    MISE_DISABLE_UPDATE_WARNING=1 \\
+    MISE_LOCKFILE=false \\
+    MISE_TRUSTED_CONFIG_PATHS=/workspace
+RUN printf '%s\\n' \\
+      'export PATH="/home/sandbox/.npm-global/bin:/home/sandbox/.gems/bin:$PATH"' \\
+      'eval "$(mise activate bash)"' \\
+      > /etc/profile.d/nightwarden.sh
 `;
 
 // Per-operation factory, mirroring the runner's docker client: no long-lived
@@ -130,23 +174,21 @@ export async function createSandboxContainer(opts: {
   sessionId: string;
   workspaceDir: string;
   homeDir: string;
+  miseDir: string;
   limits: SandboxLimits;
-  requireGvisor: boolean;
   network: SandboxNetworkAttachment;
+  // The short-lived container that installs the repository's runtimes into the
+  // shared directory; a session's own container only reads them.
+  installsRuntimes?: boolean;
 }): Promise<string> {
   await ensureImage();
   const isolation = await detectIsolation();
-  if (opts.requireGvisor && isolation !== "gvisor") {
-    throw new SandboxUnavailableError(
-      "sandboxRequireGvisor is on but the Docker host has no gVisor (runsc) runtime",
-    );
-  }
   const memoryBytes = opts.limits.memoryMb * 1024 * 1024;
   const user = processUser();
   const docker = getDocker();
   const container = await docker.createContainer({
     Image: SANDBOX_IMAGE,
-    name: `nightwarden-sandbox-${opts.sessionId}`,
+    name: `nightwarden-sandbox-${opts.sessionId}${opts.installsRuntimes === true ? "-runtimes" : ""}`,
     Cmd: ["sleep", "infinity"],
     WorkingDir: "/workspace",
     // HOME is a separate mount, not the checkout, so package-manager caches
@@ -157,6 +199,19 @@ export async function createSandboxContainer(opts: {
       // Global installs land in the writable HOME mount: the rootfs is
       // read-only and /usr/local is root-owned either way.
       "NPM_CONFIG_PREFIX=/home/sandbox/.npm-global",
+      // Same reason for gems: mise's Ruby sits in the shared directory.
+      "GEM_HOME=/home/sandbox/.gems",
+      // Every sandbox shares the runtimes, so only the installer may write them:
+      // nothing a session runs can change the toolchain another session runs.
+      ...(opts.installsRuntimes === true
+        ? [
+            `MISE_DATA_DIR=${MISE_MOUNT}/data`,
+            `MISE_CACHE_DIR=${MISE_MOUNT}/cache`,
+            `MISE_STATE_DIR=${MISE_MOUNT}/state`,
+          ]
+        : [`MISE_SHARED_INSTALL_DIRS=${MISE_MOUNT}/data/installs`]),
+      // The cache and the checkout are separate filesystems, so hardlinks fail.
+      "UV_LINK_MODE=copy",
       "PATH=/home/sandbox/.npm-global/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
       ...(opts.network.mode === "allowlist" ? opts.network.proxyEnv : []),
     ],
@@ -167,12 +222,20 @@ export async function createSandboxContainer(opts: {
       ...(opts.network.mode === "allowlist" && {
         NetworkMode: opts.network.networkName,
       }),
-      Binds: [
-        `${opts.workspaceDir}:/workspace`,
-        `${opts.homeDir}:/home/sandbox`,
-      ],
-      // Tooling is baked into the image; the writable surfaces are exactly
-      // the two bind mounts and /tmp.
+      Binds:
+        opts.installsRuntimes === true
+          ? [
+              `${opts.workspaceDir}:/workspace:ro`,
+              `${opts.homeDir}:/home/sandbox`,
+              `${opts.miseDir}:${MISE_MOUNT}`,
+            ]
+          : [
+              `${opts.workspaceDir}:/workspace`,
+              `${opts.homeDir}:/home/sandbox`,
+              `${opts.miseDir}:${MISE_MOUNT}:ro`,
+            ],
+      // Tooling is baked into the image; what is writable is the home, /tmp,
+      // and either the checkout or, for the installer, the shared runtimes.
       ReadonlyRootfs: true,
       CapDrop: ["ALL"],
       SecurityOpt: ["no-new-privileges"],

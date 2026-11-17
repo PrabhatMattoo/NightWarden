@@ -67,7 +67,6 @@ export interface Config {
   sandbox_idle_timeout_ms: Generated<number>;
   sandbox_memory_mb: Generated<number>;
   sandbox_network: Generated<string>;
-  sandbox_require_gvisor: Generated<number>;
   tool_call_ceiling_ms: Generated<number>;
   updated_at: string;
 }

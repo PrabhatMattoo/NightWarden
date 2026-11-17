@@ -17,7 +17,12 @@ import {
   push,
   type CommitAuthor,
 } from "./git.js";
-import { resolveInstallPlan } from "./install.js";
+import {
+  installRepository,
+  resolveInstallPlans,
+  type InstallPlan,
+  type RunStep,
+} from "./install.js";
 import { ensureProxy, proxyEnv } from "./proxy.js";
 import { capOutput } from "./output.js";
 import { gitDirFor, homeDirFor } from "./paths.js";
@@ -50,8 +55,8 @@ export interface WorkspaceOptions {
   // Host dir the checkout is bind-mounted from; must be absolute since the
   // sandbox never guesses a path and Docker rejects a relative bind source.
   workspacesDir: string;
-  // Fail-loud opt-in: refuse to create a sandbox when the host has no gVisor.
-  requireGvisor: boolean;
+  // Host dir every sandbox mounts for mise's runtimes, so a download is paid once.
+  miseDir: string;
   // "allowlist" routes egress through the shared enforcing proxy; "none" gives
   // no network from birth; "open" keeps the default bridge.
   network: "allowlist" | "open" | "none";
@@ -96,9 +101,6 @@ export interface Workspace {
     command: string,
     opts: { cwd?: string; timeoutMs: number },
   ): Promise<ExecOutcome>;
-  // Single-consumption outcome of the provision-time dependency install; the
-  // first Bash result carries it to the model, later calls get null.
-  takeInstallNote(): string | null;
 }
 
 interface Entry {
@@ -107,6 +109,8 @@ interface Entry {
   idleTimer: NodeJS.Timeout | null;
   busy: number;
   options: WorkspaceOptions;
+  // What provisioning did, held until the run's next tool boundary takes it.
+  note: string | null;
 }
 
 // Private by design: tools receive ctx.sessionId and ask for their workspace
@@ -141,51 +145,52 @@ async function networkAttachment(
   };
 }
 
-const INSTALL_TIMEOUT_MS = 10 * 60_000;
-
-// Deterministic provision-time install, fail-open by contract: every outcome -
-// success, failure, skip - becomes a note for the model, never a dead sandbox.
-async function installDependencies(
-  containerId: string,
-  dir: string,
+// Everything the install did becomes a note for the model, so a failure never
+// leaves a dead sandbox.
+async function prepareRepository(
+  sandbox: { containerId: string; dir: string; homeDir: string },
+  network: SandboxNetworkAttachment,
+  plans: InstallPlan[],
   sessionId: string,
   options: WorkspaceOptions,
 ): Promise<string> {
   if (options.network === "none") {
-    return 'Dependency install was skipped: the sandbox is networkless (user setting "none").';
-  }
-  const plan = await resolveInstallPlan(dir);
-  if (plan === null) {
-    return "No Node lockfile was found, so no dependencies were pre-installed.";
+    return 'The sandbox has no network access (the "none" setting), so mise and the dependency install did not run. Only what the sandbox image holds is available.';
   }
   options.onStatus?.("installing");
+  const installer = await createSandboxContainer({
+    sessionId,
+    workspaceDir: sandbox.dir,
+    homeDir: sandbox.homeDir,
+    miseDir: options.miseDir,
+    limits: options.limits,
+    network,
+    installsRuntimes: true,
+  }).then(
+    (id) => ({ id }),
+    (err: unknown) => ({ err }),
+  );
+  const run =
+    (containerId: string): RunStep =>
+    async (command, timeoutMs) =>
+      await execInContainer(containerId, command, { timeoutMs });
+  let note: string;
   try {
-    const result = await execInContainer(containerId, plan.command, {
-      timeoutMs: INSTALL_TIMEOUT_MS,
-    });
-    if (result.exitCode === 0) {
-      options.log?.info(
-        { sessionId, command: plan.command },
-        "sandbox dependencies installed",
-      );
-      return `Dependencies were installed when this sandbox was created: \`${plan.command}\` exited 0.`;
-    }
-    const tail = capOutput(result.output).text.slice(-2000);
-    // The tail names the blocked host or the failing binary, so a user can tell
-    // an allowlist refusal from a platform mismatch.
-    options.log?.warn(
-      { sessionId, command: plan.command, exitCode: result.exitCode, tail },
-      "sandbox dependency install failed",
+    note = await installRepository(
+      "id" in installer
+        ? run(installer.id)
+        : () => Promise.reject(installer.err),
+      run(sandbox.containerId),
+      plans,
     );
-    return `Dependency install failed when this sandbox was created: \`${plan.command}\` exited ${result.exitCode}. Fix or work around this before building or testing. Output tail:\n${tail}`;
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    options.log?.warn(
-      { sessionId, command: plan.command, err: message },
-      "sandbox dependency install did not complete",
-    );
-    return `Dependency install failed when this sandbox was created: \`${plan.command}\` did not complete (${message}). Fix or work around this before building or testing.`;
+  } finally {
+    if ("id" in installer) await destroyContainer(installer.id);
   }
+  options.log?.info(
+    { sessionId, lockfiles: plans.map((plan) => plan.lockfile) },
+    "sandbox repository prepared",
+  );
+  return note;
 }
 
 // Best-effort by nature: no repo here at all is the ordinary case, and every
@@ -235,6 +240,7 @@ async function provisionEntry(
   await removeCheckout(dir);
   await mkdir(dir, { recursive: true });
   await mkdir(homeDir, { recursive: true });
+  await mkdir(options.miseDir, { recursive: true });
   options.onStatus?.("cloning");
   const authHeader = await options.authHeader();
   await cloneAndCheckout({
@@ -243,9 +249,17 @@ async function provisionEntry(
     dir,
     authHeader,
   });
-  // Local-only ignore: a repo without a .gitignore must never get an
-  // agent-installed node_modules checkpoint-committed.
-  await appendFile(join(gitDirFor(dir), "info", "exclude"), "node_modules/\n");
+  const plans = await resolveInstallPlans(dir);
+  // Local-only ignore, so a checkpoint commit never sweeps in what the installs
+  // write; node_modules is never committed, whoever installs it.
+  const installed = new Set([
+    "node_modules/",
+    ...plans.flatMap((p) => p.writes),
+  ]);
+  await appendFile(
+    join(gitDirFor(dir), "info", "exclude"),
+    `${[...installed].join("\n")}\n`,
+  );
   if (apiRunsAsRoot() && !warnedRootApi) {
     warnedRootApi = true;
     options.log?.warn(
@@ -259,14 +273,15 @@ async function provisionEntry(
     sessionId,
     workspaceDir: dir,
     homeDir,
+    miseDir: options.miseDir,
     limits: options.limits,
-    requireGvisor: options.requireGvisor,
     network,
   });
 
-  let installNote: string | null = await installDependencies(
-    containerId,
-    dir,
+  const note = await prepareRepository(
+    { containerId, dir, homeDir },
+    network,
+    plans,
     sessionId,
     options,
   );
@@ -289,11 +304,6 @@ async function provisionEntry(
         truncated: capped.truncated,
       };
     },
-    takeInstallNote() {
-      const note = installNote;
-      installNote = null;
-      return note;
-    },
   };
   const entry: Entry = {
     workspace,
@@ -301,11 +311,22 @@ async function provisionEntry(
     idleTimer: null,
     busy: 0,
     options,
+    note,
   };
   sessions.set(sessionId, entry);
   options.onStatus?.("ready");
   options.log?.info({ sessionId, branch: options.branch }, "sandbox created");
   return entry;
+}
+
+// Take-once, read by the loop at a tool boundary: the sandbox comes up inside a
+// tool call, after the turn's prompt was sent, so the model hears of it here.
+export function takeSandboxNote(sessionId: string): string | null {
+  const entry = sessions.get(sessionId);
+  if (entry === undefined || entry.note === null) return null;
+  const { note } = entry;
+  entry.note = null;
+  return `## Sandbox ready\n\nThe repository is cloned into /workspace.\n\n${note}\n\nWhere a step above failed or did not run, install what the build needs yourself before you build or test.`;
 }
 
 function armIdleTimer(sessionId: string, entry: Entry): void {

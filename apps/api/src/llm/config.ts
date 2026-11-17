@@ -40,15 +40,41 @@ export const DEFAULT_SANDBOX_IDLE_TIMEOUT_MS = 60 * 60_000;
 export const DEFAULT_SANDBOX_CPUS = 2;
 export const DEFAULT_SANDBOX_MEMORY_MB = 4096;
 
-// gVisor is used automatically when the host advertises it; this flag only
-// controls whether its absence is a hard failure. Off by default.
-export const DEFAULT_SANDBOX_REQUIRE_GVISOR = false;
-
-// Allowlist by default: sandbox egress is forced through the shared proxy,
-// which reaches only these hosts - the agent installs dependencies itself.
+// Sandbox egress reaches only these hosts, listed in full: the host pattern
+// refuses wildcards. GitHub release assets redirect to githubusercontent.com.
 export const DEFAULT_SANDBOX_NETWORK = "allowlist" as const;
 export const DEFAULT_SANDBOX_ALLOWLIST_HOSTS: readonly string[] = [
   "registry.npmjs.org",
   "registry.yarnpkg.com",
   "repo.yarnpkg.com",
+  "classic.yarnpkg.com",
+  "pypi.org",
+  "files.pythonhosted.org",
+  "crates.io",
+  "index.crates.io",
+  "static.crates.io",
+  "static.rust-lang.org",
+  "sh.rustup.rs",
+  "proxy.golang.org",
+  "sum.golang.org",
+  "dl.google.com",
+  "go.dev",
+  "rubygems.org",
+  "index.rubygems.org",
+  "repo.packagist.org",
+  "packagist.org",
+  "repo.hex.pm",
+  "hex.pm",
+  "builds.hex.pm",
+  "api.nuget.org",
+  "builds.dotnet.microsoft.com",
+  "dot.net",
+  "ci.dot.net",
+  "nodejs.org",
+  "github.com",
+  "release-assets.githubusercontent.com",
+  "objects.githubusercontent.com",
+  "mise-versions.jdx.dev",
+  "mise-java.jdx.dev",
+  "tuf-repo-cdn.sigstore.dev",
 ];
