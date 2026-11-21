@@ -3,14 +3,17 @@ import type {
   CandidateRow,
   ContinueCardItem,
   Actor,
+  ElicitationAnswerPart,
   InvestigationRecord,
   TranscriptRow,
+  ToolApprovalPart,
   ToolCallState,
   ToolGate,
   TranscriptItem,
 } from "@nightwarden/shared";
 import { openCandidateIds, standingFindings } from "@nightwarden/shared";
 import {
+  getOpenTurn,
   getPendingHumanInputBySessionId,
   hasPendingHumanInput,
 } from "./gate-store.js";
@@ -104,7 +107,7 @@ function reportCard(sessionId: string): TranscriptItem | null {
 
 // A tool call's state, in precedence order: what the session is suspended on
 // beats what a human already decided, which beats the tool merely having run.
-function toolCallState(
+export function toolCallState(
   result: string | undefined,
   failed: boolean,
   gate: ToolGate | null,
@@ -173,34 +176,43 @@ export function buildTranscript(sessionId: string): TranscriptItem[] {
   // transcript rows below, which hold it already.
   const pending = getPendingHumanInputBySessionId(sessionId) ?? null;
 
-  // Not reconstructed from the tool's name: that cannot tell a call a person
-  // released from one the harness refused without drawing a card.
-  const decisionFor = (
-    toolCallId: string,
-    settled: boolean,
-  ): ApprovalStatus | null =>
-    settled ? (decisions.get(toolCallId) ?? null) : null;
-
   // One pass: what a call returned, whether it failed, and what a person said
   // about it, each read from the part that records it.
   const results = new Map<string, string>();
   const failed = new Set<string>();
   const decisions = new Map<string, ApprovalStatus>();
   const deciders = new Map<string, Actor>();
+  const recordDecision = (
+    part: ToolApprovalPart | ElicitationAnswerPart,
+  ): void => {
+    if (part.type === "elicitation_answer") {
+      decisions.set(part.toolCallId, "answered");
+    } else {
+      decisions.set(part.toolCallId, part.approved ? "approved" : "rejected");
+    }
+    if (part.actor) deciders.set(part.toolCallId, part.actor);
+  };
   for (const msg of messages) {
     for (const part of msg.parts) {
       if (part.type === "tool_result") {
         results.set(part.toolCallId, part.output);
         if (part.isError === true) failed.add(part.toolCallId);
-      } else if (part.type === "tool_approval") {
-        decisions.set(part.toolCallId, part.approved ? "approved" : "rejected");
-        if (part.actor) deciders.set(part.toolCallId, part.actor);
-      } else if (part.type === "elicitation_answer") {
-        decisions.set(part.toolCallId, "answered");
-        if (part.actor) deciders.set(part.toolCallId, part.actor);
+      } else if (
+        part.type === "tool_approval" ||
+        part.type === "elicitation_answer"
+      ) {
+        recordDecision(part);
       }
     }
   }
+  /* A gate interrupts a turn before its answers have a row, so the answers given
+     so far are read from the open turn that holds them. */
+  const openTurn = getOpenTurn(sessionId);
+  for (const result of openTurn?.results ?? []) {
+    results.set(result.toolCallId, result.content);
+    if (result.isError === true) failed.add(result.toolCallId);
+  }
+  for (const { part } of openTurn?.decisions ?? []) recordDecision(part);
 
   const alerts = getSession(sessionId)?.alerts ?? [];
   // Separated by the row rather than by compared clocks: whether an alert opened
@@ -280,6 +292,7 @@ export function buildTranscript(sessionId: string): TranscriptItem[] {
     }
 
     let idx = 0;
+    let behindGate = false;
     for (const part of msg.parts) {
       // A streamed block carries its own ordinal, so its id matches the row the
       // client already drew; an older part falls back to its position.
@@ -337,27 +350,31 @@ export function buildTranscript(sessionId: string): TranscriptItem[] {
           awaiting !== null && awaiting.kind !== "continue"
             ? awaiting.kind
             : null;
-        const settled = results.has(part.toolCallId) && awaiting === null;
-        const decided = decisionFor(part.toolCallId, settled);
-        const decider = settled
-          ? (deciders.get(part.toolCallId) ?? null)
-          : null;
+        const decided =
+          awaiting === null ? (decisions.get(part.toolCallId) ?? null) : null;
+        const decider =
+          awaiting === null ? (deciders.get(part.toolCallId) ?? null) : null;
+        // Asked for behind the call a person is deciding, so it has not started.
+        const queued = behindGate && !results.has(part.toolCallId);
         items.push(
           toolCallCard({
             toolCallId: part.toolCallId,
             toolName: part.name,
             input: part.input,
-            state: toolCallState(
-              results.get(part.toolCallId),
-              failed.has(part.toolCallId),
-              gate,
-              decided,
-              decider,
-            ),
+            state: queued
+              ? { phase: "queued" }
+              : toolCallState(
+                  results.get(part.toolCallId),
+                  failed.has(part.toolCallId),
+                  gate,
+                  decided,
+                  decider,
+                ),
             priorRuns: priorRunsOf(part.name, part.input, approved),
             timestamp: msg.timestamp,
           }),
         );
+        if (awaiting !== null) behindGate = true;
         // Counted in transcript order, so a card reports what ran before it and
         // never counts itself.
         if (decided === "approved") {

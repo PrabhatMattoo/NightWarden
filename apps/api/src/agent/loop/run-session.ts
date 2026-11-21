@@ -2,7 +2,6 @@ import { randomUUID } from "node:crypto";
 import { buildInitialContext, buildChatContext } from "../context.js";
 import type { PromptOptions } from "../prompts/system.js";
 import { REOPEN_MESSAGE } from "../prompts/report.js";
-import { approvedWriteCount, gatedCalls, toolCallsFrom } from "../report.js";
 import { highestEvidenceNumber } from "../evidence-id.js";
 import { stripSystemReminder } from "../system-reminder.js";
 import { connectedPlatforms } from "../policy.js";
@@ -20,7 +19,11 @@ import {
 import { loadConfig } from "../../config/store.js";
 import { getGitHubIntegration } from "../../integrations/store.js";
 import { getSession } from "../../session/store.js";
-import { getNextSeq } from "../../session/transcript-store.js";
+import { getOpenTurn } from "../../session/gate-store.js";
+import {
+  getNextSeq,
+  getTranscriptRows,
+} from "../../session/transcript-store.js";
 import { seedRows } from "../../session/seed.js";
 import {
   publishTextMessageContent,
@@ -46,7 +49,6 @@ import type {
   ProviderMessage,
   ToolSchema,
 } from "../../llm/types.js";
-import type { PendingHumanInput } from "../../session/gate-store.js";
 import { RunState } from "./run-state.js";
 import type { RunContext, RunOutcome } from "./run-state.js";
 import { currentToolset, runOneTurn } from "./run-turn.js";
@@ -157,14 +159,26 @@ export async function runSession(
   const state = new RunState(
     sessionId,
     getNextSeq(sessionId),
-    highestEvidenceNumber(priorRows) + 1,
+    // Over every row, since a dead exchange the model no longer sees keeps its ids.
+    highestEvidenceNumber(getTranscriptRows(sessionId)) + 1,
     seeded,
     priorRows,
   );
-  // Constant for the run, so counted once here rather than re-scanned per turn.
-  const approvedWrites = approvedWriteCount(
-    gatedCalls(toolCallsFrom(priorRows)),
-  );
+  const open = getOpenTurn(sessionId);
+  if (open !== null) {
+    const last = priorRows.at(-1);
+    if (last?.kind !== "assistant") {
+      throw new Error(
+        `session ${sessionId} has an open turn but its transcript does not end on the assistant row that made the calls`,
+      );
+    }
+    state.openTurn = {
+      ...open,
+      uses: last.parts.flatMap((part) =>
+        part.type === "tool_call" ? [part] : [],
+      ),
+    };
+  }
 
   /* One turn with no tools, so a run that stands down still ends on words
      addressed to the reader rather than on its own reasoning. */
@@ -293,7 +307,6 @@ export async function runSession(
     deadline,
     log,
     opensInvestigation,
-    approvedWrites,
     llm,
     toolCallCeilingMs: config.toolCallCeilingMs,
     // The provider is bound in here, so the turn cycle never sees it.
@@ -301,7 +314,8 @@ export async function runSession(
       chat(provider, messages, tools, turn, chatSignal),
   };
 
-  while (Date.now() < deadline) {
+  // An open turn finishes regardless of the clock, so no check-in parks on it.
+  while (state.openTurn !== null || Date.now() < deadline) {
     const result = await runOneTurn(ctx);
     if (result.kind === "outcome") return result.outcome;
     if (result.kind === "stand_down") {
@@ -318,14 +332,7 @@ export async function runSession(
   // No underlying tool call, so the synthetic toolCallId only keys the interrupt
   // row - the resolver branches on kind, not the transcript.
   const continueId = randomUUID();
-  const continueInterrupt: PendingHumanInput = {
-    sessionId,
-    toolCallId: continueId,
-    kind: "continue",
-    completedResults: [],
-    claimedAt: null,
-  };
-  state.flush(continueInterrupt);
+  state.flush({ sessionId, toolCallId: continueId, kind: "continue" });
   publishTranscriptItem({
     sessionId,
     item: continueCard(continueId, { phase: "awaiting_human" }),

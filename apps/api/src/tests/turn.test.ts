@@ -58,6 +58,8 @@ async function run(offered: OfferedToolset, names: string[]) {
     execCtx: EXEC,
     log: logger,
     alreadyRefused: new Map(),
+    answered: [],
+    decisions: [],
   });
 }
 
@@ -109,9 +111,9 @@ describe("how a turn's tool calls are executed", () => {
     ]);
   });
 
-  // Once a gated call suspends the turn nothing asked for after it runs, so a
-  // read meant to see the write's effect is answered for reissue, never stale.
-  it("suspends on the first gated call and refuses everything after it", async () => {
+  // The run parks on the first gate, and what was asked after it waits for the
+  // person's decision rather than being refused.
+  it("stops at the first gated call and leaves every call after it unanswered", async () => {
     const log: string[] = [];
     const offered = offering(
       tracked("before", "read", 1, log),
@@ -128,16 +130,7 @@ describe("how a turn's tool calls are executed", () => {
     ]);
 
     expect(gated?.tool.toolCallId).toBe("tu-gate");
-    // The read before the gate ran; the gate and everything after it did not.
-    expect(log).toContain("before:end");
-    expect(log).not.toContain("gate:start");
-    expect(log).not.toContain("after:start");
-    expect(log).not.toContain("gate2:start");
-
-    const byId = new Map(toolResults.map((r) => [r.toolCallId, r]));
-    expect(byId.get("tu-before")?.isError).toBeUndefined();
-    expect(byId.get("tu-after")?.isError).toBe(true);
-    expect(byId.get("tu-after")?.content).toContain("next turn");
-    expect(byId.get("tu-gate2")?.isError).toBe(true);
+    expect(log).toEqual(["before:start", "before:end"]);
+    expect(toolResults.map((r) => r.toolCallId)).toEqual(["tu-before"]);
   });
 });

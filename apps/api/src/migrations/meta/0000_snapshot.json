@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "53978eb6-9410-4601-83e0-10e9e297c1aa",
+  "id": "48b15585-0d7a-46dd-8321-c619acdb8765",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "alerts": {
@@ -253,7 +253,7 @@
       "checkConstraints": {
         "session_transcript_reminder": {
           "name": "session_transcript_reminder",
-          "value": "\"session_transcript\".\"reminder\" IN ('alert_opening', 'candidates_opening', 'frontier', 'falsification', 'report_request', 'report_retry', 'closing', 'text_only', 'reopen', 'record_check', 'toolset_change', 'injected_alerts', 'sandbox_ready')"
+          "value": "\"session_transcript\".\"reminder\" IN ('alert_opening', 'candidates_opening', 'frontier', 'falsification', 'report_request', 'report_retry', 'closing', 'text_only', 'reopen', 'record_check', 'toolset_change', 'injected_alerts', 'sandbox_ready', 'decision_wait')"
         }
       }
     },
@@ -334,16 +334,15 @@
           "notNull": false,
           "autoincrement": false
         },
-        "awaiting_results": {
-          "name": "awaiting_results",
+        "awaiting_since": {
+          "name": "awaiting_since",
           "type": "text",
           "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'[]'"
+          "notNull": false,
+          "autoincrement": false
         },
-        "attempt_started_at": {
-          "name": "attempt_started_at",
+        "open_turn": {
+          "name": "open_turn",
           "type": "text",
           "primaryKey": false,
           "notNull": false,

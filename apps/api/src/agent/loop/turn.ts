@@ -3,7 +3,8 @@ import { parseInput } from "../tools/schema.js";
 import type { OfferedToolset } from "../tools/toolset.js";
 import type { Tool, ToolDispatchContext } from "../tools/types.js";
 import { publishTranscriptItem } from "../../session/stream.js";
-import { toolCallCard } from "../../session/transcript.js";
+import type { Decision } from "../../session/schema.js";
+import { toolCallCard, toolCallState } from "../../session/transcript.js";
 import type { logger } from "../../logger.js";
 import type { ToolResult, ToolUse } from "../../llm/types.js";
 import { isToolName, TOOL_NAMES } from "@nightwarden/shared";
@@ -13,11 +14,11 @@ import { isToolName, TOOL_NAMES } from "@nightwarden/shared";
 type GateKind = "approval" | "clarification";
 
 interface TurnOutcome {
-  // One per non-gated tool_use, so every block is answered even when a later one
-  // suspends. Each carries whether its tool failed, which the record stores.
+  // One per call before the gate, in the order the calls were emitted. Each
+  // carries whether its tool failed, which the record stores.
   toolResults: ToolResult[];
-  // The single gated call to suspend on, or null if the turn had none. The turn
-  // suspends there, so every call asked for after it is answered for reissue.
+  // The single gated call to suspend on, or null if the turn had none. The calls
+  // asked for after it stay unanswered until a person decides.
   gated: { tool: ToolUse; kind: GateKind } | null;
 }
 
@@ -99,23 +100,16 @@ function unavailableMessage(
   return `${what}${suggestion}${repeat} Do not ask for it again. What you do have: ${offered.join(", ")}.`;
 }
 
-// Answered for every call asked for after the turn's gated one: the run suspends
-// there, so each is reissued next turn once the gate resolves.
-function notRunAfterGate(callName: string, gatedName: string): string {
-  return `The ${callName} call in this reply did not run. The ${gatedName} call earlier in the same reply needed approval, and a turn stops at the first call that needs approval. Call ${callName} again in your next turn if you still need its result.`;
-}
-
-/* One step per tool_use, decided before anything runs. A gate contributes no
-   result: the loop suspends on it and the resume answers it. */
+/* One step per call before the first gate, decided before anything runs. A gate
+   contributes no step: the run parks on it and the calls after it wait. */
 type Step =
   | { kind: "answer"; result: ToolResult }
-  | { kind: "gate" }
   | { kind: "run"; call: ToolUse; tool: Tool };
 
-// Two passes: classify every call with no I/O, so the one-gate-per-turn rule keeps its
-// order, then run them. Both resolve against the offered set, so a stripped tool reports unavailable.
+// Two passes: classify every call with no I/O, stopping at the first gate, then run
+// them. Both resolve against the offered set, so a stripped tool reports unavailable.
 export async function processToolUses(params: {
-  toolUses: ToolUse[];
+  toolUses: readonly ToolUse[];
   offered: OfferedToolset;
   sessionId: string;
   // The id is per call, so the loop hands over a turn-scoped base context and
@@ -125,8 +119,20 @@ export async function processToolUses(params: {
   // How many times each name has already been refused since a person spoke, so
   // a repeat is answered as a repeat rather than as a fresh mistake.
   alreadyRefused: ReadonlyMap<string, number>;
+  // What a gate's resolution already answered, and the decisions that released a
+  // write; both are empty on a turn no gate has interrupted.
+  answered: readonly ToolResult[];
+  decisions: readonly Decision[];
 }): Promise<TurnOutcome> {
   const { toolUses, offered, sessionId, execCtx, log } = params;
+  const answeredById = new Map(params.answered.map((r) => [r.toolCallId, r]));
+  const approvals = new Map(
+    params.decisions.flatMap(({ part }) =>
+      part.type === "tool_approval" && part.approved
+        ? [[part.toolCallId, part] as const]
+        : [],
+    ),
+  );
 
   const steps: Step[] = [];
   let gated: { tool: ToolUse; kind: GateKind } | null = null;
@@ -136,17 +142,10 @@ export async function processToolUses(params: {
   ];
 
   for (const tool of toolUses) {
-    // A gated call suspends the whole turn, so nothing asked for after it runs;
-    // each is answered here so the model can reissue it once the gate resolves.
-    if (gated !== null) {
-      steps.push({
-        kind: "answer",
-        result: {
-          toolCallId: tool.toolCallId,
-          content: notRunAfterGate(tool.name, gated.tool.name),
-          isError: true,
-        },
-      });
+    // Checked first, so a call never runs twice.
+    const answer = answeredById.get(tool.toolCallId);
+    if (answer !== undefined) {
+      steps.push({ kind: "answer", result: answer });
       continue;
     }
 
@@ -176,8 +175,7 @@ export async function processToolUses(params: {
           continue;
         }
         gated = { tool, kind: "clarification" };
-        steps.push({ kind: "gate" });
-        continue;
+        break;
       }
       const asked = params.alreadyRefused.get(tool.name) ?? 0;
       log.warn(
@@ -200,23 +198,29 @@ export async function processToolUses(params: {
       continue;
     }
 
-    if (resolvePolicy(entry, tool.input) === "approve") {
+    // A write a person already approved runs without asking again.
+    if (
+      !approvals.has(tool.toolCallId) &&
+      resolvePolicy(entry, tool.input) === "approve"
+    ) {
       gated = { tool, kind: "approval" };
-      steps.push({ kind: "gate" });
-      continue;
+      break;
     }
 
     steps.push({ kind: "run", call: tool, tool: entry });
   }
 
   const runOne = async (call: ToolUse, tool: Tool): Promise<ToolResult> => {
+    const approval = approvals.get(call.toolCallId);
+    const decided = approval === undefined ? null : "approved";
+    const actor = approval?.actor ?? null;
     publishTranscriptItem({
       sessionId,
       item: toolCallCard({
         toolCallId: call.toolCallId,
         toolName: call.name,
         input: call.input,
-        state: { phase: "running" },
+        state: toolCallState(undefined, false, null, decided, actor),
       }),
     });
     const { content, isError, refusal } = await executeTool(tool, call.input, {
@@ -229,13 +233,9 @@ export async function processToolUses(params: {
         toolCallId: call.toolCallId,
         toolName: call.name,
         input: call.input,
-        // The same string the transcript fetch would show, so a reload cannot
-        // render this result differently from the live card.
-        state: {
-          phase: "complete",
-          result: content,
-          ...(isError === true && { isError: true }),
-        },
+        // The projection's own function, so a reload cannot draw this result
+        // differently from the live card.
+        state: toolCallState(content, isError === true, null, decided, actor),
       }),
     });
     return {

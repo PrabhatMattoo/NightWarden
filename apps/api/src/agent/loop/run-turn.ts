@@ -39,11 +39,16 @@ import {
   publishTranscriptItem,
 } from "../../session/stream.js";
 import { toolCallCard } from "../../session/transcript.js";
-import type { PendingHumanInput } from "../../session/gate-store.js";
 import type { ChatResponse, ToolResult, ToolUse } from "../../llm/types.js";
 import { COMPOSE_REPORT_TOOL } from "../tools/report.js";
+import type { Stage } from "./stage.js";
 import { processToolUses } from "./turn.js";
-import { REPORT_GIVEN_UP, reportEnding, turnEnding } from "./endings.js";
+import {
+  cutOffCallAnswer,
+  REPORT_GIVEN_UP,
+  reportEnding,
+  turnEnding,
+} from "./endings.js";
 import {
   barrenEnding,
   nudgeLeft,
@@ -54,7 +59,7 @@ import {
 } from "./guardrails.js";
 import { takeSandboxNote } from "../../sandbox/workspace.js";
 import { formatInjectedAlerts } from "./injection.js";
-import type { RunContext, TurnResult } from "./run-state.js";
+import type { ResumedTurn, RunContext, TurnResult } from "./run-state.js";
 
 // What the fleet and the connected integrations currently allow. Read together,
 // because the prompt describing them is built from the same call.
@@ -99,23 +104,28 @@ function toolsetChange(
 
 type Gate = { tool: ToolUse; kind: "approval" | "clarification" };
 
-// Durably suspend on a gated call: persist the assistant turn and the interrupt
-// row in one transaction, then tell the frontend a human is needed.
+/* Durably suspend on a gated call: persist the assistant turn, the gate and the
+   answers so far in one transaction, then tell the frontend a human is needed. */
 function suspendOnGate(
   ctx: RunContext,
   gated: Gate,
   toolResults: ToolResult[],
+  stage: Stage,
 ): void {
   const { sessionId, log } = ctx;
   const isAskGate = gated.kind === "clarification";
-  const interrupt: PendingHumanInput = {
-    sessionId,
-    toolCallId: gated.tool.toolCallId,
-    kind: isAskGate ? "clarification" : "approval",
-    completedResults: toolResults,
-    claimedAt: null,
-  };
-  ctx.state.flush(interrupt);
+  ctx.state.flush(
+    {
+      sessionId,
+      toolCallId: gated.tool.toolCallId,
+      kind: gated.kind,
+    },
+    {
+      stage,
+      results: toolResults,
+      decisions: ctx.state.openTurn?.decisions ?? [],
+    },
+  );
   const clarInput = isAskGate
     ? (gated.tool.input as {
         question: string;
@@ -148,7 +158,7 @@ function suspendOnGate(
     }),
   });
   log.info(
-    { tool: gated.tool.name, kind: interrupt.kind },
+    { tool: gated.tool.name, kind: gated.kind },
     "run suspended: pending human input",
   );
 }
@@ -176,16 +186,6 @@ const RECORD_TOOL_NAMES: readonly ToolName[] = [
   "RecordFinding",
   "CloseInvestigation",
 ];
-
-type Stage =
-  | "conversation"
-  | "gathering"
-  | "opening"
-  | "testing"
-  | "falsifying"
-  | "writingReport"
-  | "closingTurn"
-  | "closed";
 
 /* Read off the record and the run's position, so a resumed or reopened run lands
    where the investigation stands. */
@@ -295,6 +295,7 @@ function writeUpRequest(ctx: RunContext): string {
 // driver to loop, break to the continue-request, or end with an outcome.
 export async function runOneTurn(ctx: RunContext): Promise<TurnResult> {
   const { state, sessionId, log, llm } = ctx;
+  if (state.openTurn !== null) return await finishOpenTurn(ctx, state.openTurn);
   const turn = (state.turn += 1);
 
   // Re-read per turn, but never silently: a change the model is not told about
@@ -403,6 +404,18 @@ export async function runOneTurn(ctx: RunContext): Promise<TurnResult> {
       { turn, model: llm.model, stopReason: response.stopReason },
       "turn ended without an answer",
     );
+    const answer = cutOffCallAnswer(response.stopReason);
+    if (answer !== null && response.toolUses.length > 0) {
+      state.stageResults(
+        response.toolUses,
+        response.toolUses.map((use) => ({
+          toolCallId: use.toolCallId,
+          content: answer,
+          isError: true,
+        })),
+      );
+      state.flush();
+    }
     appendErrorMessage(sessionId, ending);
     return { kind: "outcome", outcome: "completed" };
   }
@@ -445,6 +458,54 @@ export async function runOneTurn(ctx: RunContext): Promise<TurnResult> {
     return { kind: "stand_down" };
   }
 
+  return await settleTurn(ctx, {
+    stage,
+    uses: response.toolUses,
+    offered: forThisStage,
+    recordBefore,
+  });
+}
+
+/* Finishes a turn a decision released from its next call, without asking the model
+   again. A Stop that landed first ends it before any call starts, a write included. */
+async function finishOpenTurn(
+  ctx: RunContext,
+  open: ResumedTurn,
+): Promise<TurnResult> {
+  const { state, sessionId, log } = ctx;
+  if (ctx.signal?.aborted) {
+    log.info("run stopped by user before the open turn finished");
+    state.stageStopped(open.uses, open.results);
+    state.flush();
+    return { kind: "outcome", outcome: "stopped" };
+  }
+  return await settleTurn(ctx, {
+    stage: open.stage,
+    uses: open.uses,
+    offered: toolsForStage(open.stage, state.offered),
+    recordBefore: getRecord(sessionId),
+  });
+}
+
+/* Everything a turn does with its tool calls once it has them: run what is
+   ready, park on the first gate, stage the answers and note what they changed. */
+async function settleTurn(
+  ctx: RunContext,
+  {
+    stage,
+    uses,
+    offered,
+    recordBefore,
+  }: {
+    stage: Stage;
+    uses: readonly ToolUse[];
+    offered: OfferedToolset;
+    recordBefore: InvestigationRecord | undefined;
+  },
+): Promise<TurnResult> {
+  const { state, sessionId, log } = ctx;
+  const turn = state.turn;
+  const progress = state.position;
   const execCtx: Omit<ToolDispatchContext, "toolCallId"> = {
     // Already clamped by what remains of the investigation, so no tool call can
     // outlive the budget it is being spent from.
@@ -457,30 +518,32 @@ export async function runOneTurn(ctx: RunContext): Promise<TurnResult> {
   };
 
   const { toolResults, gated } = await processToolUses({
-    toolUses: response.toolUses,
-    offered: forThisStage,
+    toolUses: uses,
+    offered,
     sessionId,
     execCtx,
     log,
     alreadyRefused: progress.spent.unavailableAsks,
+    answered: state.openTurn?.results ?? [],
+    decisions: state.openTurn?.decisions ?? [],
   });
 
   // A turn's tools outlive the stop that arrives during them, so the gate is
   // reached already aborted; suspending here parks an interrupt on a dead run.
   if (ctx.signal?.aborted) {
     log.info({ turn }, "run stopped by user before the gate");
-    state.stageStopped(response.toolUses, toolResults);
+    state.stageStopped(uses, toolResults);
     state.flush();
     return { kind: "outcome", outcome: "stopped" };
   }
 
   if (gated !== null) {
     // Alerts joining a parked run stay on their rows until it resumes.
-    suspendOnGate(ctx, gated, toolResults);
+    suspendOnGate(ctx, gated, toolResults, stage);
     return { kind: "outcome", outcome: "suspended" };
   }
 
-  state.stageResults(response.toolUses, toolResults);
+  state.stageResults(uses, toolResults);
   const barren = barrenEnding(progress, state.offered);
   if (barren !== null) {
     log.warn(
@@ -499,7 +562,7 @@ export async function runOneTurn(ctx: RunContext): Promise<TurnResult> {
   /* The write-up landed, so the card that was spinning now names what it opens.
      A refusal leaves the record behind, which is the next turn's write-up stage. */
   if (stage === "writingReport") {
-    const wrote = response.toolUses.some(
+    const wrote = uses.some(
       (use) =>
         use.name === "ComposeReport" &&
         toolResults.some(
@@ -516,7 +579,7 @@ export async function runOneTurn(ctx: RunContext): Promise<TurnResult> {
      answered it as unoffered, and standing the run down would be a lie. */
   const closing =
     stage === "falsifying"
-      ? response.toolUses.find((use) => use.name === "CloseInvestigation")
+      ? uses.find((use) => use.name === "CloseInvestigation")
       : undefined;
   if (closing !== undefined) {
     const answer = toolResults.find(

@@ -1,4 +1,12 @@
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  onTestFinished,
+  vi,
+} from "vitest";
 import type { SessionReportResponse } from "@nightwarden/shared";
 import { fakeModel, messagesSentTo, type ScriptedTurn } from "./fake-model.js";
 import { harness, type Harness } from "./harness.js";
@@ -14,8 +22,13 @@ import {
   toolCallReached,
 } from "./frontend-events-helper.js";
 
-import { isRunning } from "../session/status-store.js";
-import { hasPendingHumanInput } from "../session/gate-store.js";
+import { deriveStatus, isRunning } from "../session/status-store.js";
+import {
+  getOpenTurn,
+  hasPendingHumanInput,
+  resolveGate,
+} from "../session/gate-store.js";
+import { buildSeed } from "../session/seed.js";
 import { getTranscriptRows } from "../session/transcript-store.js";
 
 // A free-form text finish: no tool call ends the run successfully.
@@ -36,7 +49,7 @@ describe("durable approval interrupts", () => {
       runners: [
         {
           name: "approval-host",
-          services: ["web-01"],
+          services: ["web-01", "web-02"],
           answer: ({ commandName, commandInput }) => {
             if (commandName !== "RestartDockerService") return [];
             restartCommands.push(commandInput);
@@ -464,74 +477,215 @@ describe("durable approval interrupts", () => {
     close();
   });
 
-  it("mixed parallel turn: non-gated tools execute first, resume covers all tool_uses", async () => {
+  /* A turn of [read, gated write, read, gated write] parks twice. Each decision
+     lets the same turn carry on, and the model is asked again only once every
+     call in the turn has an answer. */
+  it("finishes a gated turn in order after each decision and answers it in one row", async () => {
+    restartCommands.length = 0;
+    const listing = { server: ["approval-host"] };
+    const restart = (toolCallId: string, service: string) => ({
+      toolCallId,
+      name: "RestartDockerService",
+      input: {
+        target: `approval-host/${service}/${service}`,
+        reason: "mixed",
+        estimatedDowntimeSeconds: 2,
+      },
+    });
+    const requestsBefore = scripted.requests.length;
+    setScript([
+      {
+        text: "Checking, restarting, checking again, restarting again.",
+        toolUses: [
+          { toolCallId: "tu-a", name: "ListDockerServices", input: listing },
+          restart("tu-b", "web-01"),
+          { toolCallId: "tu-c", name: "ListDockerServices", input: listing },
+          restart("tu-d", "web-02"),
+        ],
+      },
+      FINISH_TURN,
+    ]);
+    const listings = (): number =>
+      nw.runner.commands.filter((c) => c.commandName === "ListDockerServices")
+        .length;
+    const listingsBefore = listings();
+    const respond = async (sessionId: string): Promise<Response> =>
+      await fetch(
+        `http://127.0.0.1:${port}/api/sessions/${sessionId}/respond`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Cookie: SESSION },
+          body: JSON.stringify({ decision: "approve" }),
+        },
+      );
+
+    const { events, close } = await connectFrontendEvents(port, SESSION);
+    const res = await fetch(`http://127.0.0.1:${port}/api/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Cookie: SESSION },
+      body: messageBody("Mixed turn test."),
+    });
+    const { sessionId } = (await res.json()) as { sessionId: string };
+    const asksFor = (toolCallId: string) => () =>
+      events.some(
+        (e) =>
+          e.type === "HUMAN_INPUT_REQUIRED" &&
+          e.payload["toolCallId"] === toolCallId,
+      );
+
+    // Parked on the first write: the read before it ran, the read after it waits.
+    await waitFor(asksFor("tu-b"));
+    expect(toolCallReached(events, "tu-a", "complete")).toBe(true);
+    expect(listings() - listingsBefore).toBe(1);
+    expect(restartCommands).toHaveLength(0);
+
+    // The person is away for a quarter of an hour. Only the clock moves, since
+    // a frozen timer would stall the requests still in flight.
+    vi.useFakeTimers({ toFake: ["Date"], shouldAdvanceTime: true });
+    onTestFinished(() => {
+      vi.useRealTimers();
+    });
+    vi.setSystemTime(Date.now() + 15 * 60_000);
+
+    expect((await respond(sessionId)).status).toBe(200);
+
+    // The same turn carries on: the write runs, the read after it runs, and
+    // the second write parks without the model being asked anything.
+    await waitFor(asksFor("tu-d"));
+    expect(restartCommands.map((c) => c["service"])).toEqual([
+      { project: "web-01", service: "web-01" },
+    ]);
+    expect(listings() - listingsBefore).toBe(2);
+    expect(scripted.requests.length - requestsBefore).toBe(1);
+
+    expect((await respond(sessionId)).status).toBe(200);
+    await waitFor(() =>
+      events.some(
+        (e) =>
+          e.type === "RUN_FINISHED" && e.payload["sessionId"] === sessionId,
+      ),
+    );
+    expect(restartCommands.map((c) => c["service"])).toEqual([
+      { project: "web-01", service: "web-01" },
+      { project: "web-02", service: "web-02" },
+    ]);
+
+    // One row answers the whole turn, in the order the calls were asked, with
+    // ids that ascend and both decisions beside the results.
+    const rows = getTranscriptRows(sessionId);
+    const answered = rows.filter((row) =>
+      row.parts.some((part) => part.type === "tool_result"),
+    );
+    expect(answered).toHaveLength(1);
+    expect(
+      answered[0]?.parts.flatMap((part) =>
+        part.type === "tool_result" ? [[part.toolCallId, part.evidenceId]] : [],
+      ),
+    ).toEqual([
+      ["tu-a", "e1"],
+      ["tu-b", "e2"],
+      ["tu-c", "e3"],
+      ["tu-d", "e4"],
+    ]);
+    expect(
+      answered[0]?.parts.flatMap((part) =>
+        part.type === "tool_approval" ? [[part.toolCallId, part.approved]] : [],
+      ),
+    ).toEqual([
+      ["tu-b", true],
+      ["tu-d", true],
+    ]);
+
+    // The model learns that the write waited and which result predates the wait.
+    const next = rows[rows.indexOf(answered[0]!) + 1];
+    expect(next?.reminder).toBe("decision_wait");
+    expect(next?.content).toContain("15 minutes");
+    expect(next?.content).toMatch(/\be1\b/);
+    expect(next?.content).not.toMatch(/\be[234]\b/);
+
+    // The model's second request carries the whole turn's results in order.
+    const resumed = messagesSentTo(scripted, requestsBefore + 1);
+    expect(
+      resumed.flatMap((m) => m.toolResults.map((r) => r.toolUseId)),
+    ).toEqual(["tu-a", "tu-b", "tu-c", "tu-d"]);
+    expect(JSON.stringify(resumed)).not.toContain("did not run");
+    expect(getOpenTurn(sessionId)).toBeNull();
+
+    close();
+  });
+
+  // Nothing can cancel a write once it starts, so a Stop that lands before the
+  // released turn runs must end it first.
+  it("an approved write never starts once Stop has landed", async () => {
     restartCommands.length = 0;
     setScript([
       {
-        text: "Checking then restarting.",
+        text: "Restarting.",
         toolUses: [
           {
-            toolCallId: "tu-mix-read",
-            name: "ListDockerServices",
-            input: {},
-          },
-          {
-            toolCallId: "tu-mix-gate",
+            toolCallId: "tu-stop-write",
             name: "RestartDockerService",
             input: {
               target: "approval-host/web-01/web-01",
-              reason: "mixed",
-              estimatedDowntimeSeconds: 2,
+              reason: "wedged",
+              estimatedDowntimeSeconds: 5,
             },
           },
         ],
       },
       FINISH_TURN,
     ]);
-
     const { events, close } = await connectFrontendEvents(port, SESSION);
-
     const res = await fetch(`http://127.0.0.1:${port}/api/chat`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Cookie: `${SESSION}`,
-      },
-      body: messageBody("Mixed turn test."),
+      headers: { "Content-Type": "application/json", Cookie: SESSION },
+      body: messageBody("Stop before the write."),
     });
     const { sessionId } = (await res.json()) as { sessionId: string };
-
     await waitFor(() =>
-      events.find(
+      events.some(
         (e) =>
           e.type === "HUMAN_INPUT_REQUIRED" &&
-          e.payload["sessionId"] === sessionId,
+          e.payload["toolCallId"] === "tu-stop-write",
       ),
     );
 
-    // The non-gated read tool should have completed before suspension
-    expect(toolCallReached(events, "tu-mix-read", "complete")).toBe(true);
-
-    // The gated tool was NOT called on the runner yet
-    expect(restartCommands).toHaveLength(0);
-
-    const approveRes = await fetch(
-      `http://127.0.0.1:${port}/api/sessions/${sessionId}/respond`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Cookie: `${SESSION}`,
+    // Decided and claimed, then stopped in the same tick the run launches in.
+    expect(
+      resolveGate(
+        sessionId,
+        "tu-stop-write",
+        {
+          part: {
+            type: "tool_approval",
+            toolCallId: "tu-stop-write",
+            approved: true,
+          },
+          waitedMs: 0,
         },
-        body: JSON.stringify({ decision: "approve" }),
-      },
+        null,
+      ),
+    ).toBe(true);
+    nw.dispatcher.launch({ sessionId, seed: buildSeed(sessionId) });
+    expect(nw.dispatcher.stop(sessionId)).toBe(true);
+    await waitFor(() => !isRunning(sessionId));
+
+    expect(restartCommands).toHaveLength(0);
+    expect(deriveStatus(sessionId)).toBe("stopped");
+    const parts = getTranscriptRows(sessionId).flatMap((row) => row.parts);
+    expect(parts).toContainEqual(
+      expect.objectContaining({
+        type: "tool_result",
+        toolCallId: "tu-stop-write",
+        isError: true,
+      }),
     );
-    expect(approveRes.status).toBe(200);
-
-    // Gated tool now runs exactly once on the runner
-    await waitFor(() => restartCommands.length > 0);
-    expect(restartCommands).toHaveLength(1);
-
+    expect(parts).toContainEqual(
+      expect.objectContaining({
+        type: "tool_approval",
+        toolCallId: "tu-stop-write",
+      }),
+    );
     close();
   });
 
@@ -701,8 +855,7 @@ describe("durable approval interrupts", () => {
     // Interrupt row is gone from DB after resolution
     expect(hasPendingHumanInput(sessionId)).toBe(false);
 
-    /* Written by the resolve in the transaction that cleared the gate, and never
-       again by the resumed run, so a crash between them loses nor doubles it. */
+    // Written once, in the row that answers the turn, so a crash cannot double it.
     const answers = getTranscriptRows(sessionId).flatMap((row) =>
       row.parts.flatMap((part) =>
         part.type === "tool_approval" && part.toolCallId === "tu-apr-1"
@@ -750,6 +903,11 @@ describe("durable approval interrupts", () => {
               reason: "wedged",
               estimatedDowntimeSeconds: 5,
             },
+          },
+          {
+            toolCallId: "tu-rej-read",
+            name: "ListDockerServices",
+            input: { server: ["approval-host"] },
           },
         ],
       },
@@ -814,6 +972,14 @@ describe("durable approval interrupts", () => {
       .flatMap((m) => m.toolResults)
       .find((r) => r.toolUseId === "tu-rej-1");
     expect(answer?.content).toContain("too risky");
+    // A rejection does not cancel the call asked for behind it: that read ran.
+    const read = getTranscriptRows(sessionId)
+      .flatMap((row) => row.parts)
+      .find(
+        (part) =>
+          part.type === "tool_result" && part.toolCallId === "tu-rej-read",
+      );
+    expect(read).toMatchObject({ evidenceId: expect.any(String) });
     close();
   });
 });

@@ -105,7 +105,7 @@ describe("chat routes — session-uuid-addressed, owner-cookie-gated", () => {
     await waitFor(() => !isRunning(sessionId));
   });
 
-  it("POST /chat refuses with 503 when no LLM is configured, naming what to pick", async () => {
+  it("POST /chat and a decision refuse with 503 when no LLM is configured, naming what to pick", async () => {
     clearTestLLM();
     try {
       const res = await fetch(`http://127.0.0.1:${port}/api/chat`, {
@@ -120,6 +120,20 @@ describe("chat routes — session-uuid-addressed, owner-cookie-gated", () => {
       expect(res.status).toBe(503);
       const body = (await res.json()) as { error: string };
       expect(body.error).toMatch(/no LLM is configured/i);
+
+      // A decision resumes a run as a message does, so it is refused the same way.
+      const respond = await fetch(
+        `http://127.0.0.1:${port}/api/sessions/any/respond`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Cookie: `${SESSION}`,
+          },
+          body: JSON.stringify({ decision: "approve" }),
+        },
+      );
+      expect(respond.status).toBe(503);
     } finally {
       configureTestLLM();
     }

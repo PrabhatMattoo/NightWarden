@@ -1,6 +1,10 @@
 import { fakeModel } from "./fake-model.js";
 import { randomUUID } from "node:crypto";
-import { seedAlertSession, WHOLE_DELIVERY } from "./session-helper.js";
+import {
+  seedAlertSession,
+  UNANSWERED_TURN,
+  WHOLE_DELIVERY,
+} from "./session-helper.js";
 import {
   afterAll,
   afterEach,
@@ -353,13 +357,15 @@ describe("API-local session store", () => {
         createdAt: "2026-01-01T00:00:00.000Z",
       });
       seedAlertSession(waiting, [firing()]);
-      appendRowsAndPark([msg(waiting.sessionId, 0)], {
-        sessionId: waiting.sessionId,
-        toolCallId: "tu-float",
-        kind: "approval",
-        completedResults: [],
-        claimedAt: null,
-      });
+      appendRowsAndPark(
+        [msg(waiting.sessionId, 0)],
+        {
+          sessionId: waiting.sessionId,
+          toolCallId: "tu-float",
+          kind: "approval",
+        },
+        UNANSWERED_TURN,
+      );
       seedAlertSession(meta({ title: "newer than waiting" }), [firing()]);
 
       const first = listSessionFacts(1, 0, "investigation");
@@ -376,13 +382,15 @@ describe("API-local session store", () => {
   it("deleteSession removes the session, its messages, and any pending interrupt", () => {
     const m = meta();
     seedAlertSession(m, [firing()]);
-    appendRowsAndPark([msg(m.sessionId, 0)], {
-      sessionId: m.sessionId,
-      toolCallId: "tu-del-1",
-      kind: "approval",
-      completedResults: [],
-      claimedAt: null,
-    });
+    appendRowsAndPark(
+      [msg(m.sessionId, 0)],
+      {
+        sessionId: m.sessionId,
+        toolCallId: "tu-del-1",
+        kind: "approval",
+      },
+      UNANSWERED_TURN,
+    );
 
     deleteSession(m.sessionId);
 
@@ -833,13 +841,15 @@ describe("API-local session store", () => {
 
     it("says what a gated session waits on, by the kind of answer it needs", () => {
       const sessionId = investigation();
-      appendRowsAndPark([msg(sessionId, 0)], {
-        sessionId,
-        toolCallId: "tu-gate",
-        kind: "approval",
-        completedResults: [],
-        claimedAt: null,
-      });
+      appendRowsAndPark(
+        [msg(sessionId, 0)],
+        {
+          sessionId,
+          toolCallId: "tu-gate",
+          kind: "approval",
+        },
+        UNANSWERED_TURN,
+      );
       expect(statusLineOf(sessionId)).toBe("Waiting on approval");
     });
 
@@ -944,13 +954,15 @@ describe("API-local session store", () => {
     // One of each: parked on a person, recovered, and finished without recovery.
     function oneOfEach(): Record<string, string> {
       const waiting = investigation();
-      appendRowsAndPark([msg(waiting, 0)], {
-        sessionId: waiting,
-        toolCallId: `tu-${waiting}`,
-        kind: "approval",
-        completedResults: [],
-        claimedAt: null,
-      });
+      appendRowsAndPark(
+        [msg(waiting, 0)],
+        {
+          sessionId: waiting,
+          toolCallId: `tu-${waiting}`,
+          kind: "approval",
+        },
+        UNANSWERED_TURN,
+      );
       const sourceAlertId = randomUUID();
       const resolved = meta();
       seedAlertSession(resolved, [{ ...alert, sourceAlertId }]);

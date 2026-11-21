@@ -1,7 +1,6 @@
 import { fakeModel } from "./fake-model.js";
 import { randomUUID } from "node:crypto";
-import { seedAlertSession } from "./session-helper.js";
-import { eq } from "drizzle-orm";
+import { seedAlertSession, UNANSWERED_TURN } from "./session-helper.js";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { NormalizedAlert, TranscriptRow } from "@nightwarden/shared";
 import { dispatcherFor } from "../server.js";
@@ -10,8 +9,9 @@ import { dispatcherFor } from "../server.js";
 const scripted = fakeModel();
 const dispatcher = dispatcherFor(scripted.modelFor);
 
-import { getDb } from "../db.js";
-import { sessions } from "../session/schema.js";
+import { createRunner } from "../fleet/runners-store.js";
+import { getOpenTurn, resolveGate } from "../session/gate-store.js";
+import type { Decision } from "../session/schema.js";
 import {
   claimRun,
   deriveStatus,
@@ -19,6 +19,7 @@ import {
   runFailure,
 } from "../session/status-store.js";
 import {
+  appendRowsAndCloseTurn,
   appendRowsAndPark,
   appendTranscriptRows,
   getTranscriptRows,
@@ -27,6 +28,7 @@ import { recoverDeadRuns } from "../session/recover.js";
 import { buildSeed } from "../session/seed.js";
 import { reconcileRecovery } from "../verification/reconciler.js";
 import { updateConfig } from "../config/store.js";
+import { fakeRunner } from "./harness.js";
 import { useTempDb } from "./temp-db.js";
 import { waitFor } from "./wait.js";
 
@@ -68,15 +70,33 @@ function callTurn(
 function parkOnApproval(sessionId: string): void {
   appendRowsAndPark(
     [callTurn(sessionId, 0, "tu-gated", "RestartDockerService")],
-    {
-      sessionId,
-      toolCallId: "tu-gated",
-      kind: "approval",
-      completedResults: [],
-      claimedAt: null,
-    },
+    { sessionId, toolCallId: "tu-gated", kind: "approval" },
+    UNANSWERED_TURN,
   );
 }
+
+// The assistant's reply: a read, a write that needs approval, then another read.
+function readWriteReadTurn(sessionId: string, seq: number): TranscriptRow {
+  const call = (toolCallId: string, name: string) =>
+    ({ type: "tool_call", toolCallId, name, input: {} }) as const;
+  return {
+    sessionId,
+    seq,
+    kind: "assistant",
+    content: "[tools]",
+    parts: [
+      call("tu-a", "ListDockerServices"),
+      call("tu-b", "RestartDockerService"),
+      call("tu-c", "ListDockerServices"),
+    ],
+    timestamp: new Date().toISOString(),
+  };
+}
+
+const APPROVED_B: Decision = {
+  part: { type: "tool_approval", toolCallId: "tu-b", approved: true },
+  waitedMs: 0,
+};
 
 describe("recovering runs a restart interrupted", () => {
   let cleanupDb: () => void;
@@ -141,87 +161,135 @@ describe("recovering runs a restart interrupted", () => {
     );
   });
 
-  it("tells the person to check the target when an approved write ran and its result was lost", () => {
+  /* The decision claimed the run before the process died, so the boot finds a
+     running session holding a turn half answered. The approved write may have run,
+     so it is answered as unknown rather than run again. */
+  it("answers a released turn's unfinished calls as unknown and keeps the ids it numbered", async () => {
     const sessionId = alertSession();
-    parkOnApproval(sessionId);
-    // Approval clears the gate before the resume claims the run; this is that gap.
-    getDb()
-      .update(sessions)
-      .set({ awaitingToolUseId: null, awaitingKind: null })
-      .where(eq(sessions.sessionId, sessionId))
-      .run();
+    appendRowsAndPark(
+      [readWriteReadTurn(sessionId, 0)],
+      { sessionId, toolCallId: "tu-b", kind: "approval" },
+      {
+        stage: "gathering",
+        results: [{ toolCallId: "tu-a", content: "read before the wait" }],
+        decisions: [],
+      },
+    );
+    expect(resolveGate(sessionId, "tu-b", APPROVED_B, null)).toBe(true);
 
     recoverDeadRuns();
 
-    expect(deriveStatus(sessionId)).toBe("failed");
-    const note = getTranscriptRows(sessionId).find((m) => m.kind === "error");
-    expect(note?.content).toContain(
-      "check the target before approving it again",
+    // One row answers the turn: the stored read keeps its handle, the rest say
+    // their result is unknown, and the approval sits beside them.
+    const answered = getTranscriptRows(sessionId).filter((row) =>
+      row.parts.some((part) => part.type === "tool_result"),
     );
-  });
+    expect(answered).toHaveLength(1);
+    const parts = answered[0]?.parts ?? [];
+    expect(
+      parts.flatMap((part) =>
+        part.type === "tool_result"
+          ? [[part.toolCallId, part.evidenceId, part.isError]]
+          : [],
+      ),
+    ).toEqual([
+      ["tu-a", "e1", undefined],
+      ["tu-b", undefined, true],
+      ["tu-c", undefined, true],
+    ]);
+    expect(
+      parts.flatMap((part) =>
+        part.type === "tool_result" ? [part.output] : [],
+      ),
+    ).toEqual([
+      "read before the wait",
+      expect.stringContaining("result unknown"),
+      expect.stringContaining("result unknown"),
+    ]);
+    expect(parts).toContainEqual(APPROVED_B.part);
+    expect(getOpenTurn(sessionId)).toBeNull();
 
-  // A gated call is unanswered until a human decides, so unwinding past it hands
-  // the model results for a call it can no longer see it made.
-  it("keeps a gated turn once its answer is on the record", () => {
-    const sessionId = alertSession();
-    const at = new Date().toISOString();
-    appendTranscriptRows([
+    // The retry starts over from an empty seed, and still numbers past e1.
+    const runner = fakeRunner({
+      id: createRunner("docker", "crash-host").id,
+      name: "crash-host",
+    });
+    scripted.script([
       {
-        sessionId,
-        seq: 0,
-        kind: "user",
-        content: "restart it",
-        parts: [{ type: "text", text: "restart it" }],
-        timestamp: at,
-      },
-      {
-        sessionId,
-        seq: 1,
-        kind: "assistant",
-        content: "[tool: RestartDockerService]",
-        parts: [
+        text: "Reading.",
+        toolUses: [
           {
-            type: "tool_call",
-            toolCallId: "tu-read",
+            toolCallId: "tu-retry",
             name: "ListDockerServices",
-            input: {},
-          },
-          {
-            type: "tool_call",
-            toolCallId: "tu-gate",
-            name: "RestartDockerService",
-            input: { target: "prod-1/web/api" },
+            input: { server: ["crash-host"] },
           },
         ],
-        timestamp: at,
       },
+      { text: "Done.", toolUses: [] },
     ]);
+    const pass = await reconcileRecovery(dispatcher);
+    expect(pass.retried).toBe(1);
+    await waitFor(() => !isRunning(sessionId));
+    runner.disconnect();
+    expect(
+      getTranscriptRows(sessionId)
+        .flatMap((row) => row.parts)
+        .find(
+          (part) =>
+            part.type === "tool_result" && part.toolCallId === "tu-retry",
+        ),
+    ).toMatchObject({ evidenceId: "e2" });
+  });
 
-    // Nobody has answered, so the turn is dropped: no conversation may end on it.
+  /* A gated call is unanswered until a person decides, so unwinding past it hands
+     the model results for a call it can no longer see it made. */
+  it("seeds a gated turn only once a decision released it, and in full once it is answered", () => {
+    const sessionId = alertSession();
+    const at = new Date().toISOString();
+    appendRowsAndPark(
+      [
+        {
+          sessionId,
+          seq: 0,
+          kind: "user",
+          content: "restart it",
+          parts: [{ type: "text", text: "restart it" }],
+          timestamp: at,
+        },
+        readWriteReadTurn(sessionId, 1),
+      ],
+      { sessionId, toolCallId: "tu-b", kind: "approval" },
+      {
+        stage: "conversation",
+        results: [{ toolCallId: "tu-a", content: "ok" }],
+        decisions: [],
+      },
+    );
+
+    // Nobody has decided, so the turn is dropped: no conversation may end on it.
     expect(buildSeed(sessionId)).toHaveLength(1);
 
-    // Resolving a gate writes the whole turn's results before it clears, so the
-    // seed finds the exchange answered on the transcript.
-    appendTranscriptRows([
+    // The decision released it, so its run finishes the calls and answers before
+    // asking, and the turn stays in the conversation it will send.
+    expect(resolveGate(sessionId, "tu-b", APPROVED_B, null)).toBe(true);
+    expect(buildSeed(sessionId)).toHaveLength(2);
+
+    // Answered in full, the exchange is an ordinary one.
+    appendRowsAndCloseTurn([
       {
         sessionId,
         seq: 2,
         kind: "user",
         content: "results",
         parts: [
-          { type: "tool_result", toolCallId: "tu-read", output: "ok" },
-          { type: "tool_result", toolCallId: "tu-gate", output: "restarted" },
+          { type: "tool_result", toolCallId: "tu-a", output: "ok" },
+          { type: "tool_result", toolCallId: "tu-b", output: "restarted" },
+          { type: "tool_result", toolCallId: "tu-c", output: "ok" },
         ],
         timestamp: at,
       },
     ]);
-
-    const resumed = buildSeed(sessionId);
-    expect(resumed).toHaveLength(3);
-    expect(resumed[1]?.parts.map((p) => p.type)).toEqual([
-      "tool_call",
-      "tool_call",
-    ]);
+    expect(buildSeed(sessionId)).toHaveLength(3);
   });
 
   // Only a trailing exchange is cut, so later turns survive an earlier unanswered call.

@@ -1,4 +1,5 @@
 import type { TranscriptRow } from "@nightwarden/shared";
+import { getOpenTurn, hasPendingHumanInput } from "./gate-store.js";
 import { getTranscriptRows } from "./transcript-store.js";
 import type { ProviderMessage } from "../llm/types.js";
 
@@ -6,9 +7,12 @@ function hasToolCall(message: TranscriptRow): boolean {
   return message.parts.some((p) => p.type === "tool_call");
 }
 
-/* Providers refuse a conversation ending on an unanswered call, so only that tail goes;
-   stops, resolved gates and restarts answer theirs. */
-function throughLastAnsweredExchange(rows: TranscriptRow[]): TranscriptRow[] {
+/* Providers refuse a conversation ending on an unanswered call, so only that tail
+   goes; a turn a decision released stays, because its run answers it before asking. */
+function throughLastAnsweredExchange(
+  rows: TranscriptRow[],
+  finishing: boolean,
+): TranscriptRow[] {
   const answered = new Set<string>();
   for (const row of rows) {
     for (const part of row.parts) {
@@ -19,7 +23,7 @@ function throughLastAnsweredExchange(rows: TranscriptRow[]): TranscriptRow[] {
   const unanswered = rows[last]?.parts.some(
     (part) => part.type === "tool_call" && !answered.has(part.toolCallId),
   );
-  return unanswered === true ? rows.slice(0, last) : rows;
+  return unanswered === true && !finishing ? rows.slice(0, last) : rows;
 }
 
 // Maps our four kinds onto the provider's two roles.
@@ -48,7 +52,10 @@ export function seedRows(sessionId: string): TranscriptRow[] {
       rows.pop();
     }
   }
-  return throughLastAnsweredExchange(rows);
+  return throughLastAnsweredExchange(
+    rows,
+    getOpenTurn(sessionId) !== null && !hasPendingHumanInput(sessionId),
+  );
 }
 
 export function buildSeed(sessionId: string): ProviderMessage[] {

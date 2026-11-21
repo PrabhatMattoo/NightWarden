@@ -8,6 +8,7 @@ import { getDb } from "../db.js";
 import { buildSessionMeta } from "../agent/loop/run-session.js";
 import type { Dispatcher } from "../dispatcher.js";
 import { admitDelivery } from "../session/alerts-store.js";
+import type { OpenTurn } from "../session/schema.js";
 import { releaseRun } from "../session/status-store.js";
 import { createSession } from "../session/store.js";
 
@@ -16,6 +17,13 @@ import { createSession } from "../session/store.js";
 export const WHOLE_DELIVERY: DeliveryContext = {
   droppedAlerts: 0,
   groupContext: null,
+};
+
+// What a run parks with when the first call of its turn is the gate.
+export const UNANSWERED_TURN: OpenTurn = {
+  stage: "conversation",
+  results: [],
+  decisions: [],
 };
 
 // By the only route production has, unlimited because these tests are not about

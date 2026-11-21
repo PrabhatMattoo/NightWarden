@@ -362,11 +362,11 @@ describe("clarification interrupts", () => {
     close();
   });
 
-  it("mixed two-gate turn: clarification suspends first, then approval suspends on resume, run completes", async () => {
+  it("a question and a write in one turn: the answer carries the turn to the write's own card, with no new model call", async () => {
     restartCommands.length = 0;
     const clarId = `tu-mix-clar-${randomUUID()}`;
-    const restart1Id = `tu-mix-restart1-${randomUUID()}`;
-    const restart2Id = `tu-mix-restart2-${randomUUID()}`;
+    const restartId = `tu-mix-restart-${randomUUID()}`;
+    const requestsBefore = scripted.requests.length;
 
     setScript([
       {
@@ -381,25 +381,11 @@ describe("clarification interrupts", () => {
             },
           },
           {
-            toolCallId: restart1Id,
+            toolCallId: restartId,
             name: "RestartDockerService",
             input: {
               target: "clar-host/web-01/web-01",
               reason: "mixed",
-              estimatedDowntimeSeconds: 2,
-            },
-          },
-        ],
-      },
-      {
-        text: "Now restarting.",
-        toolUses: [
-          {
-            toolCallId: restart2Id,
-            name: "RestartDockerService",
-            input: {
-              target: "clar-host/web-01/web-01",
-              reason: "confirmed",
               estimatedDowntimeSeconds: 2,
             },
           },
@@ -445,7 +431,8 @@ describe("clarification interrupts", () => {
     );
     expect(answerRes.status).toBe(200);
 
-    // Second interrupt: approval for restart
+    // The write the same turn asked for next, held for approval without the
+    // model being asked again.
     const approvalInterrupt = await waitFor(() =>
       events.find(
         (e) =>
@@ -454,8 +441,9 @@ describe("clarification interrupts", () => {
           e.payload["kind"] === "approval",
       ),
     );
-    expect(approvalInterrupt.payload["toolName"]).toBe("RestartDockerService");
+    expect(approvalInterrupt.payload["toolCallId"]).toBe(restartId);
     expect(restartCommands).toHaveLength(0);
+    expect(scripted.requests.length - requestsBefore).toBe(1);
 
     const approveRes = await fetch(
       `http://127.0.0.1:${port}/api/sessions/${sessionId}/respond`,

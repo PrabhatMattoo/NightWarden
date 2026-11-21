@@ -156,13 +156,16 @@ describe("run failure surfacing (dispatch -> transcript -> SSE)", () => {
     expect(roles).toEqual(["user", "assistant"]);
   });
 
-  // A turn with no tool calls otherwise reads as a finished reply, so the reason is named first.
+  /* A cut-off reply is no answer, so the reason is named first; the calls it made
+     are answered as not run, since every call needs its result. */
   it.each(["length", "filtered", "paused"] as const)(
     "says a turn ended for %s instead of reading what it held as an answer",
     async (reason) => {
       scripted.script([
         {
-          toolUses: [],
+          toolUses: [
+            { toolCallId: "tu-cut", name: "ListDockerServices", input: {} },
+          ],
           text: "Partial answer that stops mid-",
           stopReason: reason,
         },
@@ -180,6 +183,14 @@ describe("run failure surfacing (dispatch -> transcript -> SSE)", () => {
         (m) => m.kind === "error",
       );
       expect(ending?.content).toBe(turnEnding(reason, 32_000));
+      expect(
+        getTranscriptRows(sessionId)
+          .flatMap((row) => row.parts)
+          .find(
+            (part) =>
+              part.type === "tool_result" && part.toolCallId === "tu-cut",
+          ),
+      ).toMatchObject({ isError: true });
     },
   );
 });

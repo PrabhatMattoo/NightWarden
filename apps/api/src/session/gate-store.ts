@@ -1,36 +1,17 @@
-import { and, eq, isNotNull, isNull } from "drizzle-orm";
+import { and, eq, isNotNull } from "drizzle-orm";
 import type { AwaitingKind } from "@nightwarden/shared";
 import { getDb } from "../db.js";
 import type { ToolResult } from "../llm/types.js";
-import { sessions } from "./schema.js";
-import { refreshSessionStatus } from "./status-store.js";
+import { type Decision, type OpenTurn, sessions } from "./schema.js";
+import { claimRun, refreshSessionStatus } from "./status-store.js";
 
-// The gate a session is parked on: four columns on its own row, since there is
-// at most one. What a person decided lives on the transcript, which is durable.
+// The gate a session is parked on: columns on its own row, since there is at
+// most one. A decision waits on the open turn, then lands on the transcript.
 export interface PendingHumanInput {
   sessionId: string;
   toolCallId: string;
   kind: AwaitingKind;
-  completedResults: ToolResult[];
-  claimedAt?: string | null;
-}
-
-// Claiming stamps when an attempt began, which is what a boot after a crash
-// reads to tell "nobody answered" from "a write may already have run".
-export function claimPendingHumanInput(sessionId: string): boolean {
-  return (
-    getDb()
-      .update(sessions)
-      .set({ attemptStartedAt: new Date().toISOString() })
-      .where(
-        and(
-          eq(sessions.sessionId, sessionId),
-          isNotNull(sessions.awaitingToolUseId),
-          isNull(sessions.attemptStartedAt),
-        ),
-      )
-      .run().changes > 0
-  );
+  askedAt: string;
 }
 
 export function deletePendingHumanInput(sessionId: string): boolean {
@@ -39,8 +20,7 @@ export function deletePendingHumanInput(sessionId: string): boolean {
     .set({
       awaitingToolUseId: null,
       awaitingKind: null,
-      awaitingResults: [],
-      attemptStartedAt: null,
+      awaitingSince: null,
     })
     .where(
       and(
@@ -55,6 +35,60 @@ export function deletePendingHumanInput(sessionId: string): boolean {
   return true;
 }
 
+/* Settles the gate and claims the run together, so a crash cannot leave a
+   session reading completed with nothing resuming it. False means nothing changed. */
+export function resolveGate(
+  sessionId: string,
+  toolCallId: string,
+  decision: Decision,
+  result: ToolResult | null,
+): boolean {
+  return getDb().transaction((tx) => {
+    const parked = tx
+      .select({ turn: sessions.openTurn })
+      .from(sessions)
+      .where(
+        and(
+          eq(sessions.sessionId, sessionId),
+          eq(sessions.awaitingToolUseId, toolCallId),
+        ),
+      )
+      .get();
+    if (parked === undefined) return false;
+    // Every gate on a tool call is parked with its turn; only a check-in has none.
+    if (parked.turn === null) {
+      throw new Error(`gate ${toolCallId} on ${sessionId} has no open turn`);
+    }
+    if (!claimRun(sessionId, tx)) return false;
+    const { turn } = parked;
+    tx.update(sessions)
+      .set({
+        awaitingToolUseId: null,
+        awaitingKind: null,
+        awaitingSince: null,
+        openTurn: {
+          ...turn,
+          results: result === null ? turn.results : [...turn.results, result],
+          decisions: [...turn.decisions, decision],
+        },
+        lastActivityAt: new Date().toISOString(),
+      })
+      .where(eq(sessions.sessionId, sessionId))
+      .run();
+    return true;
+  });
+}
+
+export function getOpenTurn(sessionId: string): OpenTurn | null {
+  return (
+    getDb()
+      .select({ turn: sessions.openTurn })
+      .from(sessions)
+      .where(eq(sessions.sessionId, sessionId))
+      .get()?.turn ?? null
+  );
+}
+
 export function getPendingHumanInputBySessionId(
   sessionId: string,
 ): PendingHumanInput | undefined {
@@ -62,19 +96,19 @@ export function getPendingHumanInputBySessionId(
     .select({
       toolCallId: sessions.awaitingToolUseId,
       kind: sessions.awaitingKind,
-      completedResults: sessions.awaitingResults,
-      claimedAt: sessions.attemptStartedAt,
+      askedAt: sessions.awaitingSince,
     })
     .from(sessions)
     .where(eq(sessions.sessionId, sessionId))
     .get();
-  if (row?.toolCallId == null || row.kind === null) return undefined;
+  if (row?.toolCallId == null || row.kind === null || row.askedAt === null) {
+    return undefined;
+  }
   return {
     sessionId,
     toolCallId: row.toolCallId,
     kind: row.kind,
-    completedResults: row.completedResults,
-    claimedAt: row.claimedAt,
+    askedAt: row.askedAt,
   };
 }
 

@@ -180,8 +180,15 @@ export async function registerSessionRoutes(
       },
     },
     async (request, reply) => {
+      // A decision resumes a run, so it needs a model as a chat does.
+      const readiness = await checkLLMReadiness();
+      if (!readiness.ready) {
+        return reply
+          .code(503)
+          .send({ error: notConfiguredMessage(readiness.missing) });
+      }
       try {
-        const response = await respondToPendingHumanInput(
+        const response = respondToPendingHumanInput(
           dispatcher,
           request.params.id,
           request.body,

@@ -5,6 +5,7 @@ import {
   recordRunFailure,
   releaseRun,
 } from "./session/status-store.js";
+import { answerUnfinishedCalls } from "./session/recover.js";
 import { sessionExists } from "./session/store.js";
 import { appendErrorMessage } from "./session/transcript-store.js";
 import { markStopped } from "./session/status-store.js";
@@ -30,6 +31,9 @@ export interface Dispatcher {
   // the session isn't currently running.
   stop(sessionId: string): boolean;
 }
+
+const INTERRUPTED_CALL =
+  "Interrupted, result unknown: the run failed before this call returned.";
 
 interface DispatcherOptions {
   run: (input: RunSessionInput) => Promise<RunOutcome>;
@@ -57,6 +61,7 @@ export function createDispatcher(opts: DispatcherOptions): Dispatcher {
     const text = describeLLMError(err, loadConfig().maxRetries);
     let row: TranscriptRow;
     try {
+      answerUnfinishedCalls(sessionId, INTERRUPTED_CALL);
       row = appendErrorMessage(sessionId, text);
     } catch (persistErr: unknown) {
       logger.warn(

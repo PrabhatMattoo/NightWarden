@@ -73,12 +73,11 @@ export interface ToolApprovalPart {
   actor?: Actor;
 }
 
-// The answer to an elicitation. Separate from an approval because being asked
-// a question and permitting a write are different acts.
+/* Who answered an elicitation; the answer itself is the call's result. Separate
+   from an approval because being asked and permitting a write are different acts. */
 export interface ElicitationAnswerPart {
   type: "elicitation_answer";
   toolCallId: string;
-  text: string;
   actor?: Actor;
 }
 
@@ -116,8 +115,6 @@ export function messagePartsToText(parts: MessagePart[]): string {
     else if (part.type === "reasoning") out.push(part.text);
     else if (part.type === "tool_call") out.push(`[tool: ${part.name}]`);
     else if (part.type === "tool_result") out.push(part.output);
-    // An answer is what the person said; an approval is a decision the card draws.
-    else if (part.type === "elicitation_answer") out.push(part.text);
   }
   return out.join("\n");
 }

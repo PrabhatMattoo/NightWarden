@@ -31,7 +31,7 @@ CREATE TABLE `session_transcript` (
 	`reminder` text,
 	PRIMARY KEY(`session_id`, `seq`),
 	FOREIGN KEY (`session_id`) REFERENCES `sessions`(`session_id`) ON UPDATE no action ON DELETE cascade,
-	CONSTRAINT "session_transcript_reminder" CHECK("session_transcript"."reminder" IN ('alert_opening', 'candidates_opening', 'frontier', 'falsification', 'report_request', 'report_retry', 'closing', 'text_only', 'reopen', 'record_check', 'toolset_change', 'injected_alerts', 'sandbox_ready'))
+	CONSTRAINT "session_transcript_reminder" CHECK("session_transcript"."reminder" IN ('alert_opening', 'candidates_opening', 'frontier', 'falsification', 'report_request', 'report_retry', 'closing', 'text_only', 'reopen', 'record_check', 'toolset_change', 'injected_alerts', 'sandbox_ready', 'decision_wait'))
 );
 --> statement-breakpoint
 CREATE TABLE `sessions` (
@@ -45,8 +45,8 @@ CREATE TABLE `sessions` (
 	`stopped_at` text,
 	`awaiting_tool_use_id` text,
 	`awaiting_kind` text,
-	`awaiting_results` text DEFAULT '[]' NOT NULL,
-	`attempt_started_at` text,
+	`awaiting_since` text,
+	`open_turn` text,
 	`candidates` text DEFAULT '[]' NOT NULL,
 	`findings` text DEFAULT '[]' NOT NULL,
 	`report` text,

@@ -3,18 +3,22 @@ import {
   type MessagePart,
   type ReminderKind,
   type ResolvedLLMConfig,
+  type ToolResultPart,
   type TranscriptRow,
 } from "@nightwarden/shared";
 import { resultParts } from "../evidence-id.js";
+import { decisionWaitMessage } from "../prompts/decision-wait.js";
 import { asSystemReminder, stripSystemReminder } from "../system-reminder.js";
 import { notRunResult, type OfferedToolset } from "../tools/toolset.js";
 import { toProviderMessage } from "../../session/seed.js";
 import {
+  appendRowsAndCloseTurn,
   appendRowsAndPark,
   appendTranscriptRows,
 } from "../../session/transcript-store.js";
 import { publishMessage } from "../../session/stream.js";
 import type { PendingHumanInput } from "../../session/gate-store.js";
+import type { Decision, OpenTurn } from "../../session/schema.js";
 import { logger } from "../../logger.js";
 import type {
   ChatResponse,
@@ -24,6 +28,14 @@ import type {
   ToolUse,
 } from "../../llm/types.js";
 import { citableIds, RunPosition } from "./guardrails.js";
+
+// Long enough that the system may have changed under the results read before it.
+const DECISION_WAIT_REMINDER_MS = 60_000;
+
+// An open turn plus the calls it answers, which the store does not keep.
+export interface ResumedTurn extends OpenTurn {
+  uses: ToolUse[];
+}
 
 // A thrown error is the fourth state, "failed", and the dispatcher's catch
 // owns it: it is never returned here.
@@ -50,6 +62,10 @@ export class RunState {
   turn = 0;
   // Folded from the stored rows, then fed every row this run writes.
   readonly position: RunPosition;
+  // The turn a decision released, until every call in it has an answer.
+  openTurn: ResumedTurn | null = null;
+  // Set once the open turn's answers are staged, so their flush closes it.
+  private closing = false;
 
   constructor(
     readonly sessionId: string,
@@ -96,12 +112,17 @@ export class RunState {
     return [...this.seeded, ...this.rows.map(toProviderMessage)];
   }
 
-  flush(interrupt?: PendingHumanInput): void {
+  flush(
+    gate?: Omit<PendingHumanInput, "askedAt">,
+    turn: OpenTurn | null = null,
+  ): void {
     const unwritten = this.rows.slice(this.flushed);
-    if (unwritten.length === 0 && interrupt === undefined) return;
+    if (unwritten.length === 0 && gate === undefined) return;
     this.flushed = this.rows.length;
-    if (interrupt) appendRowsAndPark(unwritten, interrupt);
+    if (gate) appendRowsAndPark(unwritten, gate, turn);
+    else if (this.closing) appendRowsAndCloseTurn(unwritten);
     else appendTranscriptRows(unwritten);
+    this.closing = false;
     // A harness row draws nothing, so publishing it costs a refetch that
     // changes no pixel.
     for (const row of unwritten) {
@@ -109,12 +130,52 @@ export class RunState {
     }
   }
 
-  // The counter advances with the evidence rather than with the request, so a
-  // call made in this reply has no handle until its answer arrives.
+  /* The counter advances with the evidence rather than with the request, so a
+     call made in this reply has no handle until its answer arrives. Results come
+     in emission order. Staging the last answers of an open turn closes it. */
   stageResults(uses: readonly ToolUse[], results: readonly ToolResult[]): void {
     const stamped = resultParts(results, citableIds(uses), this.nextEvidence);
     this.nextEvidence = stamped.next;
-    this.enqueue("user", stamped.parts);
+    const decisions = this.openTurn?.decisions ?? [];
+    this.enqueue("user", [
+      ...stamped.parts,
+      ...decisions.map(({ part }) => part),
+    ]);
+    if (this.openTurn !== null) {
+      this.openTurn = null;
+      this.closing = true;
+    }
+    this.remindOfDecisionWaits(uses, stamped.parts, decisions);
+  }
+
+  /* A result read before a long wait describes the system as it was then, so the
+     model is told which results those are. */
+  private remindOfDecisionWaits(
+    uses: readonly ToolUse[],
+    parts: readonly ToolResultPart[],
+    decisions: readonly Decision[],
+  ): void {
+    const evidenceIds = new Map(
+      parts.flatMap((part) =>
+        part.evidenceId === undefined
+          ? []
+          : [[part.toolCallId, part.evidenceId] as const],
+      ),
+    );
+    const notes = decisions.flatMap(({ part, waitedMs }) => {
+      const at = uses.findIndex((use) => use.toolCallId === part.toolCallId);
+      const call = uses[at];
+      if (call === undefined || waitedMs < DECISION_WAIT_REMINDER_MS) return [];
+      const read = uses
+        .slice(0, at)
+        .flatMap((use) => evidenceIds.get(use.toolCallId) ?? []);
+      return read.length === 0
+        ? []
+        : [decisionWaitMessage(call.name, waitedMs, read)];
+    });
+    if (notes.length > 0) {
+      this.sendSystemReminder("decision_wait", notes.join("\n\n"));
+    }
   }
 
   // A stopped turn answers every call it made, so none is left without a result.
@@ -151,9 +212,6 @@ export interface RunContext {
   readonly deadline: number;
   readonly log: typeof logger;
   readonly opensInvestigation: boolean;
-  // Writes a human already approved, constant for a run: a new approval only ever
-  // lands across a resume, so it is counted once at start rather than per turn.
-  readonly approvedWrites: number;
   readonly llm: ResolvedLLMConfig;
   readonly toolCallCeilingMs: number;
   readonly chat: ChatFn;

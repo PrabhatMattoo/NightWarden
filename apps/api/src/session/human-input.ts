@@ -1,33 +1,23 @@
 import {
-  claimPendingHumanInput,
   deletePendingHumanInput,
   getPendingHumanInputBySessionId,
+  resolveGate,
 } from "./gate-store.js";
-import {
-  appendRowsAndResolve,
-  findToolCall,
-  getNextSeq,
-  getTranscriptRows,
-} from "./transcript-store.js";
-import { highestEvidenceNumber, resultParts } from "../agent/evidence-id.js";
-import { isCitable } from "../agent/report.js";
+import { findToolCall } from "./transcript-store.js";
 import { stripSystemReminder } from "../agent/system-reminder.js";
-import { loadConfig } from "../config/store.js";
 import type { Dispatcher } from "../dispatcher.js";
 import type { ToolResult } from "../llm/types.js";
 import { logger } from "../logger.js";
 import { publishInterruptResolved, publishTranscriptItem } from "./stream.js";
-import { toolCallCard } from "./transcript.js";
+import { toolCallCard, toolCallState } from "./transcript.js";
 import { buildSeed } from "./seed.js";
-import { executeApprovedTool } from "./approval-executor.js";
-import { messagePartsToText } from "@nightwarden/shared";
 import type {
   ApprovalResponse,
   ApprovalStatus,
   Actor,
-  MessagePart,
+  ElicitationAnswerPart,
   RespondRequest,
-  TranscriptRow,
+  ToolApprovalPart,
 } from "@nightwarden/shared";
 
 // The three a person can settle a gate with. `pending` and `continued` are the
@@ -74,21 +64,6 @@ function requireGatedCall(
   return call;
 }
 
-// A compare-and-swap, so a failure means someone else holds it and age tells
-// a live request from a dead one. Never cleared at boot: the write may have run.
-function claim(sessionId: string, claimedAt: string | null): "held" | "stale" {
-  if (claimPendingHumanInput(sessionId)) return "held";
-  const heldForMs =
-    claimedAt === null ? 0 : Date.now() - new Date(claimedAt).getTime();
-  if (heldForMs <= loadConfig().toolCallCeilingMs) {
-    throw new HumanInputError(
-      409,
-      "Human input already claimed by another request",
-    );
-  }
-  return "stale";
-}
-
 function ensureDeleted(sessionId: string): void {
   if (!deletePendingHumanInput(sessionId)) {
     throw new HumanInputError(
@@ -98,108 +73,43 @@ function ensureDeleted(sessionId: string): void {
   }
 }
 
-// One row for the whole turn, since the wire needs one message and a ran
-// command's result must survive a crash; citability reads the recorded names.
-function citableIds(
-  rows: readonly TranscriptRow[],
-  results: readonly ToolResult[],
-): Set<string> {
-  const names = new Map<string, string>();
-  for (const row of rows) {
-    for (const part of row.parts) {
-      if (part.type === "tool_call") names.set(part.toolCallId, part.name);
-    }
-  }
-  return new Set(
-    results
-      .map((result) => result.toolCallId)
-      .filter((id) => isCitable(names.get(id) ?? "")),
-  );
-}
-
-/* These results are reaching the transcript for the first time, so their handles
-   are issued here, continuing the numbers the session already holds. */
-function answeredTurn(
-  sessionId: string,
-  results: ToolResult[],
-  decision: MessagePart,
-): TranscriptRow {
-  const rows = getTranscriptRows(sessionId);
-  const stamped = resultParts(
-    results,
-    citableIds(rows, results),
-    highestEvidenceNumber(rows) + 1,
-  );
-  const parts: MessagePart[] = [...stamped.parts, decision];
-  return {
-    sessionId,
-    seq: getNextSeq(sessionId),
-    kind: "user",
-    content: messagePartsToText(parts),
-    parts,
-    timestamp: new Date().toISOString(),
-  };
-}
-
-function unpause(
+/* Records the decision with the turn it interrupted and claims the run, then
+   launches it: the turn carries on from the next call, in the order it was asked. */
+function settle(
   dispatcher: Dispatcher,
   sessionId: string,
-  toolCallId: string,
+  gate: { toolCallId: string; askedAt: string },
   status: Settled,
-  completedResults: ToolResult[],
-  answer: ToolResult,
-  card: { toolName: string; input: Record<string, unknown> },
-  said: string,
-  actor: Actor,
+  part: ToolApprovalPart | ElicitationAnswerPart,
+  result: ToolResult | null,
+  call: { name: string; input: Record<string, unknown> },
 ): HumanInputActionResult {
-  const resolvedAt = new Date().toISOString();
-  // A part of its own rather than a field on the result: being asked a question
-  // and permitting a write are different acts, and only this records either.
-  const decision: MessagePart =
-    status === "answered"
-      ? {
-          type: "elicitation_answer",
-          toolCallId,
-          text: said,
-          actor: actor,
-        }
-      : {
-          type: "tool_approval",
-          toolCallId,
-          approved: status === "approved",
-          ...(said !== "" && { reason: said }),
-          actor: actor,
-        };
-
-  // One transaction with the gate clear, so the seed the resumed run builds
-  // already holds this answer and nothing has to hand it over.
-  const answered = answeredTurn(
-    sessionId,
-    [...completedResults, answer],
-    decision,
-  );
-  if (!appendRowsAndResolve(sessionId, [answered])) {
+  const { toolCallId } = gate;
+  const decision = {
+    part,
+    waitedMs: Date.now() - new Date(gate.askedAt).getTime(),
+  };
+  if (!resolveGate(sessionId, toolCallId, decision, result)) {
     throw new HumanInputError(
       409,
       "Human input already resolved by another request",
     );
   }
+  const resolvedAt = new Date().toISOString();
 
   publishTranscriptItem({
     sessionId,
     item: toolCallCard({
       toolCallId,
-      toolName: card.toolName,
-      input: card.input,
-      state: {
-        phase: "resolved",
-        decision: status,
-        actor: actor,
-        // An approved tool ran and an answer is what the person said; a
-        // rejection ran nothing, and already reads as Declined.
-        ...(status !== "rejected" && { result: answer.content }),
-        ...(answer.isError === true && { isError: true }),
-      },
+      toolName: call.name,
+      input: call.input,
+      state: toolCallState(
+        result?.content,
+        result?.isError === true,
+        null,
+        status,
+        part.actor ?? null,
+      ),
     }),
   });
 
@@ -210,23 +120,23 @@ function unpause(
     resolvedAt,
   });
 
-  dispatcher.dispatch({ sessionId, seed: buildSeed(sessionId) });
+  dispatcher.launch({ sessionId, seed: buildSeed(sessionId) });
 
   return { sessionId, toolCallId, status, resolvedAt };
 }
 
-export async function respondToPendingHumanInput(
+export function respondToPendingHumanInput(
   dispatcher: Dispatcher,
   sessionId: string,
   request: RespondRequest,
   actor: Actor,
-): Promise<HumanInputActionResult> {
+): HumanInputActionResult {
   const pending = requirePendingHumanInput(sessionId);
   const { decision, text } = request;
 
   if (pending.kind === "continue") {
     // No async work between resolve and dispatch, so ensureDeleted alone is the
-    // concurrency gate; claimOrThrow is skipped since nothing here executes async.
+    // concurrency gate.
     ensureDeleted(sessionId);
     const resolvedAt = new Date().toISOString();
     if (decision === "reject") {
@@ -267,9 +177,10 @@ export async function respondToPendingHumanInput(
 
   // Everything past the continue branch gates on a real tool call.
   const call = requireGatedCall(sessionId, pending.toolCallId);
+  const { toolCallId } = pending;
 
-  // Before the claim, so a malformed request is refused without taking the lock
-  // and wedging the interrupt for the well-formed retry behind it.
+  // Refused before anything is written, so a malformed request leaves the gate
+  // open for the well-formed retry behind it.
   const answer = stripSystemReminder(text?.trim() ?? "");
   if (pending.kind === "clarification") {
     if (decision !== undefined) {
@@ -288,67 +199,38 @@ export async function respondToPendingHumanInput(
     );
   }
 
-  if (claim(sessionId, pending.claimedAt ?? null) === "stale") {
-    logger.warn(
-      { sessionId, tool: call.name, toolCallId: pending.toolCallId },
-      "stale claim: a previous attempt died holding it, and whether the call ran is unknown",
-    );
-    return unpause(
-      dispatcher,
-      sessionId,
-      pending.toolCallId,
-      "approved",
-      pending.completedResults,
-      {
-        toolCallId: pending.toolCallId,
-        content:
-          "This call was already attempted and it may have run. Do not re-execute it automatically. Tell the user what was attempted and ask whether to retry.",
-        isError: true,
-      },
-      { toolName: call.name, input: call.input },
-      "",
-      actor,
-    );
-  }
-
   if (pending.kind === "clarification") {
     logger.info({ sessionId }, "clarification answered");
-    return unpause(
+    return settle(
       dispatcher,
       sessionId,
-      pending.toolCallId,
+      pending,
       "answered",
-      pending.completedResults,
-      { toolCallId: pending.toolCallId, content: answer },
-      { toolName: call.name, input: call.input },
-      "",
-      actor,
+      { type: "elicitation_answer", toolCallId, actor },
+      { toolCallId, content: answer },
+      call,
     );
   }
 
   // kind === "approval"
   if (decision === "approve") {
-    // executeApprovedTool never throws - every fault becomes an is_error result -
-    // so the approve path always reaches unpause() and the run always resumes.
-    const result = await executeApprovedTool(pending, call);
+    // The write runs in the resumed run, which answers it.
     logger.info({ sessionId, tool: call.name }, "approved");
-    return unpause(
+    return settle(
       dispatcher,
       sessionId,
-      pending.toolCallId,
+      pending,
       "approved",
-      pending.completedResults,
-      result,
-      { toolName: call.name, input: call.input },
-      "",
-      actor,
+      { type: "tool_approval", toolCallId, approved: true, actor },
+      null,
+      call,
     );
   }
 
   // Only what is true: the user said no. Inferring a motive from severity
   // would hand the agent one nobody gave, so this asks what to do next.
   const gatedResult: ToolResult = {
-    toolCallId: pending.toolCallId,
+    toolCallId,
     content: `The user rejected this call, so it did not run and nothing on the system changed. ${
       answer
         ? `They said: "${answer}". Take that into account`
@@ -359,15 +241,19 @@ export async function respondToPendingHumanInput(
     isError: true,
   };
   logger.info({ sessionId, tool: call.name }, "rejected");
-  return unpause(
+  return settle(
     dispatcher,
     sessionId,
-    pending.toolCallId,
+    pending,
     "rejected",
-    pending.completedResults,
+    {
+      type: "tool_approval",
+      toolCallId,
+      approved: false,
+      ...(answer !== "" && { reason: answer }),
+      actor,
+    },
     gatedResult,
-    { toolName: call.name, input: call.input },
-    answer,
-    actor,
+    call,
   );
 }

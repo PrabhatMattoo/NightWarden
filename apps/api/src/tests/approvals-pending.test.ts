@@ -23,6 +23,7 @@ import type {
   SessionListPage,
   TranscriptItem,
 } from "@nightwarden/shared";
+import type { ToolUse } from "../llm/types.js";
 
 // A free-form text finish: no tool call ends the run successfully.
 const FINISH_TURN = {
@@ -30,7 +31,7 @@ const FINISH_TURN = {
   toolUses: [],
 };
 
-const RESTART_TURN = (): ScriptedTurn => ({
+const RESTART_TURN = (): { text: string; toolUses: ToolUse[] } => ({
   text: "Restarting.",
   toolUses: [
     {
@@ -65,8 +66,11 @@ describe("a suspended session serves its pending row with its transcript", async
     return { conn: fakeRunner({ id, name: label }) };
   }
 
-  async function startGatedChat(message: string): Promise<void> {
-    setScript([RESTART_TURN(), FINISH_TURN]);
+  async function startGatedChat(
+    message: string,
+    turn: ScriptedTurn = RESTART_TURN(),
+  ): Promise<void> {
+    setScript([turn, FINISH_TURN]);
     const chatRes = await fetch(`http://127.0.0.1:${port}/api/chat`, {
       method: "POST",
       headers: {
@@ -111,24 +115,32 @@ describe("a suspended session serves its pending row with its transcript", async
     });
   }
 
-  it("projects the suspended tool call as a card awaiting a human", async () => {
+  it("projects the suspended tool call as a card awaiting a human, with the calls around it", async () => {
     const { conn } = connectRunner("qa");
-    await startGatedChat("test");
+    const read = (toolCallId: string): ToolUse => ({
+      toolCallId,
+      name: "ListDockerServices",
+      input: { server: ["qa"] },
+    });
+    const restart = RESTART_TURN();
+    await startGatedChat("test", {
+      ...restart,
+      toolUses: [read("tu-before"), ...restart.toolUses, read("tu-after")],
+    });
 
     const sessionId = await waitForAwaitingSession();
     const items = await getTranscript(sessionId);
 
-    // One item, so the frontend has nothing to reconcile. What it needs from
-    // the human rides on the state, never a second label beside it.
-    const card = items.find((i) => i.kind === "tool_call");
-    expect(card).toBeDefined();
-    expect(card?.kind === "tool_call" && card.toolName).toBe(
-      "RestartDockerService",
+    // One item per call, so the frontend has nothing to reconcile. What it needs
+    // from the human rides on the state, never a second label beside it.
+    const states = items.flatMap((i) =>
+      i.kind === "tool_call" ? [[i.toolName, i.state] as const] : [],
     );
-    expect(card?.kind === "tool_call" && card.state).toEqual({
-      phase: "awaiting_human",
-      gate: "approval",
-    });
+    expect(states).toEqual([
+      ["ListDockerServices", { phase: "complete", result: expect.any(String) }],
+      ["RestartDockerService", { phase: "awaiting_human", gate: "approval" }],
+      ["ListDockerServices", { phase: "queued" }],
+    ]);
 
     await resolvePending(sessionId);
     conn.disconnect();

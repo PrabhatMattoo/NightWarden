@@ -174,17 +174,6 @@ export function isRunning(sessionId: string): boolean {
   );
 }
 
-// Approving clears the gate before the resume claims the run, so a crash in
-// that gap leaves a session reading action_required while waiting on nobody.
-export function abandonedSessionIds(): string[] {
-  return getDb()
-    .select({ sessionId: sessions.sessionId })
-    .from(sessions)
-    .where(eq(sessions.status, "action_required"))
-    .all()
-    .map((r) => r.sessionId);
-}
-
 // Read once at boot, where every one of them is a run this process cannot be
 // running: it has only just started.
 export function runningSessionIds(): string[] {

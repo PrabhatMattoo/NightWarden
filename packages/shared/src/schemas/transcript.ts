@@ -22,6 +22,8 @@ export type ToolGate = z.infer<typeof toolGateSchema>;
 // Explicit rather than an optional field, so "not set" is never a meaning. A
 // decision in flight is the component's own concern and never appears here.
 const toolCallStateSchema = z.discriminatedUnion("phase", [
+  // Asked for behind a call that waits on a person, so not started.
+  z.object({ phase: z.literal("queued") }),
   z.object({ phase: z.literal("running") }),
   z.object({ phase: z.literal("awaiting_human"), gate: toolGateSchema }),
   // `result` arrives once the tool that was waiting has run. `actor` is absent

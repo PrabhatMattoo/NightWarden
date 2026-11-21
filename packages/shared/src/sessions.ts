@@ -24,6 +24,7 @@ export const REMINDER_KINDS = [
   "toolset_change",
   "injected_alerts",
   "sandbox_ready",
+  "decision_wait",
 ] as const;
 export type ReminderKind = (typeof REMINDER_KINDS)[number];
 

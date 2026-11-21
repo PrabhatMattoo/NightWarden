@@ -17,14 +17,31 @@ import {
 import type {
   AlertGroupContext,
   Candidate,
+  ElicitationAnswerPart,
   Finding,
   MessagePart,
   NormalizedAlert,
   SubmittedReport,
+  ToolApprovalPart,
   TranscriptKind,
 } from "@nightwarden/shared";
+import type { Stage } from "../agent/loop/stage.js";
 import type { ToolResult } from "../llm/types.js";
 import { inList } from "../schema-helpers.js";
+
+// A person's answer to a gate and how long the gate waited.
+export interface Decision {
+  part: ToolApprovalPart | ElicitationAnswerPart;
+  waitedMs: number;
+}
+
+/* The answers to a turn a gate interrupted, held until every call in it has one.
+   The stage rides along because the calls before the gate can move it. */
+export interface OpenTurn {
+  stage: Stage;
+  results: ToolResult[];
+  decisions: Decision[];
+}
 
 export const sessions = sqliteTable(
   "sessions",
@@ -46,12 +63,9 @@ export const sessions = sqliteTable(
     // The gate, all null when the session is not parked on one.
     awaitingToolUseId: text("awaiting_tool_use_id"),
     awaitingKind: text("awaiting_kind", { enum: AWAITING_KINDS }),
-    awaitingResults: text("awaiting_results", { mode: "json" })
-      .$type<ToolResult[]>()
-      .notNull()
-      .default(sql`'[]'`),
-    // Stamped before an approved call runs, so a crash says the write may have run.
-    attemptStartedAt: text("attempt_started_at"),
+    // When the gate opened, so a decision can say how long it waited.
+    awaitingSince: text("awaiting_since"),
+    openTurn: text("open_turn", { mode: "json" }).$type<OpenTurn>(),
     candidates: text("candidates", { mode: "json" })
       .$type<Candidate[]>()
       .notNull()

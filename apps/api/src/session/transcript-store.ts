@@ -1,8 +1,8 @@
-import { and, asc, eq, isNotNull, max } from "drizzle-orm";
+import { asc, eq, max } from "drizzle-orm";
 import type { TranscriptRow } from "@nightwarden/shared";
 import { getDb, type Db } from "../db.js";
 import type { PendingHumanInput } from "./gate-store.js";
-import { sessions, sessionTranscript } from "./schema.js";
+import { type OpenTurn, sessions, sessionTranscript } from "./schema.js";
 import { refreshSessionStatus } from "./status-store.js";
 
 // Transcript rows, appended a turn at a time.
@@ -77,66 +77,47 @@ export function appendErrorMessage(
   return message;
 }
 
-// Called when suspending on a gated tool, so the database is always consistent:
-// both the messages and the gate exist, or neither does.
+/* Called when suspending on a gate, so the database is always consistent: the
+   rows, the gate and the turn it interrupted exist together, or none does. */
 export function appendRowsAndPark(
   messages: TranscriptRow[],
-  pendingHumanInput: PendingHumanInput,
+  gate: Omit<PendingHumanInput, "askedAt">,
+  turn: OpenTurn | null,
 ): void {
   getDb().transaction((tx) => {
     if (messages.length > 0) {
       tx.insert(sessionTranscript).values(messages.map(rowValues)).run();
     }
+    const now = new Date().toISOString();
     // Suspending is the gate, so the status saying this session waits is
     // written with it: the two are columns on the same row.
     tx.update(sessions)
       .set({
         status: "action_required",
-        awaitingToolUseId: pendingHumanInput.toolCallId,
-        awaitingKind: pendingHumanInput.kind,
-        awaitingResults: pendingHumanInput.completedResults,
-        attemptStartedAt: pendingHumanInput.claimedAt ?? null,
+        awaitingToolUseId: gate.toolCallId,
+        awaitingKind: gate.kind,
+        awaitingSince: now,
+        openTurn: turn,
+        lastActivityAt: now,
       })
-      .where(eq(sessions.sessionId, pendingHumanInput.sessionId))
+      .where(eq(sessions.sessionId, gate.sessionId))
       .run();
-    const last = messages[messages.length - 1];
-    if (last) touchSession(last.sessionId, last.timestamp, tx);
   });
 }
 
-/* The answered turn and the cleared gate in one transaction, so a crash between
-   them cannot lose the result of a command that already ran. */
-export function appendRowsAndResolve(
-  sessionId: string,
-  messages: TranscriptRow[],
-): boolean {
-  return getDb().transaction((tx) => {
-    // Cleared first, so a loser writes nothing rather than a duplicate turn.
-    const cleared = tx
-      .update(sessions)
-      .set({
-        awaitingToolUseId: null,
-        awaitingKind: null,
-        awaitingResults: [],
-        attemptStartedAt: null,
-      })
-      .where(
-        and(
-          eq(sessions.sessionId, sessionId),
-          isNotNull(sessions.awaitingToolUseId),
-        ),
-      )
+// The turn's last answers and the close of its open turn in one transaction, so
+// a crash cannot leave the answers written and the turn still open.
+export function appendRowsAndCloseTurn(messages: TranscriptRow[]): void {
+  const last = messages[messages.length - 1];
+  if (!last) return;
+  getDb().transaction((tx) => {
+    tx.insert(sessionTranscript).values(messages.map(rowValues)).run();
+    tx.update(sessions)
+      .set({ openTurn: null })
+      .where(eq(sessions.sessionId, last.sessionId))
       .run();
-    if (cleared.changes === 0) return false;
-    if (messages.length > 0) {
-      tx.insert(sessionTranscript).values(messages.map(rowValues)).run();
-    }
-    const last = messages[messages.length - 1];
-    if (last) touchSession(last.sessionId, last.timestamp, tx);
-    // The gate is gone, so 'action_required' is no longer true. The resume
-    // that follows claims 'running' over whatever this settles on.
-    refreshSessionStatus(sessionId, tx);
-    return true;
+    touchSession(last.sessionId, last.timestamp, tx);
+    refreshSessionStatus(last.sessionId, tx);
   });
 }
 

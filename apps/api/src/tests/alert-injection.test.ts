@@ -341,7 +341,7 @@ describe("mid-run alert injection (loop seam)", () => {
     await waitFor(() => !isRunning(sessionId));
 
     // Approve: the resume dispatch this issues carries no `alert` field.
-    await respondToPendingHumanInput(
+    respondToPendingHumanInput(
       nw.dispatcher,
       sessionId,
       { decision: "approve" },

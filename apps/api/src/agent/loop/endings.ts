@@ -22,6 +22,25 @@ export function turnEnding(
   }
 }
 
+/* What the model is told of each call in a reply that ended this way: none of them
+   ran, and why, so the transcript never holds a call without its answer. */
+export function cutOffCallAnswer(reason: StopReason): string | null {
+  switch (reason) {
+    case "done":
+    case "tools":
+      return null;
+    case "length":
+      return "Not run: your reply reached the output limit before it was complete, so no call in it ran.";
+    case "filtered":
+      return "Not run: the provider's content filter stopped your reply, so no call in it ran.";
+    case "paused":
+      return "Not run: the provider paused your reply before it was complete, so no call in it ran.";
+    case "error":
+    case "unknown":
+      return "Not run: the provider ended your reply without saying why, so no call in it ran.";
+  }
+}
+
 // The same question for the report turn, which has its own deliverable to name.
 export function reportEnding(
   reason: StopReason,

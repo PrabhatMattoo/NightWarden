@@ -91,7 +91,7 @@ export interface ToolCall {
 
 // One walk of the durable transcript, which is the evidence trail. Handles are
 // read off it rather than counted, so this walk cannot disagree with another.
-export function toolCallsFrom(messages: readonly TranscriptRow[]): ToolCall[] {
+function toolCallsFrom(messages: readonly TranscriptRow[]): ToolCall[] {
   const entries: ToolCall[] = [];
   const byToolCallId = new Map<string, ToolCall>();
   for (const message of messages) {
