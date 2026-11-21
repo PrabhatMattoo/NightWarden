@@ -2,6 +2,7 @@ import { z } from "zod";
 import { THEME_PREFERENCES } from "../auth.js";
 import {
   LLM_PROVIDER_NAMES,
+  PROVIDER_SETTING_FIELDS,
   type LLMProviderName,
   SANDBOX_HOST_PATTERN,
   SANDBOX_NETWORKS,
@@ -13,7 +14,7 @@ export const llmProviderNameSchema = z.enum(LLM_PROVIDER_NAMES);
 export const themePreferenceSchema = z.enum(THEME_PREFERENCES);
 
 // One sentence per setting, naming both bounds, whichever of them was crossed.
-function bounded(setting: NumericSetting) {
+export function bounded(setting: NumericSetting) {
   const { min, max } = SETTING_RANGES[setting];
   const bounds = `${setting} must be a whole number from ${min} to ${max}`;
   return z
@@ -64,6 +65,20 @@ export const configPatchSchema = z.object({
 export type ConfigPatch = z.infer<typeof configPatchSchema>;
 // The global settings alone: a provider block is written apart, so one cannot disturb another.
 export type SettingsPatch = Omit<ConfigPatch, "providers">;
+export type GlobalSettingField = keyof SettingsPatch;
+
+/* Each setting the environment has pinned, with the name of the variable that
+   pinned it, so the page can say what to change to free it. */
+const lockedSchema = z.object({
+  settings: z.partialRecord(
+    configPatchSchema.omit({ providers: true }).keyof(),
+    z.string(),
+  ),
+  providers: z.partialRecord(
+    llmProviderNameSchema,
+    z.partialRecord(z.enum(PROVIDER_SETTING_FIELDS), z.string()),
+  ),
+});
 
 // Served rather than hardcoded, so a new adapter appears in the frontend
 // without a UI change.
@@ -166,6 +181,9 @@ export const agentConfigSchema = z.object({
   sandboxMemoryMb: z.number(),
   sandboxNetwork: z.enum(SANDBOX_NETWORKS),
   sandboxAllowlistHosts: z.array(z.string()),
+  // What the allowlist starts from, so a default host reads apart from an added one.
+  sandboxDefaultHosts: z.array(z.string()),
+  locked: lockedSchema,
 });
 export type AgentConfig = z.infer<typeof agentConfigSchema>;
 

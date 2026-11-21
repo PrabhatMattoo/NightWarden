@@ -68,6 +68,8 @@ interface ModelCheckState {
 
 interface ProviderSectionProps {
   form: AgentConfig;
+  // What the environment sets, by variable name, as the saved config reports it.
+  locked: AgentConfig["locked"];
   block: ProviderSettings | null;
   savedApiKeyMasked: string | null;
   catalog: CatalogState;
@@ -92,6 +94,7 @@ interface ProviderSectionProps {
 // cannot run, so the five fields are one transaction.
 export function ProviderSection({
   form,
+  locked,
   block,
   savedApiKeyMasked,
   catalog,
@@ -110,6 +113,9 @@ export function ProviderSection({
 }: ProviderSectionProps): React.JSX.Element {
   const [replacingKey, setReplacingKey] = useState(false);
   const [typed, setTyped] = useState<string | null>(null);
+  const providerLocks = form.provider
+    ? locked.providers[form.provider]
+    : undefined;
   const keyInputOpen = savedApiKeyMasked === null || replacingKey;
   // Everything below the provider waits on it, and dims until it is chosen.
   const noProvider = block === null;
@@ -146,9 +152,11 @@ export function ProviderSection({
           id="settings-provider"
           title="Provider"
           description="Which service answers a request."
+          lockedBy={locked.settings.provider}
         >
           <Select
             items={providerItems}
+            disabled={locked.settings.provider !== undefined}
             value={form.provider}
             onValueChange={(value) =>
               onProviderChange(
@@ -172,6 +180,7 @@ export function ProviderSection({
         <SettingsRow
           id="settings-base-url"
           unavailable={noProvider}
+          lockedBy={providerLocks?.baseUrl}
           title="Base URL"
           description={
             selfHosted
@@ -182,7 +191,7 @@ export function ProviderSection({
           <Input
             aria-labelledby={rowLabel("settings-base-url")}
             measure="beside"
-            disabled={noProvider}
+            disabled={noProvider || providerLocks?.baseUrl !== undefined}
             {...(selfHosted && { placeholder: "http://localhost:11434/v1" })}
             value={block?.baseUrl ?? option?.defaultBaseUrl ?? ""}
             onChange={(e) =>
@@ -194,6 +203,7 @@ export function ProviderSection({
         <SettingsRow
           id="settings-api-key"
           unavailable={noProvider}
+          lockedBy={providerLocks?.apiKey}
           title="API key"
           description={
             keyOptional
@@ -216,15 +226,17 @@ export function ProviderSection({
               <span className="font-mono type-body text-ink-muted">
                 {savedApiKeyMasked}
               </span>
-              <Button
-                type="button"
-                size="icon-sm"
-                variant="ghost"
-                aria-label="Replace API key"
-                onClick={() => setReplacingKey(true)}
-              >
-                <Pencil {...ICON_UI} />
-              </Button>
+              {providerLocks?.apiKey === undefined && (
+                <Button
+                  type="button"
+                  size="icon-sm"
+                  variant="ghost"
+                  aria-label="Replace API key"
+                  onClick={() => setReplacingKey(true)}
+                >
+                  <Pencil {...ICON_UI} />
+                </Button>
+              )}
             </div>
           )}
         </SettingsRow>
@@ -232,6 +244,7 @@ export function ProviderSection({
         <SettingsRow
           id="settings-model"
           unavailable={noProvider}
+          lockedBy={providerLocks?.model}
           title="Model"
           description={
             typedModel
@@ -243,6 +256,7 @@ export function ProviderSection({
             <Input
               aria-labelledby={rowLabel("settings-model")}
               measure="beside"
+              disabled={providerLocks?.model !== undefined}
               placeholder="llama3.1:8b"
               value={block?.model ?? ""}
               onChange={(e) =>
@@ -275,7 +289,7 @@ export function ProviderSection({
                   e.preventDefault();
                   e.stopPropagation();
                 }}
-                disabled={noProvider}
+                disabled={noProvider || providerLocks?.model !== undefined}
                 placeholder={
                   noProvider ? "Choose a provider first" : "Search models"
                 }
@@ -324,10 +338,14 @@ export function ProviderSection({
             id="settings-reasoning"
             title="Reasoning"
             description="How hard the model works on each request."
+            lockedBy={providerLocks?.reasoningLevel}
           >
             <Select
               items={levelItems}
-              disabled={reasoning === null}
+              disabled={
+                reasoning === null ||
+                providerLocks?.reasoningLevel !== undefined
+              }
               value={block?.reasoningLevel ?? ""}
               onValueChange={(value) =>
                 onProviderField("reasoningLevel", value || null)

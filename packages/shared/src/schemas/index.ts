@@ -75,6 +75,7 @@ export type {
 
 export {
   agentConfigSchema,
+  bounded,
   configPatchSchema,
   llmProviderNameSchema,
   modelCatalogSchema,

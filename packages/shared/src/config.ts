@@ -10,6 +10,15 @@ export const LLM_PROVIDER_NAMES = [
 ] as const;
 export type LLMProviderName = (typeof LLM_PROVIDER_NAMES)[number];
 
+// The fields of a provider block that the environment may set.
+export const PROVIDER_SETTING_FIELDS = [
+  "model",
+  "baseUrl",
+  "apiKey",
+  "reasoningLevel",
+] as const;
+export type ProviderSettingField = (typeof PROVIDER_SETTING_FIELDS)[number];
+
 // "allowlist" routes all sandbox egress through an enforcing proxy that only
 // reaches approved hosts; "none" gives no network at all; "open" is unrestricted.
 export const SANDBOX_NETWORKS = ["allowlist", "open", "none"] as const;

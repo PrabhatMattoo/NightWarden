@@ -98,47 +98,14 @@ CREATE INDEX `idx_integrations_kind` ON `integrations` (`kind`);--> statement-br
 CREATE TABLE `config` (
 	`id` text PRIMARY KEY NOT NULL,
 	`active_provider` text,
-	`max_retries` integer DEFAULT 3 NOT NULL,
-	`max_investigations_per_hour` integer DEFAULT 10 NOT NULL,
-	`check_in_after_ms` integer DEFAULT 1800000 NOT NULL,
-	`tool_call_ceiling_ms` integer DEFAULT 600000 NOT NULL,
-	`sandbox_idle_timeout_ms` integer DEFAULT 3600000 NOT NULL,
-	`sandbox_cpus` integer DEFAULT 2 NOT NULL,
-	`sandbox_memory_mb` integer DEFAULT 4096 NOT NULL,
-	`sandbox_network` text DEFAULT 'allowlist' NOT NULL,
-	`sandbox_allowlist_hosts` text DEFAULT 'registry.npmjs.org
-registry.yarnpkg.com
-repo.yarnpkg.com
-classic.yarnpkg.com
-pypi.org
-files.pythonhosted.org
-crates.io
-index.crates.io
-static.crates.io
-static.rust-lang.org
-sh.rustup.rs
-proxy.golang.org
-sum.golang.org
-dl.google.com
-go.dev
-rubygems.org
-index.rubygems.org
-repo.packagist.org
-packagist.org
-repo.hex.pm
-hex.pm
-builds.hex.pm
-api.nuget.org
-builds.dotnet.microsoft.com
-dot.net
-ci.dot.net
-nodejs.org
-github.com
-release-assets.githubusercontent.com
-objects.githubusercontent.com
-mise-versions.jdx.dev
-mise-java.jdx.dev
-tuf-repo-cdn.sigstore.dev' NOT NULL,
+	`max_retries` integer,
+	`max_investigations_per_hour` integer,
+	`check_in_after_ms` integer,
+	`tool_call_ceiling_ms` integer,
+	`sandbox_idle_timeout_ms` integer,
+	`sandbox_cpus` integer,
+	`sandbox_memory_mb` integer,
+	`sandbox_network` text,
 	`key_check` text,
 	`updated_at` text NOT NULL,
 	CONSTRAINT "config_active_provider" CHECK("config"."active_provider" IN ('anthropic', 'openai', 'openrouter', 'openai-compatible')),
@@ -153,6 +120,11 @@ CREATE TABLE `provider_config` (
 	`reasoning_level` text,
 	`updated_at` text NOT NULL,
 	CONSTRAINT "provider_config_provider" CHECK("provider_config"."provider" IN ('anthropic', 'openai', 'openrouter', 'openai-compatible'))
+);
+--> statement-breakpoint
+CREATE TABLE `sandbox_host_override` (
+	`host` text PRIMARY KEY NOT NULL,
+	`allowed` integer NOT NULL
 );
 --> statement-breakpoint
 CREATE TABLE `account` (

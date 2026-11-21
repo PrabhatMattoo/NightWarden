@@ -48,6 +48,7 @@ describe("the migrations", () => {
       "integrations",
       "provider_config",
       "runner",
+      "sandbox_host_override",
       "session_transcript",
       "sessions",
       "tool_result_store",

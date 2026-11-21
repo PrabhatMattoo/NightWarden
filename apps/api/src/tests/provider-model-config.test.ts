@@ -679,18 +679,5 @@ describe("provider/model config seam", () => {
       expect(JSON.parse(res.body)).toEqual({ ok: true, models: [] });
       expect(fetchSpy).not.toHaveBeenCalled();
     });
-
-    it("an env API key is not a live fallback: the DB is the only runtime source", async () => {
-      vi.stubEnv("ANTHROPIC_API_KEY", "sk-ant-from-the-environment");
-
-      const res = await nw.server.inject({
-        method: "GET",
-        url: "/api/config",
-        headers: { cookie: `${SESSION}` },
-      });
-
-      const body = JSON.parse(res.body) as AgentConfig;
-      expect(body.providers.anthropic.apiKeyMasked).toBeNull();
-    });
   });
 });

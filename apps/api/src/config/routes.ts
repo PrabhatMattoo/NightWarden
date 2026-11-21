@@ -1,9 +1,11 @@
 import { z } from "zod";
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyReply } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import {
+  LockedSettingError,
   loadConfig,
   loadApiKey,
+  refuseLockedFields,
   updateConfig,
   updateProvider,
   type ProviderPatch,
@@ -67,6 +69,10 @@ async function withValidLevel(
   if (patch.model === undefined || patch.model === null) return patch;
 
   const config = loadConfig();
+  // The environment's level stands whichever model is picked.
+  if (config.locked.providers[provider]?.reasoningLevel !== undefined) {
+    return patch;
+  }
   const models = await catalogFor(
     provider,
     patch.baseUrl ?? config.providers[provider].baseUrl,
@@ -84,6 +90,12 @@ function validLevel(model: ModelOption, level: string | null): string | null {
   if (model.reasoning === null) return null;
   const supported = model.reasoning.levels.some((l) => l.value === level);
   return supported ? level : model.reasoning.defaultLevel;
+}
+
+// Whichever route carried the write, a locked field is a conflict.
+function refusedAsLocked(reply: FastifyReply, err: unknown): FastifyReply {
+  if (!(err instanceof LockedSettingError)) throw err;
+  return reply.code(409).send({ error: err.message });
 }
 
 export async function registerConfigRoutes(
@@ -108,21 +120,29 @@ export async function registerConfigRoutes(
       config: { permission: { settings: ["manage"] } },
       schema: { body: configPatchSchema, ...answersConfig },
     },
-    async (request) => {
-      // Provider blocks are written per provider so one cannot disturb the other;
-      // everything else is global and goes through the single config row.
-      const { providers, ...global } = request.body;
-      for (const name of PROVIDER_OPTIONS.map((p) => p.name)) {
-        const block = providers?.[name];
-        if (block !== undefined)
-          updateProvider(name, await withValidLevel(name, block));
+    async (request, reply) => {
+      try {
+        refuseLockedFields(request.body);
+        // Provider blocks are written per provider so one cannot disturb the other;
+        // everything else is global and goes through the single config row.
+        const { providers, ...global } = request.body;
+        for (const name of PROVIDER_OPTIONS.map((p) => p.name)) {
+          const block = providers?.[name];
+          if (block !== undefined)
+            updateProvider(name, await withValidLevel(name, block));
+        }
+        const updated = updateConfig(global);
+        logger.info(
+          {
+            keys: Object.keys(global),
+            providers: Object.keys(providers ?? {}),
+          },
+          "agent config updated",
+        );
+        return updated;
+      } catch (err) {
+        return refusedAsLocked(reply, err);
       }
-      const updated = updateConfig(global);
-      logger.info(
-        { keys: Object.keys(global), providers: Object.keys(providers ?? {}) },
-        "agent config updated",
-      );
-      return updated;
     },
   );
 
@@ -206,9 +226,13 @@ export async function registerConfigRoutes(
         response: { 200: providerKeySavedSchema, ...refusals() },
       },
     },
-    async (request) => {
+    async (request, reply) => {
       const { provider, apiKey } = request.body;
-      updateProvider(provider, { apiKey });
+      try {
+        updateProvider(provider, { apiKey });
+      } catch (err) {
+        return refusedAsLocked(reply, err);
+      }
       return { provider, apiKeyMasked: maskKey(apiKey) };
     },
   );

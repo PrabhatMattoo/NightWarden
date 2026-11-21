@@ -79,6 +79,28 @@ describe("the secret key at boot", () => {
     expect(() => loadApiKey("anthropic")).toThrow();
   });
 
+  it("reads the key from the file NIGHTWARDEN_SECRET_KEY_FILE names, generating none of its own", () => {
+    const mounted = join(dir, "mounted-secret");
+    writeFileSync(mounted, "the-mounted-key\n");
+    vi.stubEnv("NIGHTWARDEN_SECRET_KEY_FILE", mounted);
+    boot();
+    updateProvider("anthropic", { apiKey: "sk-live-1234" });
+
+    vi.stubEnv("NIGHTWARDEN_SECRET_KEY_FILE", undefined);
+    vi.stubEnv("NIGHTWARDEN_SECRET_KEY", "the-mounted-key");
+    boot();
+
+    expect(loadApiKey("anthropic")).toBe("sk-live-1234");
+    expect(existsSync(join(dir, "secret.key"))).toBe(false);
+  });
+
+  it("refuses to start when the key is given both directly and as a file", () => {
+    vi.stubEnv("NIGHTWARDEN_SECRET_KEY", "a-key");
+    vi.stubEnv("NIGHTWARDEN_SECRET_KEY_FILE", join(dir, "mounted-secret"));
+
+    expect(() => initSecrets()).toThrow("NIGHTWARDEN_SECRET_KEY_FILE");
+  });
+
   it("refuses to start over an empty or missing key file instead of generating a new one", () => {
     boot();
     const keyFile = join(dir, "secret.key");

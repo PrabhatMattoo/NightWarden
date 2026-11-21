@@ -25,6 +25,8 @@ interface SettingsRowProps {
   joined?: boolean;
   // Waiting on an earlier choice: title and control fade as one, the divider stays.
   unavailable?: boolean;
+  // The environment variable that sets this value; the control beside it is disabled.
+  lockedBy?: string;
   children: React.ReactNode;
 }
 
@@ -36,6 +38,7 @@ export function SettingsRow({
   description,
   stacked = false,
   unavailable = false,
+  lockedBy,
   children,
 }: SettingsRowProps): React.JSX.Element {
   return (
@@ -48,6 +51,9 @@ export function SettingsRow({
         <FieldTitle id={rowLabel(id)}>{title}</FieldTitle>
         {description !== undefined && (
           <ItemDescription>{description}</ItemDescription>
+        )}
+        {lockedBy !== undefined && (
+          <ItemDescription>Set by environment ({lockedBy})</ItemDescription>
         )}
       </ItemContent>
       <ItemActions

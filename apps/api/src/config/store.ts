@@ -1,5 +1,5 @@
-import { eq } from "drizzle-orm";
-import { getDb } from "../db.js";
+import { asc, eq } from "drizzle-orm";
+import { getDb, type Db } from "../db.js";
 import {
   DEFAULT_CHECK_IN_AFTER_MS,
   DEFAULT_MAX_INVESTIGATIONS_PER_HOUR,
@@ -11,13 +11,14 @@ import {
   DEFAULT_TOOL_CALL_CEILING_MS,
   MAX_RETRIES,
 } from "../llm/config.js";
-import { PROVIDER_OPTIONS, baseUrlFor, optionFor } from "../llm/catalog.js";
+import { PROVIDER_OPTIONS } from "../llm/catalog.js";
 import { decrypt, encrypt, generateSecretKey, maskKey } from "../secrets.js";
 import { secretKeyPath } from "../paths.js";
-import { logger } from "../logger.js";
-import { config, providerConfig } from "./schema.js";
+import { envConfig } from "./env.js";
+import { config, providerConfig, sandboxHostOverride } from "./schema.js";
 import type {
   AgentConfig,
+  ConfigPatch,
   LLMProviderName,
   ProviderSettings,
   ProviderSettingsMap,
@@ -33,6 +34,15 @@ const PROVIDER_NAMES: readonly LLMProviderName[] = PROVIDER_OPTIONS.map(
 
 type ProviderRow = typeof providerConfig.$inferSelect;
 
+// A write to an environment-set setting would be saved and never read.
+export class LockedSettingError extends Error {
+  constructor(variable: string) {
+    super(
+      `${variable} sets this in the environment, so it cannot be changed here`,
+    );
+  }
+}
+
 function readConfigRow(): typeof config.$inferSelect | undefined {
   return getDb().select().from(config).where(eq(config.id, CONFIG_ID)).get();
 }
@@ -45,102 +55,151 @@ function readProviderRow(provider: LLMProviderName): ProviderRow | undefined {
     .get();
 }
 
-// Stored newline-joined (the Settings textarea shape); empty lines dropped.
-function splitHosts(text: string): string[] {
-  return text
-    .split("\n")
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0);
+// Defaults in order, then added hosts, less any default a person removed.
+function effectiveHosts(): string[] {
+  const overrides = getDb()
+    .select()
+    .from(sandboxHostOverride)
+    .orderBy(asc(sandboxHostOverride.host))
+    .all();
+  const hosts = new Set([
+    ...DEFAULT_SANDBOX_ALLOWLIST_HOSTS,
+    ...overrides.filter((o) => o.allowed).map((o) => o.host),
+  ]);
+  for (const o of overrides) if (!o.allowed) hosts.delete(o.host);
+  return [...hosts];
+}
+
+// Stores only the difference from the defaults, so an improved default still arrives.
+function replaceHostOverrides(hosts: readonly string[], db: Db): void {
+  const wanted = new Set(hosts);
+  const rows = [
+    ...[...wanted]
+      .filter((host) => !DEFAULT_SANDBOX_ALLOWLIST_HOSTS.includes(host))
+      .map((host) => ({ host, allowed: true })),
+    ...DEFAULT_SANDBOX_ALLOWLIST_HOSTS.filter((host) => !wanted.has(host)).map(
+      (host) => ({ host, allowed: false }),
+    ),
+  ];
+  db.delete(sandboxHostOverride).run();
+  if (rows.length > 0) db.insert(sandboxHostOverride).values(rows).run();
 }
 
 function maskStored(apiKeyEncrypted: string | null): string | null {
   return apiKeyEncrypted ? maskKey(decrypt(apiKeyEncrypted)) : null;
 }
 
-function toSettings(row: ProviderRow | undefined): ProviderSettings {
+function toSettings(provider: LLMProviderName): ProviderSettings {
+  const row = readProviderRow(provider);
+  const env = envConfig().providers[provider];
   return {
-    model: row?.model ?? null,
-    baseUrl: row?.baseUrl ?? undefined,
-    apiKeyMasked: maskStored(row?.apiKeyEncrypted ?? null),
-    reasoningLevel: row?.reasoningLevel ?? null,
+    model: env?.model ?? row?.model ?? null,
+    baseUrl: env?.baseUrl ?? row?.baseUrl ?? undefined,
+    apiKeyMasked:
+      env?.apiKey !== undefined
+        ? maskKey(env.apiKey)
+        : maskStored(row?.apiKeyEncrypted ?? null),
+    reasoningLevel: env?.reasoningLevel ?? row?.reasoningLevel ?? null,
   };
 }
 
 function loadProviders(): ProviderSettingsMap {
   const blocks = PROVIDER_NAMES.map(
-    (name) => [name, toSettings(readProviderRow(name))] as const,
+    (name) => [name, toSettings(name)] as const,
   );
   // fromEntries widens the keys to string; PROVIDER_NAMES is exactly the keys.
   return Object.fromEntries(blocks) as ProviderSettingsMap;
 }
 
-// Operational defaults are engineering choices and stay; which provider is active
-// is the user's to pick, so it starts null and the run gate refuses until set.
+// Each field is the environment's, else the saved value, else the code's default.
 export function loadConfig(): AgentConfig {
   const row = readConfigRow();
-  const providers = loadProviders();
-  if (!row) {
-    return {
-      provider: null,
-      providers,
-      providerOptions: [...PROVIDER_OPTIONS],
-      maxRetries: MAX_RETRIES,
-      maxInvestigationsPerHour: DEFAULT_MAX_INVESTIGATIONS_PER_HOUR,
-      checkInAfterMs: DEFAULT_CHECK_IN_AFTER_MS,
-      toolCallCeilingMs: DEFAULT_TOOL_CALL_CEILING_MS,
-      sandboxIdleTimeoutMs: DEFAULT_SANDBOX_IDLE_TIMEOUT_MS,
-      sandboxCpus: DEFAULT_SANDBOX_CPUS,
-      sandboxMemoryMb: DEFAULT_SANDBOX_MEMORY_MB,
-      sandboxNetwork: DEFAULT_SANDBOX_NETWORK,
-      sandboxAllowlistHosts: [...DEFAULT_SANDBOX_ALLOWLIST_HOSTS],
-    };
-  }
-
+  const { settings, locked } = envConfig();
   return {
-    provider: row.activeProvider,
-    providers,
+    provider: settings.provider ?? row?.activeProvider ?? null,
+    providers: loadProviders(),
     providerOptions: [...PROVIDER_OPTIONS],
-    maxRetries: row.maxRetries,
-    maxInvestigationsPerHour: row.maxInvestigationsPerHour,
-    checkInAfterMs: row.checkInAfterMs,
-    toolCallCeilingMs: row.toolCallCeilingMs,
-    sandboxIdleTimeoutMs: row.sandboxIdleTimeoutMs,
-    sandboxCpus: row.sandboxCpus,
-    sandboxMemoryMb: row.sandboxMemoryMb,
-    sandboxNetwork: row.sandboxNetwork,
-    sandboxAllowlistHosts: splitHosts(row.sandboxAllowlistHosts),
+    maxRetries: settings.maxRetries ?? row?.maxRetries ?? MAX_RETRIES,
+    maxInvestigationsPerHour:
+      settings.maxInvestigationsPerHour ??
+      row?.maxInvestigationsPerHour ??
+      DEFAULT_MAX_INVESTIGATIONS_PER_HOUR,
+    checkInAfterMs:
+      settings.checkInAfterMs ??
+      row?.checkInAfterMs ??
+      DEFAULT_CHECK_IN_AFTER_MS,
+    toolCallCeilingMs:
+      settings.toolCallCeilingMs ??
+      row?.toolCallCeilingMs ??
+      DEFAULT_TOOL_CALL_CEILING_MS,
+    sandboxIdleTimeoutMs:
+      settings.sandboxIdleTimeoutMs ??
+      row?.sandboxIdleTimeoutMs ??
+      DEFAULT_SANDBOX_IDLE_TIMEOUT_MS,
+    sandboxCpus:
+      settings.sandboxCpus ?? row?.sandboxCpus ?? DEFAULT_SANDBOX_CPUS,
+    sandboxMemoryMb:
+      settings.sandboxMemoryMb ??
+      row?.sandboxMemoryMb ??
+      DEFAULT_SANDBOX_MEMORY_MB,
+    sandboxNetwork:
+      settings.sandboxNetwork ?? row?.sandboxNetwork ?? DEFAULT_SANDBOX_NETWORK,
+    sandboxAllowlistHosts: settings.sandboxAllowlistHosts ?? effectiveHosts(),
+    sandboxDefaultHosts: [...DEFAULT_SANDBOX_ALLOWLIST_HOSTS],
+    locked,
   };
 }
 
-// The decrypted key for one provider, or undefined when it has none stored.
+// The environment's key when set, else the stored one.
 export function loadApiKey(provider: LLMProviderName): string | undefined {
+  const fromEnv = envConfig().providers[provider]?.apiKey;
+  if (fromEnv !== undefined) return fromEnv;
   const row = readProviderRow(provider);
   return row?.apiKeyEncrypted ? decrypt(row.apiKeyEncrypted) : undefined;
 }
 
-// Global settings only; the per-provider blocks are written by updateProvider so
-// a change to one provider can never disturb the other.
+function refuseLocked(
+  locks: Partial<Record<string, string>> | undefined,
+  patch: object,
+): void {
+  for (const [field, value] of Object.entries(patch)) {
+    const variable = locks?.[field];
+    if (value !== undefined && variable !== undefined) {
+      throw new LockedSettingError(variable);
+    }
+  }
+}
+
+// Runs before any write, so a patch touching a locked field changes nothing.
+export function refuseLockedFields(patch: ConfigPatch): void {
+  const { settings, providers } = envConfig().locked;
+  const { providers: blocks, ...global } = patch;
+  refuseLocked(settings, global);
+  for (const name of PROVIDER_NAMES) {
+    refuseLocked(providers[name], blocks?.[name] ?? {});
+  }
+}
+
+// Global settings only; updateProvider writes the per-provider blocks, so a
+// change to one provider never disturbs the other. Only patched fields are written.
 export function updateConfig(patch: SettingsPatch): AgentConfig {
-  const next: AgentConfig = { ...loadConfig(), ...patch };
+  refuseLocked(envConfig().locked.settings, patch);
+  const { provider, sandboxAllowlistHosts, ...columns } = patch;
   const values = {
-    activeProvider: next.provider,
-    maxRetries: next.maxRetries,
-    maxInvestigationsPerHour: next.maxInvestigationsPerHour,
-    checkInAfterMs: next.checkInAfterMs,
-    toolCallCeilingMs: next.toolCallCeilingMs,
-    sandboxIdleTimeoutMs: next.sandboxIdleTimeoutMs,
-    sandboxCpus: next.sandboxCpus,
-    sandboxMemoryMb: next.sandboxMemoryMb,
-    sandboxNetwork: next.sandboxNetwork,
-    sandboxAllowlistHosts: next.sandboxAllowlistHosts.join("\n"),
+    ...columns,
+    ...(provider !== undefined && { activeProvider: provider }),
     updatedAt: new Date().toISOString(),
   };
-  getDb()
-    .insert(config)
-    .values({ id: CONFIG_ID, ...values })
-    .onConflictDoUpdate({ target: config.id, set: values })
-    .run();
-  return next;
+  getDb().transaction((tx) => {
+    tx.insert(config)
+      .values({ id: CONFIG_ID, ...values })
+      .onConflictDoUpdate({ target: config.id, set: values })
+      .run();
+    if (sandboxAllowlistHosts !== undefined) {
+      replaceHostOverrides(sandboxAllowlistHosts, tx);
+    }
+  });
+  return loadConfig();
 }
 
 export interface ProviderPatch {
@@ -151,118 +210,24 @@ export interface ProviderPatch {
   apiKey?: string;
 }
 
-// Fields absent from the patch keep their stored value; the key is only replaced
-// when a new one is supplied, so saving a model never clears the credential.
+// Only patched fields are written, so saving a model keeps the credential.
 export function updateProvider(
   provider: LLMProviderName,
   patch: ProviderPatch,
 ): AgentConfig {
-  const existing = readProviderRow(provider);
+  refuseLocked(envConfig().locked.providers[provider], patch);
+  const { apiKey, ...columns } = patch;
   const values = {
-    provider,
-    model: patch.model !== undefined ? patch.model : (existing?.model ?? null),
-    baseUrl:
-      patch.baseUrl !== undefined
-        ? (patch.baseUrl ?? null)
-        : (existing?.baseUrl ?? null),
-    apiKeyEncrypted:
-      patch.apiKey !== undefined
-        ? encrypt(patch.apiKey)
-        : (existing?.apiKeyEncrypted ?? null),
-    reasoningLevel:
-      patch.reasoningLevel !== undefined
-        ? patch.reasoningLevel
-        : (existing?.reasoningLevel ?? null),
+    ...columns,
+    ...(apiKey !== undefined && { apiKeyEncrypted: encrypt(apiKey) }),
     updatedAt: new Date().toISOString(),
   };
   getDb()
     .insert(providerConfig)
-    .values(values)
+    .values({ provider, ...values })
     .onConflictDoUpdate({ target: providerConfig.provider, set: values })
     .run();
   return loadConfig();
-}
-
-// Env is a first-boot seed, never a live source, so the database stays the one
-// runtime source of truth.
-export function seedConfigFromEnv(): void {
-  for (const provider of PROVIDER_NAMES) {
-    seedProviderFromEnv(provider);
-  }
-
-  const requested = process.env["NIGHTWARDEN_LLM_PROVIDER"];
-  if (requested === undefined || requested === "") return;
-  // Matched against the list rather than asserted, so the name is narrowed by
-  // the same value the rest of this file iterates.
-  const provider = PROVIDER_NAMES.find((name) => name === requested);
-  if (provider === undefined) {
-    logger.warn(
-      { requested, expected: PROVIDER_NAMES },
-      "NIGHTWARDEN_LLM_PROVIDER names no provider this build has; leaving the active provider unset",
-    );
-    return;
-  }
-  if (loadConfig().provider !== null) return;
-
-  // Activating a block that cannot run would produce an install that looks
-  // configured and fails at the first alert, so require what it needs first.
-  const block = readProviderRow(provider);
-  if (!block?.model || !hasKeyAndAddress(provider, block)) {
-    logger.warn(
-      { provider },
-      "NIGHTWARDEN_LLM_PROVIDER is set but that provider is not fully set up; finish setup in the frontend",
-    );
-    return;
-  }
-  updateConfig({ provider });
-  logger.info({ provider }, "active LLM provider seeded from environment");
-}
-
-// What readiness would ask of the stored block: the key where one is required,
-// and an address where the provider has none of its own.
-function hasKeyAndAddress(
-  provider: LLMProviderName,
-  block: ProviderRow,
-): boolean {
-  const keyed = !optionFor(provider).requiresKey || !!block.apiKeyEncrypted;
-  return keyed && baseUrlFor(provider, block.baseUrl ?? undefined) !== null;
-}
-
-function seedProviderFromEnv(provider: LLMProviderName): void {
-  // Only an untouched block is seeded: once a user has saved anything for a
-  // provider, the database owns it and a stale compose file cannot overwrite it.
-  const existing = readProviderRow(provider);
-  if (existing?.model || existing?.apiKeyEncrypted) return;
-
-  // A hyphen is not legal in a variable name.
-  const prefix = provider.toUpperCase().replaceAll("-", "_");
-  const model = process.env[`${prefix}_MODEL`];
-  const apiKey = process.env[`${prefix}_API_KEY`];
-  const baseUrl = process.env[`${prefix}_BASE_URL`];
-  if (!model && !apiKey && !baseUrl) return;
-
-  const missing: string[] = [];
-  if (!model) missing.push(`${prefix}_MODEL`);
-  if (!apiKey && optionFor(provider).requiresKey) {
-    missing.push(`${prefix}_API_KEY`);
-  }
-  if (!baseUrl && optionFor(provider).defaultBaseUrl === null) {
-    missing.push(`${prefix}_BASE_URL`);
-  }
-  if (!model || missing.length > 0) {
-    logger.warn(
-      { provider, missing },
-      "incomplete provider environment; skipping seed for it",
-    );
-    return;
-  }
-
-  updateProvider(provider, {
-    model,
-    ...(apiKey ? { apiKey } : {}),
-    ...(baseUrl ? { baseUrl } : {}),
-  });
-  logger.info({ provider, model }, "seeded provider settings from environment");
 }
 
 const KEY_CHECK = "nightwarden";

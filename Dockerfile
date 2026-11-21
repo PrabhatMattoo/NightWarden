@@ -85,8 +85,8 @@ COPY --from=build /build/apps/api/dist ./apps/api/dist
 COPY LICENSE NOTICE ./
 
 # 127.0.0.1 would make the API unreachable outside the container's namespace.
-ENV HOST=0.0.0.0
-ENV PORT=3000
+ENV NIGHTWARDEN_HOST=0.0.0.0
+ENV NIGHTWARDEN_PORT=3000
 ENV NODE_ENV=production
 ENV NIGHTWARDEN_DIR=/opt/nightwarden
 # The bundle ships a sourcemap; without this a stack trace names a line in the

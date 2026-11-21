@@ -1,5 +1,5 @@
-// These seed the global config row, and the loop reads effective values from it
-// rather than from here. MAX_OUTPUT_TOKENS covers models publishing no ceiling.
+// The code's own defaults, applied wherever neither the environment nor a person
+// chose. MAX_OUTPUT_TOKENS covers models publishing no ceiling.
 export const MAX_OUTPUT_TOKENS = 32_000;
 
 // The SDK spends these on the request, and again on a stream that fails part way.

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { X } from "lucide-react";
+import { RotateCcw, X } from "lucide-react";
 import { SANDBOX_HOST_PATTERN, type AgentConfig } from "@nightwarden/shared";
 
 import { Badge } from "@/shared/ui/badge";
@@ -50,6 +50,7 @@ export function SandboxSection({
         <PresetRow
           id="settings-sandbox-idle"
           setting="sandboxIdleTimeoutMs"
+          lockedBy={config.locked.settings.sandboxIdleTimeoutMs}
           title="Remove idle sandboxes after"
           description="A sandbox nobody has used for this long is torn down."
           value={config.sandboxIdleTimeoutMs}
@@ -59,6 +60,7 @@ export function SandboxSection({
         <PresetRow
           id="settings-sandbox-cpus"
           setting="sandboxCpus"
+          lockedBy={config.locked.settings.sandboxCpus}
           title="Sandbox CPU"
           description="Cores each sandbox may use."
           value={config.sandboxCpus}
@@ -68,6 +70,7 @@ export function SandboxSection({
         <PresetRow
           id="settings-sandbox-memory"
           setting="sandboxMemoryMb"
+          lockedBy={config.locked.settings.sandboxMemoryMb}
           title="Sandbox memory"
           description="Memory each sandbox may use."
           value={config.sandboxMemoryMb}
@@ -83,9 +86,11 @@ export function SandboxSection({
           description={`What the sandbox may reach. ${NETWORK_HINT[config.sandboxNetwork]}`}
           // The hosts below belong to this choice, so no line divides them.
           joined={config.sandboxNetwork === "allowlist"}
+          lockedBy={config.locked.settings.sandboxNetwork}
         >
           <Select
             items={NETWORK_LABEL}
+            disabled={config.locked.settings.sandboxNetwork !== undefined}
             value={config.sandboxNetwork}
             onValueChange={(value) =>
               save({
@@ -118,9 +123,14 @@ export function SandboxSection({
             title="Hosts the sandbox can reach"
             description="The proxy passes these through and refuses everything else."
             stacked
+            lockedBy={config.locked.settings.sandboxAllowlistHosts}
           >
             <AllowedHosts
               hosts={config.sandboxAllowlistHosts}
+              defaults={config.sandboxDefaultHosts}
+              disabled={
+                config.locked.settings.sandboxAllowlistHosts !== undefined
+              }
               onChange={(hosts) => save({ sandboxAllowlistHosts: hosts })}
             />
           </SettingsRow>
@@ -133,13 +143,18 @@ export function SandboxSection({
 // The API refuses an empty list, so the last host has no remove button.
 function AllowedHosts({
   hosts,
+  defaults,
+  disabled,
   onChange,
 }: {
   hosts: string[];
+  defaults: string[];
+  disabled: boolean;
   onChange: (hosts: string[]) => void;
 }): React.JSX.Element {
   const [draft, setDraft] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const removedDefaults = defaults.filter((host) => !hosts.includes(host));
 
   function add(): void {
     const host = draft.trim().toLowerCase();
@@ -165,6 +180,7 @@ function AllowedHosts({
           measure="beside"
           placeholder="registry.npmjs.org"
           value={draft}
+          disabled={disabled}
           aria-invalid={error !== null || undefined}
           onChange={(e) => {
             setDraft(e.currentTarget.value);
@@ -179,7 +195,7 @@ function AllowedHosts({
         <Button
           type="button"
           variant="secondary"
-          disabled={draft.trim() === ""}
+          disabled={disabled || draft.trim() === ""}
           onClick={add}
         >
           Add
@@ -189,13 +205,14 @@ function AllowedHosts({
       <ul aria-label="Allowed hosts" className="flex flex-wrap gap-2">
         {hosts.map((host) => (
           <li key={host}>
-            <Badge>
+            <Badge variant={defaults.includes(host) ? "muted" : "default"}>
               {host}
               {hosts.length > 1 && (
                 <Button
                   type="button"
                   size="icon-xs"
                   variant="ghost"
+                  disabled={disabled}
                   aria-label={`Remove ${host}`}
                   onClick={() => onChange(hosts.filter((h) => h !== host))}
                 >
@@ -206,6 +223,30 @@ function AllowedHosts({
           </li>
         ))}
       </ul>
+      {removedDefaults.length > 0 && (
+        <div className="flex flex-col gap-2">
+          <span className="type-small text-ink-muted">Removed defaults</span>
+          <ul aria-label="Removed defaults" className="flex flex-wrap gap-2">
+            {removedDefaults.map((host) => (
+              <li key={host}>
+                <Badge variant="muted">
+                  {host}
+                  <Button
+                    type="button"
+                    size="icon-xs"
+                    variant="ghost"
+                    disabled={disabled}
+                    aria-label={`Restore ${host}`}
+                    onClick={() => onChange([...hosts, host])}
+                  >
+                    <RotateCcw />
+                  </Button>
+                </Badge>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </div>
   );
 }

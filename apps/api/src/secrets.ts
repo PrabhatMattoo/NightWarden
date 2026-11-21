@@ -111,11 +111,35 @@ export function maskKey(plaintext: string): string {
   return `sk-...${suffix}`;
 }
 
+/* A secret is given as NAME or as NAME_FILE naming a mounted file, never both:
+   two answers to one question refuse the boot rather than pick one. */
+export function readSecretEnv(name: string): string | undefined {
+  const direct = process.env[name] || undefined;
+  const fileVar = `${name}_FILE`;
+  const path = process.env[fileVar] || undefined;
+  if (direct !== undefined && path !== undefined) {
+    throw new Error(`${name} and ${fileVar} are both set; set only one`);
+  }
+  if (path === undefined) return direct;
+  let contents: string;
+  try {
+    contents = readFileSync(path, "utf8").trim();
+  } catch (err) {
+    throw new Error(
+      `${fileVar} names ${path}, which cannot be read: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+  if (contents === "") {
+    throw new Error(`${fileVar} names ${path}, which is empty`);
+  }
+  return contents;
+}
+
 // Env wins, else a 0600 file. An empty file (crash mid-write, full disk) holds
 // no recoverable key, so it reads as absent rather than as "".
 function readKey(envVar: string, path: string): string | null {
-  const fromEnv = process.env[envVar];
-  if (fromEnv) return fromEnv;
+  const fromEnv = readSecretEnv(envVar);
+  if (fromEnv !== undefined) return fromEnv;
   if (!existsSync(path)) return null;
   const persisted = readFileSync(path, "utf8").trim();
   if (!persisted) return null;

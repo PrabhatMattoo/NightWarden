@@ -19,6 +19,7 @@ export function LimitsSection({
         <PresetRow
           id="settings-max-per-hour"
           setting="maxInvestigationsPerHour"
+          lockedBy={config.locked.settings.maxInvestigationsPerHour}
           title="Automatic investigations per hour"
           description="Alerts beyond this open an investigation you start yourself."
           value={config.maxInvestigationsPerHour}
@@ -28,6 +29,7 @@ export function LimitsSection({
         <PresetRow
           id="settings-check-in"
           setting="checkInAfterMs"
+          lockedBy={config.locked.settings.checkInAfterMs}
           title="Ask to continue after"
           description="The agent finishes its step, then asks whether to continue."
           value={config.checkInAfterMs}
@@ -40,6 +42,7 @@ export function LimitsSection({
         <PresetRow
           id="settings-max-retries"
           setting="maxRetries"
+          lockedBy={config.locked.settings.maxRetries}
           title="Retry failed model requests"
           description="How many times a failed request is retried before the run fails."
           value={config.maxRetries}
@@ -52,6 +55,7 @@ export function LimitsSection({
         <PresetRow
           id="settings-tool-ceiling"
           setting="toolCallCeilingMs"
+          lockedBy={config.locked.settings.toolCallCeilingMs}
           title="Longest tool call"
           description="No single tool call may run longer than this."
           value={config.toolCallCeilingMs}

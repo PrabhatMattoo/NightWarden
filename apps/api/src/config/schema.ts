@@ -3,67 +3,20 @@ import { check, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 import { LLM_PROVIDER_NAMES, SANDBOX_NETWORKS } from "@nightwarden/shared";
 import { inList } from "../schema-helpers.js";
 
+// NULL in a setting column means nobody chose it, so the code's own default applies.
 export const config = sqliteTable(
   "config",
   {
     id: text("id").primaryKey(),
     activeProvider: text("active_provider", { enum: LLM_PROVIDER_NAMES }),
-    maxRetries: integer("max_retries").notNull().default(3),
-    maxInvestigationsPerHour: integer("max_investigations_per_hour")
-      .notNull()
-      .default(10),
-    checkInAfterMs: integer("check_in_after_ms").notNull().default(1800000),
-    toolCallCeilingMs: integer("tool_call_ceiling_ms")
-      .notNull()
-      .default(600000),
-    sandboxIdleTimeoutMs: integer("sandbox_idle_timeout_ms")
-      .notNull()
-      .default(3600000),
-    sandboxCpus: integer("sandbox_cpus").notNull().default(2),
-    sandboxMemoryMb: integer("sandbox_memory_mb").notNull().default(4096),
-    sandboxNetwork: text("sandbox_network", { enum: SANDBOX_NETWORKS })
-      .notNull()
-      .default("allowlist"),
-    // Newline-joined, the Settings textarea's own shape.
-    sandboxAllowlistHosts: text("sandbox_allowlist_hosts")
-      .notNull()
-      .default(
-        [
-          "registry.npmjs.org",
-          "registry.yarnpkg.com",
-          "repo.yarnpkg.com",
-          "classic.yarnpkg.com",
-          "pypi.org",
-          "files.pythonhosted.org",
-          "crates.io",
-          "index.crates.io",
-          "static.crates.io",
-          "static.rust-lang.org",
-          "sh.rustup.rs",
-          "proxy.golang.org",
-          "sum.golang.org",
-          "dl.google.com",
-          "go.dev",
-          "rubygems.org",
-          "index.rubygems.org",
-          "repo.packagist.org",
-          "packagist.org",
-          "repo.hex.pm",
-          "hex.pm",
-          "builds.hex.pm",
-          "api.nuget.org",
-          "builds.dotnet.microsoft.com",
-          "dot.net",
-          "ci.dot.net",
-          "nodejs.org",
-          "github.com",
-          "release-assets.githubusercontent.com",
-          "objects.githubusercontent.com",
-          "mise-versions.jdx.dev",
-          "mise-java.jdx.dev",
-          "tuf-repo-cdn.sigstore.dev",
-        ].join("\n"),
-      ),
+    maxRetries: integer("max_retries"),
+    maxInvestigationsPerHour: integer("max_investigations_per_hour"),
+    checkInAfterMs: integer("check_in_after_ms"),
+    toolCallCeilingMs: integer("tool_call_ceiling_ms"),
+    sandboxIdleTimeoutMs: integer("sandbox_idle_timeout_ms"),
+    sandboxCpus: integer("sandbox_cpus"),
+    sandboxMemoryMb: integer("sandbox_memory_mb"),
+    sandboxNetwork: text("sandbox_network", { enum: SANDBOX_NETWORKS }),
     keyCheck: text("key_check"),
     updatedAt: text("updated_at").notNull(),
   },
@@ -78,6 +31,12 @@ export const config = sqliteTable(
     ),
   ],
 );
+
+// One row per departure from the default allowlist: a host added, or a default taken away.
+export const sandboxHostOverride = sqliteTable("sandbox_host_override", {
+  host: text("host").primaryKey(),
+  allowed: integer("allowed", { mode: "boolean" }).notNull(),
+});
 
 export const providerConfig = sqliteTable(
   "provider_config",

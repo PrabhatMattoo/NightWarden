@@ -88,6 +88,8 @@ const CONFIG: AgentConfig = {
   sandboxMemoryMb: 4096,
   sandboxNetwork: "none",
   sandboxAllowlistHosts: ["registry.npmjs.org"],
+  sandboxDefaultHosts: ["registry.npmjs.org", "pypi.org"],
+  locked: { settings: {}, providers: {} },
 };
 
 // Effort levels vary per model, so the fixture carries a full descriptor on one
@@ -788,6 +790,26 @@ describe("SettingsPage", () => {
     });
   });
 
+  describe("a setting the environment sets", () => {
+    it("disables the control, so nothing is sent for it", async () => {
+      const user = userEvent.setup();
+      const { sent } = setup({
+        locked: {
+          settings: { maxRetries: "NIGHTWARDEN_MAX_RETRIES" },
+          providers: {},
+        },
+      });
+      await openSection(user, /limits/i);
+
+      const control = await screen.findByRole("combobox", {
+        name: /retry failed model requests/i,
+      });
+      await user.click(control);
+      expect(control).toBeDisabled();
+      expect(sent("PATCH", "/api/config")).toHaveLength(0);
+    });
+  });
+
   describe("API key", () => {
     it("carries a freshly typed key on the catalog request, which is what verifies it", async () => {
       const user = userEvent.setup();
@@ -886,6 +908,32 @@ describe("SettingsPage", () => {
       await waitFor(() =>
         expect(patches().at(-1)).toEqual(["registry.npmjs.org"]),
       );
+    });
+  });
+
+  describe("removed default hosts", () => {
+    it("lists a default that is no longer allowed, and restoring it sends the list with that host back", async () => {
+      const user = userEvent.setup();
+      const { sent } = setup({ sandboxNetwork: "allowlist" });
+      await openSection(user, /sandbox/i);
+
+      const removed = await screen.findByRole("list", {
+        name: /removed defaults/i,
+      });
+      expect(within(removed).getByText("pypi.org")).toBeInTheDocument();
+      await user.click(
+        within(removed).getByRole("button", { name: "Restore pypi.org" }),
+      );
+
+      await waitFor(() => {
+        const patch = sent("PATCH", "/api/config")[0];
+        expect(patch).toBeDefined();
+        const body = patch?.body as { sandboxAllowlistHosts: string[] };
+        expect(body.sandboxAllowlistHosts).toEqual([
+          "registry.npmjs.org",
+          "pypi.org",
+        ]);
+      });
     });
   });
 

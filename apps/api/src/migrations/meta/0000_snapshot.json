@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "3c6e9bb4-ea52-4dc4-b2cc-f2251d371a1c",
+  "id": "53978eb6-9410-4601-83e0-10e9e297c1aa",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "alerts": {
@@ -672,73 +672,57 @@
           "name": "max_retries",
           "type": "integer",
           "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 3
+          "notNull": false,
+          "autoincrement": false
         },
         "max_investigations_per_hour": {
           "name": "max_investigations_per_hour",
           "type": "integer",
           "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 10
+          "notNull": false,
+          "autoincrement": false
         },
         "check_in_after_ms": {
           "name": "check_in_after_ms",
           "type": "integer",
           "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 1800000
+          "notNull": false,
+          "autoincrement": false
         },
         "tool_call_ceiling_ms": {
           "name": "tool_call_ceiling_ms",
           "type": "integer",
           "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 600000
+          "notNull": false,
+          "autoincrement": false
         },
         "sandbox_idle_timeout_ms": {
           "name": "sandbox_idle_timeout_ms",
           "type": "integer",
           "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 3600000
+          "notNull": false,
+          "autoincrement": false
         },
         "sandbox_cpus": {
           "name": "sandbox_cpus",
           "type": "integer",
           "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 2
+          "notNull": false,
+          "autoincrement": false
         },
         "sandbox_memory_mb": {
           "name": "sandbox_memory_mb",
           "type": "integer",
           "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 4096
+          "notNull": false,
+          "autoincrement": false
         },
         "sandbox_network": {
           "name": "sandbox_network",
           "type": "text",
           "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'allowlist'"
-        },
-        "sandbox_allowlist_hosts": {
-          "name": "sandbox_allowlist_hosts",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'registry.npmjs.org\nregistry.yarnpkg.com\nrepo.yarnpkg.com\nclassic.yarnpkg.com\npypi.org\nfiles.pythonhosted.org\ncrates.io\nindex.crates.io\nstatic.crates.io\nstatic.rust-lang.org\nsh.rustup.rs\nproxy.golang.org\nsum.golang.org\ndl.google.com\ngo.dev\nrubygems.org\nindex.rubygems.org\nrepo.packagist.org\npackagist.org\nrepo.hex.pm\nhex.pm\nbuilds.hex.pm\napi.nuget.org\nbuilds.dotnet.microsoft.com\ndot.net\nci.dot.net\nnodejs.org\ngithub.com\nrelease-assets.githubusercontent.com\nobjects.githubusercontent.com\nmise-versions.jdx.dev\nmise-java.jdx.dev\ntuf-repo-cdn.sigstore.dev'"
+          "notNull": false,
+          "autoincrement": false
         },
         "key_check": {
           "name": "key_check",
@@ -826,6 +810,30 @@
           "value": "\"provider_config\".\"provider\" IN ('anthropic', 'openai', 'openrouter', 'openai-compatible')"
         }
       }
+    },
+    "sandbox_host_override": {
+      "name": "sandbox_host_override",
+      "columns": {
+        "host": {
+          "name": "host",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "allowed": {
+          "name": "allowed",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
     },
     "account": {
       "name": "account",

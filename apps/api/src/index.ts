@@ -7,7 +7,8 @@ import {
   RECONCILE_TICK_MS,
   reconcileRecovery,
 } from "./verification/reconciler.js";
-import { checkSecretKey, seedConfigFromEnv } from "./config/store.js";
+import { initEnv } from "./config/env.js";
+import { checkSecretKey } from "./config/store.js";
 import { seedIntegrationsFromEnv } from "./integrations/seed.js";
 import { recoverDeadRuns } from "./session/recover.js";
 import { registerFrontendRoutes } from "./frontend.js";
@@ -39,6 +40,8 @@ try {
 
 // Before anything that encrypts, signs or reads a stored credential.
 initSecrets();
+// Before the first setting is read, so a bad value refuses the boot here.
+initEnv();
 
 const isDev = process.env["NODE_ENV"] !== "production";
 
@@ -55,14 +58,11 @@ const start = async (): Promise<void> => {
   try {
     initDb();
     fastify.log.info("SQLite ready");
-    // Before the seeds below, which encrypt with the key this decides on.
+    // Before the seed below, which encrypts with the key this decides on.
     checkSecretKey();
     prepareSetup();
-    // Env is a first-boot seed only: this writes the config row on an install
-    // that has none, and never again. After that the database is the sole source.
-    seedConfigFromEnv();
-    // Same first-boot rule for the evidence integrations, so a fresh install can
-    // come up fully configured without anyone opening a browser.
+    // First boot only, so a fresh install can come up with its evidence
+    // integrations connected without anyone opening a browser.
     seedIntegrationsFromEnv();
     // Containers first, killing any still-running writer, then salvage: orphaned
     // work is pushed here before listen() lets a session provision over it.
@@ -106,8 +106,8 @@ const start = async (): Promise<void> => {
       });
     }, RECONCILE_TICK_MS).unref();
 
-    const port = parseInt(process.env["PORT"] ?? "3000", 10);
-    const host = process.env["HOST"] ?? "127.0.0.1";
+    const port = parseInt(process.env["NIGHTWARDEN_PORT"] ?? "3000", 10);
+    const host = process.env["NIGHTWARDEN_HOST"] ?? "127.0.0.1";
     await fastify.listen({ port, host });
   } catch (err) {
     fastify.log.error(err);

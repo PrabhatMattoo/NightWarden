@@ -2,6 +2,7 @@ import { ne } from "drizzle-orm";
 import { afterEach, vi } from "vitest";
 import { openDb } from "../db.js";
 import { logger } from "../logger.js";
+import { initEnv } from "../config/env.js";
 import { initSecrets } from "../secrets.js";
 import { sessions } from "../session/schema.js";
 import { deriveStatus } from "../session/status-store.js";
@@ -14,6 +15,7 @@ process.env["NIGHTWARDEN_DIR"] = createTempFolder();
 // same boot step production does rather than reaching past it.
 process.env["NIGHTWARDEN_SECRET_KEY"] = "nightwarden-test-secret-key";
 initSecrets();
+initEnv();
 
 // A dispatched investigation that throws is caught and logged (correct in production, but a
 // swallowed failure would pass green in tests) - fail the test if any run logs it instead.

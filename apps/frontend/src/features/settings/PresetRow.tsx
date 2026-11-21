@@ -48,6 +48,7 @@ interface PresetRowProps {
   value: number;
   format: (value: number) => string;
   onCommit: (value: number) => void;
+  lockedBy?: string;
 }
 
 // A saved value outside the presets is offered too, so the control never shows a blank.
@@ -59,6 +60,7 @@ export function PresetRow({
   value,
   format,
   onCommit,
+  lockedBy,
 }: PresetRowProps): React.JSX.Element {
   const presets: readonly number[] = SETTING_RANGES[setting].presets;
   const options = presets.includes(value)
@@ -66,9 +68,15 @@ export function PresetRow({
     : [...presets, value].sort((a, b) => a - b);
   const items = Object.fromEntries(options.map((n) => [String(n), format(n)]));
   return (
-    <SettingsRow id={id} title={title} description={description}>
+    <SettingsRow
+      id={id}
+      title={title}
+      description={description}
+      lockedBy={lockedBy}
+    >
       <Select
         items={items}
+        disabled={lockedBy !== undefined}
         value={String(value)}
         onValueChange={(next) => {
           const n = Number(next);

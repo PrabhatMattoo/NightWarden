@@ -219,10 +219,6 @@ export function SettingsPage(): React.JSX.Element {
 
   function setModel(id: string | null): void {
     if (!form.provider) return;
-    if (id === null) {
-      patchProvider(form.provider, { model: null, reasoningLevel: null });
-      return;
-    }
     // Ladders differ per model, so a level the new one does not offer becomes
     // its default.
     const reasoning =
@@ -230,13 +226,17 @@ export function SettingsPage(): React.JSX.Element {
     const keeps = reasoning?.levels.some(
       (l) => l.value === block?.reasoningLevel,
     );
+    const levelIsLocked =
+      config.locked.providers[form.provider]?.reasoningLevel !== undefined;
     patchProvider(form.provider, {
       model: id,
-      reasoningLevel: reasoning
-        ? keeps
-          ? block?.reasoningLevel
-          : reasoning.defaultLevel
-        : null,
+      ...(!levelIsLocked && {
+        reasoningLevel: reasoning
+          ? keeps
+            ? block?.reasoningLevel
+            : reasoning.defaultLevel
+          : null,
+      }),
     });
   }
 
@@ -308,6 +308,7 @@ export function SettingsPage(): React.JSX.Element {
       {active === "provider" && (
         <ProviderSection
           form={form}
+          locked={config.locked}
           block={block}
           savedApiKeyMasked={savedBlock?.apiKeyMasked ?? null}
           catalog={catalog}

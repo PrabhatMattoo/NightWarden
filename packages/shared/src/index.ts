@@ -152,6 +152,7 @@ export {
 } from "./reports.js";
 export type {
   LLMProviderName,
+  ProviderSettingField,
   SandboxNetwork,
   ResolvedLLMConfig,
   NumericSetting,
@@ -159,6 +160,7 @@ export type {
 } from "./config.js";
 export {
   LLM_PROVIDER_NAMES,
+  PROVIDER_SETTING_FIELDS,
   REASONING_LEVELS,
   SANDBOX_HOST_PATTERN,
   SANDBOX_NETWORKS,
@@ -173,6 +175,7 @@ export type {
   AgentConfig,
   CatalogError,
   ConfigPatch,
+  GlobalSettingField,
   SettingsPatch,
   ModelCatalog,
   ModelCheck,
