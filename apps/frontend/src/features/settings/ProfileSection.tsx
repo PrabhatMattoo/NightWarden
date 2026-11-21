@@ -10,19 +10,19 @@ import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import { avatarDataUrl } from "@/shared/lib/avatarImage";
 import { toast } from "@/shared/lib/toast";
-import { authStatusQuery, isSignedIn } from "@/features/auth/queries";
+import { authSessionQuery } from "@/features/auth/queries";
 import { UserAvatar } from "@/features/auth/UserAvatar";
 import { AppearanceGroup } from "./AppearanceGroup";
 import { rowLabel, SettingsGroup, SettingsRow } from "./SettingsRow";
 
-// One write for the name and the picture; every page reads both from the status.
+// One write for the name and the picture; every page reads both from the session.
 function useUpdateProfile(failure: string) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (patch: { name?: string; image?: string | null }) =>
       authCall(authClient.updateUser(patch)),
     onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: authStatusQuery().queryKey }),
+      queryClient.invalidateQueries({ queryKey: authSessionQuery().queryKey }),
     onError: (err) =>
       toast.show({ title: failure, message: err.message, variant: "error" }),
   });
@@ -119,23 +119,24 @@ function NameRow({ name }: { name: string }): React.JSX.Element {
 
 // The layout has already sent a signed-out visitor to the login page.
 export function ProfileSection(): React.JSX.Element | null {
-  const { data: status } = useSuspenseQuery(authStatusQuery());
-  if (!isSignedIn(status)) return null;
+  const { data: session } = useSuspenseQuery(authSessionQuery());
+  if (session === null) return null;
+  const { user } = session;
   return (
     <div className="flex flex-col gap-8">
       <SettingsGroup>
-        <PictureRow name={status.name} image={status.image} />
+        <PictureRow name={user.name} image={user.image ?? null} />
         <SettingsRow id="settings-email" title="Email">
           <span
             aria-labelledby={rowLabel("settings-email")}
             className="type-body"
           >
-            {status.email}
+            {user.email}
           </span>
         </SettingsRow>
-        <NameRow name={status.name} />
+        <NameRow name={user.name} />
       </SettingsGroup>
-      <AppearanceGroup theme={status.theme} />
+      <AppearanceGroup theme={user.theme} />
     </div>
   );
 }

@@ -18,6 +18,7 @@ import type {
 } from "@tanstack/react-router";
 import { AppLayout } from "./AppLayout.js";
 import { LoginPage } from "../features/auth/LoginPage.js";
+import { SetupPage } from "../features/auth/SetupPage.js";
 import { IntegrationsPage } from "../features/integrations/IntegrationsPage.js";
 import { InvestigationsPage } from "../features/investigations/InvestigationsPage.js";
 import { InvestigationWorkspace } from "../features/investigations/InvestigationWorkspace.js";
@@ -35,10 +36,9 @@ import type { SessionKind } from "@nightwarden/shared";
 import { sessionQuery, sessionsQuery } from "../features/session/queries.js";
 import { reportQuery } from "../features/report/queries.js";
 import {
-  authStatusQuery,
+  authSessionQuery,
   devicesQuery,
-  isSignedIn,
-  SIGNED_OUT,
+  setupQuery,
 } from "../features/auth/queries.js";
 import { configQuery } from "../features/settings/queries.js";
 import {
@@ -108,17 +108,26 @@ function RouteError({ error }: ErrorComponentProps): React.JSX.Element {
 }
 
 /* The session as the cache holds it. A check that itself fails reads as signed
-   out, so a broken status route lands on the login page rather than a spinner. */
-async function readAuthStatus(queryClient: QueryClient) {
+   out, so a broken session route lands on the login page rather than a spinner. */
+async function readAuthSession(queryClient: QueryClient) {
   try {
     return await queryClient.query({
-      ...authStatusQuery(),
+      ...authSessionQuery(),
       staleTime: "static",
     });
   } catch {
-    queryClient.setQueryData(authStatusQuery().queryKey, SIGNED_OUT);
-    return SIGNED_OUT;
+    queryClient.setQueryData(authSessionQuery().queryKey, null);
+    return null;
   }
+}
+
+// A fresh install has no account to log in to, so a visitor with no session starts at setup.
+async function setupRequired(queryClient: QueryClient): Promise<boolean> {
+  const status = await queryClient.query({
+    ...setupQuery(),
+    staleTime: "static",
+  });
+  return status.required;
 }
 
 // Read through the cache: fetched when absent, taken as it stands when present.
@@ -137,11 +146,25 @@ const loginRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/login",
   beforeLoad: async ({ context }) => {
-    if (isSignedIn(await readAuthStatus(context.queryClient))) {
+    if ((await readAuthSession(context.queryClient)) !== null) {
       throw redirect({ to: "/" });
+    }
+    if (await setupRequired(context.queryClient)) {
+      throw redirect({ to: "/setup" });
     }
   },
   component: LoginPage,
+});
+
+const setupRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/setup",
+  beforeLoad: async ({ context }) => {
+    if (!(await setupRequired(context.queryClient))) {
+      throw redirect({ to: "/login" });
+    }
+  },
+  component: SetupPage,
 });
 
 // Pathless layout: nests every authenticated page so the session is checked
@@ -150,8 +173,10 @@ const appRoute = createRoute({
   getParentRoute: () => rootRoute,
   id: "app",
   beforeLoad: async ({ context }) => {
-    if (!isSignedIn(await readAuthStatus(context.queryClient))) {
-      throw redirect({ to: "/login" });
+    if ((await readAuthSession(context.queryClient)) === null) {
+      throw redirect({
+        to: (await setupRequired(context.queryClient)) ? "/setup" : "/login",
+      });
     }
   },
   component: AppLayout,
@@ -363,6 +388,7 @@ const sentryRoute = createRoute({
 
 const routeTree = rootRoute.addChildren([
   loginRoute,
+  setupRoute,
   appRoute.addChildren([
     indexRoute,
     agentRoute,

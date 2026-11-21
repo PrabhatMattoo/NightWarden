@@ -17,12 +17,13 @@ const PUBLIC: ReadonlyArray<{ route: string; why: string }> = [
   },
   {
     route: "POST /api/auth/*",
-    why: "the same, and where sign-up and sign-in are answered",
+    why: "the same, and where sign-in is answered",
   },
   {
-    route: "GET /api/auth-status",
-    why: "answers whether an owner exists at all",
+    route: "GET /api/setup",
+    why: "answers whether the install still waits for its owner",
   },
+  { route: "POST /api/setup", why: "claims its own setup token" },
   { route: "POST /api/alerts/ingest", why: "verifies its own issued token" },
   { route: "GET /api/clients/connect", why: "a runner presents its own token" },
 ];

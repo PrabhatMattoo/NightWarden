@@ -2,7 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 
 import { authCall, authClient } from "@/shared/api/authClient";
-import { authStatusQuery, SIGNED_OUT } from "@/features/auth/queries";
+import { authSessionQuery } from "@/features/auth/queries";
 
 /* Everywhere revokes every device first, this one included, so the page lands on
    the login screen. What the account could read leaves the cache with it. */
@@ -15,13 +15,13 @@ export function useSignOut({ everywhere = false } = {}) {
       await authCall(authClient.signOut());
     },
     onSuccess: async () => {
-      const statusKey = authStatusQuery().queryKey;
-      queryClient.setQueryData(statusKey, SIGNED_OUT);
+      const sessionKey = authSessionQuery().queryKey;
+      queryClient.setQueryData(sessionKey, null);
       await navigate({ to: "/login" });
       queryClient.removeQueries({
         predicate: (query) =>
-          query.queryKey[0] !== statusKey[0] ||
-          query.queryKey[1] !== statusKey[1],
+          query.queryKey[0] !== sessionKey[0] ||
+          query.queryKey[1] !== sessionKey[1],
       });
     },
   });

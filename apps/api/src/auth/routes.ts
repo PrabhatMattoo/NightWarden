@@ -1,14 +1,18 @@
+import { APIError } from "better-auth/api";
 import { fromNodeHeaders } from "better-auth/node";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
-import type { AuthStatusResponse } from "@nightwarden/shared";
+import { z } from "zod";
+import type { SetupStatus } from "@nightwarden/shared";
 import {
-  authStatusResponseSchema,
   refusals,
+  setupRequestSchema,
+  setupStatusSchema,
 } from "@nightwarden/shared/schemas";
 import { getAuth } from "./instance.js";
 import { ownerExists } from "./owner-store.js";
-import { currentUser } from "./session.js";
+import { ADMIN_ROLE } from "./permissions.js";
+import { claimSetupToken, writeSetupToken } from "./setup-token.js";
 
 export async function registerAuthRoutes(
   fastify: FastifyInstance,
@@ -43,28 +47,58 @@ export async function registerAuthRoutes(
     },
   });
 
-  // Hyphenated so it cannot be swallowed by the catch-all above.
   app.get(
-    "/auth-status",
+    "/setup",
     {
       // Read before sign-in to decide which page to show.
       config: { permission: "public" },
+      schema: { response: { 200: setupStatusSchema, ...refusals() } },
+    },
+    (): SetupStatus => ({ required: !ownerExists() }),
+  );
+
+  app.post(
+    "/setup",
+    {
+      // The setup token is its own credential.
+      config: { permission: "public" },
       schema: {
-        response: { 200: authStatusResponseSchema, ...refusals() },
+        body: setupRequestSchema,
+        response: { 204: z.undefined(), ...refusals() },
       },
     },
-    async (request): Promise<AuthStatusResponse> => {
-      if (!ownerExists()) return { ownerExists: false };
-      const user = await currentUser(request);
-      if (!user) return { ownerExists: true, authenticated: false };
-      return {
-        ownerExists: true,
-        authenticated: true,
-        email: user.email,
-        name: user.name,
-        image: user.image,
-        theme: user.theme,
-      };
+    async (request, reply) => {
+      const { token, name, email, password } = request.body;
+      if (ownerExists()) {
+        return reply
+          .code(409)
+          .send({ error: "This install is already set up." });
+      }
+      if (!claimSetupToken(token)) {
+        return reply.code(403).send({ error: "The setup token is not valid." });
+      }
+      const auth = getAuth();
+      try {
+        // Without headers: Better Auth reads a call that carries none as the server's own.
+        await auth.api.createUser({
+          body: { email, password, name, role: ADMIN_ROLE },
+        });
+      } catch (err) {
+        writeSetupToken(token);
+        if (err instanceof APIError) {
+          return reply.code(400).send({ error: err.message });
+        }
+        throw err;
+      }
+      const signedIn = await auth.api.signInEmail({
+        body: { email, password },
+        headers: fromNodeHeaders(request.headers),
+        asResponse: true,
+      });
+      return reply
+        .header("set-cookie", signedIn.headers.getSetCookie())
+        .code(204)
+        .send();
     },
   );
 }

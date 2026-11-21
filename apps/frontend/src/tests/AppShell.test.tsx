@@ -5,6 +5,7 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import type { SessionAlert, SessionListRow } from "@nightwarden/shared";
 
 import { renderApp } from "./renderWithProviders.js";
+import { GET_SESSION_PATH, sessionBody } from "./auth-session.js";
 import { json, stubApi } from "./stubApi.js";
 import { MockEventSource } from "./mockEventSource.js";
 
@@ -118,14 +119,8 @@ function setup({ path = "/agent" }: { path?: string } = {}) {
 
   const api = stubApi(({ path: url }) => {
     if (url === "/api/auth/sign-out") return json({ success: true });
-    if (url === "/api/auth-status") {
-      return json({
-        ownerExists: true,
-        authenticated: true,
-        email: OWNER_EMAIL,
-        name: "Admin",
-        image: null,
-      });
+    if (url === GET_SESSION_PATH) {
+      return json(sessionBody({ email: OWNER_EMAIL }));
     }
     if (url === "/api/chat") return json({ sessionId: "new-s1" }, 202);
     if (url.startsWith("/api/runners")) return json([]);

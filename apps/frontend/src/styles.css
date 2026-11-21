@@ -520,6 +520,11 @@
   outline-offset: -1px;
 }
 
+/* PasswordInput draws its own show toggle, so Edge's is hidden. */
+input::-ms-reveal {
+  display: none;
+}
+
 ::selection {
   background: var(--selection);
   color: var(--ink-title);

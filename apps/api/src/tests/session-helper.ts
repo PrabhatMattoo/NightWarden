@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { NormalizedAlert, SessionMeta } from "@nightwarden/shared";
 import type { DeliveryContext } from "../alerts/delivery.js";
 import { getAuth } from "../auth/instance.js";
+import { ADMIN_ROLE } from "../auth/permissions.js";
 import { user } from "../auth/schema.js";
 import { getDb } from "../db.js";
 import { buildSessionMeta } from "../agent/loop/run-session.js";
@@ -69,8 +70,8 @@ export function seedChatSession(sessionId: string, message?: string): void {
   createSession(buildSessionMeta(sessionId, null, message));
 }
 
-/* A real signed-in session, issued the way production does: the owner is created
-   through the signup door, so the cookie is one Better Auth actually issued. */
+/* A real signed-in session: the owner is created the way the setup route does, so
+   the cookie is one Better Auth actually issued. */
 export async function issueTestSession(
   role: "admin" | "member" = "admin",
 ): Promise<string> {
@@ -83,7 +84,9 @@ export async function issueTestSession(
   const member = { ...owner, email: "member@example.test", name: "Member" };
   const existing = getDb().select({ email: user.email }).from(user).all();
   const emails = new Set(existing.map((row) => row.email));
-  if (!emails.has(owner.email)) await auth.api.signUpEmail({ body: owner });
+  if (!emails.has(owner.email)) {
+    await auth.api.createUser({ body: { ...owner, role: ADMIN_ROLE } });
+  }
   // Created the way an admin adds a colleague, so it carries the default role.
   if (role === "member" && !emails.has(member.email)) {
     await auth.api.createUser({ body: member });

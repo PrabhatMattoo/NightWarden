@@ -7,14 +7,13 @@ import {
   AVATAR_MAX_LENGTH,
   AVATAR_PATTERN,
   PASSWORD_MIN_LENGTH,
-  THEME_PREFERENCES,
+  THEME_FIELD,
 } from "@nightwarden/shared";
 import { themePreferenceSchema } from "@nightwarden/shared/schemas";
 import { getDb } from "../db.js";
 import { configuredPublicUrl, extraTrustedOrigins } from "../public-url.js";
 import { authSecret } from "../secrets.js";
-import { ownerExists } from "./owner-store.js";
-import { ADMIN_ROLE, MEMBER_ROLE } from "./permissions.js";
+import { MEMBER_ROLE } from "./permissions.js";
 import { account, authSession, user, verification } from "./schema.js";
 
 // Five attempts a minute on the credential paths; Better Auth's own default of
@@ -48,6 +47,8 @@ function buildAuth() {
     ),
     emailAndPassword: {
       enabled: true,
+      // Accounts are created in-process: the owner by the setup route.
+      disableSignUp: true,
       minPasswordLength: PASSWORD_MIN_LENGTH,
       // OWASP's first recommendation, and the package's defaults already exceed
       // its floor at 64 MiB, 3 iterations and parallelism 4.
@@ -59,38 +60,11 @@ function buildAuth() {
     user: {
       // Kept on the account so every browser a person signs in from agrees.
       additionalFields: {
-        theme: {
-          type: [...THEME_PREFERENCES],
-          required: true,
-          defaultValue: "system",
-          input: true,
-          validator: { input: themePreferenceSchema },
-        },
-      },
-      /* Registration is open only until the owner exists. Gated on the method so
-         an admin adding a colleague is not self-registration and passes. */
-      validateUserInfo: ({ source }) => {
-        if (source.action !== "create-user") return;
-        if (source.method !== "email-password") return;
-        if (ownerExists()) {
-          return {
-            error: "setup_already_complete",
-            errorDescription: "This install already has an owner.",
-          };
-        }
+        theme: { ...THEME_FIELD, validator: { input: themePreferenceSchema } },
       },
     },
     databaseHooks: {
       user: {
-        create: {
-          // The plugin stamps every account a member, so the install would
-          // have no administrator without this.
-          before: async (newUser) => {
-            return ownerExists()
-              ? { data: newUser }
-              : { data: { ...newUser, role: ADMIN_ROLE } };
-          },
-        },
         update: {
           // Rendered as an <img> on every page, so only a small inline picture is kept.
           before: async (changes) => {

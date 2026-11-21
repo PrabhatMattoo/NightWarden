@@ -44,7 +44,7 @@ import {
   DropdownMenuTrigger,
 } from "@/shared/ui/dropdown-menu";
 import { ConfirmDialog } from "@/shared/ui/ConfirmDialog";
-import { authStatusQuery, isSignedIn } from "@/features/auth/queries";
+import { authSessionQuery } from "@/features/auth/queries";
 import { UserAvatar } from "@/features/auth/UserAvatar";
 import { useSignOut } from "@/features/auth/useSignOut";
 import { cn } from "@/shared/lib/utils";
@@ -107,9 +107,9 @@ function ShellContent({
   const signOut = useSignOut();
   const [confirmingSignOut, setConfirmingSignOut] = useState(false);
   const accountRow = useRef<HTMLLIElement>(null);
-  const { data: status } = useSuspenseQuery(authStatusQuery());
-  const name = isSignedIn(status) ? status.name : "";
-  const image = isSignedIn(status) ? status.image : null;
+  const { data: session } = useSuspenseQuery(authSessionQuery());
+  const name = session?.user.name ?? "";
+  const image = session?.user.image ?? null;
   const inSettings = pathname.startsWith("/settings");
 
   function isActive(to: string): boolean {

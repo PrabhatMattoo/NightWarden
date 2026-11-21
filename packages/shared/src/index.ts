@@ -6,6 +6,7 @@ export {
   AVATAR_PATTERN,
   AVATAR_SIZE_PX,
   PASSWORD_MIN_LENGTH,
+  THEME_FIELD,
   THEME_PREFERENCES,
 } from "./auth.js";
 export type {
@@ -167,7 +168,7 @@ export {
 // The HTTP contract, inferred from the route schemas. Type-only, so the
 // frontend that reads them never ships zod.
 export type { paths } from "./openapi.js";
-export type { AuthStatusResponse } from "./schemas/auth.js";
+export type { SetupRequest, SetupStatus } from "./schemas/auth.js";
 export type {
   AgentConfig,
   CatalogError,

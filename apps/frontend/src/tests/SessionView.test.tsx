@@ -13,6 +13,7 @@ import { RouterProvider } from "@tanstack/react-router";
 import { SessionView } from "../features/session/SessionView.js";
 import { FrontendEventsProvider } from "@/shared/events/FrontendEventsProvider";
 import { MockEventSource } from "./mockEventSource.js";
+import { GET_SESSION_PATH, sessionBody } from "./auth-session";
 import { json, stubApi } from "./stubApi";
 import { sessionQuery } from "../features/session/queries.js";
 
@@ -149,15 +150,8 @@ function setupPage({
   vi.stubGlobal("navigator", { clipboard: { writeText } });
 
   const api = stubApi(({ path: url, method }) => {
-    if (url === "/api/auth-status") {
-      return json({
-        ownerExists: true,
-        authenticated: true,
-        email: "user@nightwarden.io",
-        name: "User",
-        image: null,
-        theme: "system",
-      });
+    if (url === GET_SESSION_PATH) {
+      return json(sessionBody({ email: "user@nightwarden.io", name: "User" }));
     }
     const record = /\/sessions\/([^?/]+)$/.exec(url);
     if (record !== null && !url.includes("?")) {

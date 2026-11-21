@@ -1,11 +1,22 @@
-import { eq } from "drizzle-orm";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { existsSync, readFileSync, statSync } from "node:fs";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 import type { FastifyInstance } from "fastify";
-import type { AuthStatusResponse } from "@nightwarden/shared";
 import { useTempDb } from "./temp-db.js";
 import { getAuth, resetAuth } from "../auth/instance.js";
-import { getDb } from "../db.js";
+import { ADMIN_ROLE } from "../auth/permissions.js";
 import { user } from "../auth/schema.js";
+import { prepareSetup, writeSetupToken } from "../auth/setup-token.js";
+import { getDb } from "../db.js";
+import { setupTokenPath } from "../paths.js";
 import { buildServer as buildApiServer } from "../server.js";
 
 const OWNER = {
@@ -24,12 +35,9 @@ async function buildServer(): Promise<FastifyInstance> {
   return server;
 }
 
-function signUp(server: FastifyInstance, payload: Record<string, string>) {
-  return server.inject({
-    method: "POST",
-    url: "/api/auth/sign-up/email",
-    payload,
-  });
+// The way the setup route adds the owner, for the tests that start after setup.
+async function createOwner(): Promise<void> {
+  await getAuth().api.createUser({ body: { ...OWNER, role: ADMIN_ROLE } });
 }
 
 function signIn(
@@ -53,73 +61,128 @@ function cookieFrom(res: { headers: { "set-cookie"?: string | string[] } }) {
   return all.map((c) => c.split(";")[0]).join("; ");
 }
 
-function status(server: FastifyInstance, cookie?: string) {
+// The parsed body is untyped; the tests read only the fields they assert.
+async function sessionUser(server: FastifyInstance, cookie: string) {
+  const res = await server.inject({
+    method: "GET",
+    url: "/api/auth/get-session",
+    headers: { cookie },
+  });
+  return (
+    JSON.parse(res.body) as {
+      user: { role: string; theme: string; image: string | null };
+    } | null
+  )?.user;
+}
+
+function gated(server: FastifyInstance, cookie: string) {
   return server.inject({
     method: "GET",
-    url: "/api/auth-status",
-    ...(cookie !== undefined && { headers: { cookie } }),
+    url: "/api/runners",
+    headers: { cookie },
   });
 }
 
-describe("the first account", () => {
+describe("setup", () => {
   let server: FastifyInstance;
   let cleanupDb: () => void;
+  let token: string;
 
-  beforeAll(async () => {
+  beforeEach(async () => {
     cleanupDb = useTempDb();
+    prepareSetup();
+    token = readFileSync(setupTokenPath(), "utf8");
     server = await buildServer();
   });
 
-  afterAll(async () => {
+  afterEach(async () => {
     await server.close();
     cleanupDb();
+    vi.unstubAllEnvs();
   });
 
-  it("creates the owner and sets a session cookie", async () => {
-    const res = await signUp(server, OWNER);
-    expect(res.statusCode).toBe(200);
-    expect(cookieFrom(res)).not.toBe("");
+  function setup(body: Record<string, string>) {
+    return server.inject({ method: "POST", url: "/api/setup", payload: body });
+  }
+
+  async function setupRequired(): Promise<boolean> {
+    const res = await server.inject({ method: "GET", url: "/api/setup" });
+    return (JSON.parse(res.body) as { required: boolean }).required;
+  }
+
+  const owners = () => getDb().select().from(user).all();
+
+  it("refuses a wrong token and leaves setup waiting", async () => {
+    const res = await setup({ ...OWNER, token: `${token}x` });
+    expect(res.statusCode).toBe(403);
+    expect(
+      (await setup({ ...OWNER, token: "z".repeat(token.length) })).statusCode,
+    ).toBe(403);
+    expect(owners()).toEqual([]);
+    expect(await setupRequired()).toBe(true);
   });
 
-  // The install has one owner and everyone after arrives by invitation, so the
-  // signup door closes the moment it has been used.
-  it("refuses a second account", async () => {
-    const res = await signUp(server, {
-      email: "other@example.com",
-      password: "anotherpassword123",
-      name: "Other",
+  it("creates one admin who is signed in, and nothing opens setup again", async () => {
+    expect(await setupRequired()).toBe(true);
+
+    const res = await setup({ ...OWNER, token });
+    expect(res.statusCode).toBe(204);
+    expect((await gated(server, cookieFrom(res))).statusCode).toBe(200);
+    expect(owners()).toMatchObject([{ email: OWNER.email, role: "admin" }]);
+    expect(await setupRequired()).toBe(false);
+    expect(existsSync(setupTokenPath())).toBe(false);
+
+    // A token left behind is refused all the same, which is the owner check.
+    writeSetupToken(token);
+    const again = await setup({ ...OWNER, email: "other@example.com", token });
+    expect(again.statusCode).toBe(409);
+    expect(owners()).toHaveLength(1);
+  });
+
+  it("lets exactly one of two simultaneous requests with the token win", async () => {
+    const [first, second] = await Promise.all([
+      setup({ ...OWNER, token }),
+      setup({ ...OWNER, email: "other@example.com", token }),
+    ]);
+    expect([first.statusCode, second.statusCode].sort((a, b) => a - b)).toEqual(
+      [204, 403],
+    );
+    expect(owners()).toHaveLength(1);
+  });
+
+  it("keeps the token for a request it refuses before or after claiming it", async () => {
+    const short = await setup({ ...OWNER, token, password: "short" });
+    expect(short.statusCode).toBe(400);
+    // Better Auth caps a password at 128 characters, which the route does not repeat.
+    const long = await setup({ ...OWNER, token, password: "a".repeat(129) });
+    expect(long.statusCode).toBe(400);
+    expect(owners()).toEqual([]);
+
+    expect((await setup({ ...OWNER, token })).statusCode).toBe(204);
+  });
+
+  it("closes Better Auth's own sign-up even before the owner exists", async () => {
+    const res = await server.inject({
+      method: "POST",
+      url: "/api/auth/sign-up/email",
+      payload: OWNER,
     });
     expect(res.statusCode).toBeGreaterThanOrEqual(400);
-    const after = await status(server);
-    expect(JSON.parse(after.body)).toMatchObject({ ownerExists: true });
+    expect(owners()).toEqual([]);
+    expect(await setupRequired()).toBe(true);
   });
 
-  it("makes that first account an admin", async () => {
-    const res = await signIn(server, OWNER);
-    const session = JSON.parse(res.body) as { user?: { role?: string } };
-    expect(session.user?.role).toBe("admin");
-  });
+  it("writes the token file for an install with no owner and removes it once there is one", async () => {
+    expect(statSync(setupTokenPath()).mode & 0o777).toBe(0o600);
 
-  /* An admin adding a colleague is not self-registration, so the rule that
-     closes the door must not close it on them - which is how invitations work. */
-  it("lets an admin's server-side call add a member once the door is shut", async () => {
-    await getAuth().api.createUser({
-      body: {
-        email: "colleague@example.com",
-        password: "another-long-password",
-        name: "Colleague",
-      },
-    });
-    const colleague = getDb()
-      .select({ role: user.role })
-      .from(user)
-      .where(eq(user.email, "colleague@example.com"))
-      .get();
-    expect(colleague?.role).toBe("member");
+    await createOwner();
+    prepareSetup();
+    expect(existsSync(setupTokenPath())).toBe(false);
   });
 
   // Nothing in NightWarden calls the admin plugin over HTTP, impersonation least of all.
   it("answers none of the admin plugin's paths, however the URL is spelled", async () => {
+    await createOwner();
     const cookie = cookieFrom(await signIn(server, OWNER));
     for (const path of ["admin/impersonate-user", "admin/create-user"]) {
       for (const url of [`/api/auth/${path}`, `/api/auth//${path}`]) {
@@ -135,46 +198,19 @@ describe("the first account", () => {
   });
 });
 
-describe("GET /auth-status", () => {
+describe("the signed-in account", () => {
   let server: FastifyInstance;
   let cleanupDb: () => void;
 
   beforeAll(async () => {
     cleanupDb = useTempDb();
     server = await buildServer();
+    await createOwner();
   });
 
   afterAll(async () => {
     await server.close();
     cleanupDb();
-  });
-
-  it("reports no owner before setup", async () => {
-    const res = await status(server);
-    expect(res.statusCode).toBe(200);
-    expect(JSON.parse(res.body)).toEqual({ ownerExists: false });
-  });
-
-  it("reports an owner but no session once one exists", async () => {
-    await signUp(server, OWNER);
-    const res = await status(server);
-    expect(JSON.parse(res.body)).toEqual({
-      ownerExists: true,
-      authenticated: false,
-    });
-  });
-
-  it("reports the signed-in email, name and theme for a valid cookie", async () => {
-    const signedIn = await signIn(server, OWNER);
-    const res = await status(server, cookieFrom(signedIn));
-    expect(JSON.parse(res.body) as AuthStatusResponse).toEqual({
-      ownerExists: true,
-      authenticated: true,
-      email: OWNER.email,
-      name: OWNER.name,
-      image: null,
-      theme: "system",
-    });
   });
 
   // The account holds the choice, so every browser signed in to it agrees.
@@ -189,14 +225,10 @@ describe("GET /auth-status", () => {
       });
 
     expect((await update("light")).statusCode).toBe(200);
-    expect(JSON.parse((await status(server, cookie)).body)).toMatchObject({
-      theme: "light",
-    });
+    expect((await sessionUser(server, cookie))?.theme).toBe("light");
 
     expect((await update("sepia")).statusCode).toBe(400);
-    expect(JSON.parse((await status(server, cookie)).body)).toMatchObject({
-      theme: "light",
-    });
+    expect((await sessionUser(server, cookie))?.theme).toBe("light");
   });
 
   // Drawn as an <img> on every page, so only a small inline picture is kept.
@@ -216,21 +248,17 @@ describe("GET /auth-status", () => {
     expect(
       (await update(`data:image/png;base64,${"A".repeat(200_000)}`)).statusCode,
     ).toBe(400);
-    expect(JSON.parse((await status(server, cookie)).body)).toMatchObject({
-      image: picture,
-    });
+    expect((await sessionUser(server, cookie))?.image).toBe(picture);
 
     expect((await update(null)).statusCode).toBe(200);
-    expect(JSON.parse((await status(server, cookie)).body)).toMatchObject({
-      image: null,
-    });
+    expect((await sessionUser(server, cookie))?.image).toBeNull();
   });
 
   /* The session is a row, not a signature, so revoking it stops the cookie
      working immediately rather than waiting for it to expire. */
-  it("reports no session for a cookie whose row was revoked", async () => {
-    const signedIn = await signIn(server, OWNER);
-    const cookie = cookieFrom(signedIn);
+  it("refuses a cookie whose row was revoked", async () => {
+    const cookie = cookieFrom(await signIn(server, OWNER));
+    expect((await gated(server, cookie)).statusCode).toBe(200);
 
     const revoked = await server.inject({
       method: "POST",
@@ -239,11 +267,7 @@ describe("GET /auth-status", () => {
     });
     expect(revoked.statusCode).toBe(200);
 
-    const res = await status(server, cookie);
-    expect(JSON.parse(res.body)).toEqual({
-      ownerExists: true,
-      authenticated: false,
-    });
+    expect((await gated(server, cookie)).statusCode).toBe(401);
   });
 });
 
@@ -268,7 +292,7 @@ describe("trusted origins", () => {
     );
     resetAuth();
     server = await buildServer();
-    await signUp(server, OWNER);
+    await createOwner();
   });
 
   afterAll(async () => {
@@ -303,7 +327,8 @@ describe("the authorization gate", () => {
   beforeAll(async () => {
     cleanupDb = useTempDb();
     server = await buildServer();
-    cookie = cookieFrom(await signUp(server, OWNER));
+    await createOwner();
+    cookie = cookieFrom(await signIn(server, OWNER));
   });
 
   afterAll(async () => {

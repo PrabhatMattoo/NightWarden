@@ -17,7 +17,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/shared/ui/dialog";
-import { Input } from "@/shared/ui/input";
+import { PasswordInput } from "@/shared/ui/PasswordInput";
 import {
   Field,
   FieldDescription,
@@ -75,9 +75,8 @@ function PasswordField({
   return (
     <Field>
       <FieldLabel htmlFor={id}>{label}</FieldLabel>
-      <Input
+      <PasswordInput
         id={id}
-        type="password"
         required
         autoComplete={autoComplete}
         value={value}

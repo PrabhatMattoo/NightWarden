@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderApp, TestProviders } from "./renderWithProviders.js";
+import { GET_SESSION_PATH, sessionBody } from "./auth-session.js";
 import { json, stubApi, type ApiRequest } from "./stubApi.js";
 import { MockEventSource } from "./mockEventSource.js";
 import type {
@@ -25,13 +26,7 @@ import { configQuery } from "@/features/settings/queries";
 import { toast } from "@/shared/lib/toast";
 
 const OWNER_EMAIL = "admin@example.com";
-const AUTH_STATUS_RESPONSE = {
-  ownerExists: true,
-  authenticated: true,
-  email: OWNER_EMAIL,
-  name: "Admin",
-  image: null,
-};
+const SESSION = sessionBody({ email: OWNER_EMAIL });
 
 // The picker is served with the config, so a new adapter reaches the form as data.
 const PROVIDER_OPTIONS: ProviderOption[] = [
@@ -129,7 +124,7 @@ function answerFrom(
   models: ModelCatalog | Promise<ModelCatalog> = MODELS_RESPONSE,
 ) {
   return async ({ path, method, body }: ApiRequest): Promise<Response> => {
-    if (path === "/api/auth-status") return json(AUTH_STATUS_RESPONSE);
+    if (path === GET_SESSION_PATH) return json(SESSION);
     if (path === "/api/config/models") return json(await models);
     if (path.startsWith("/api/config")) {
       if (method === "PATCH" && typeof body === "object") {
@@ -899,9 +894,7 @@ describe("SettingsPage", () => {
       vi.stubGlobal("EventSource", MockEventSource);
       const user = userEvent.setup();
       const { requests } = stubApi((request) => {
-        if (request.path === "/api/auth-status") {
-          return json({ ...AUTH_STATUS_RESPONSE, theme: "system" });
-        }
+        if (request.path === GET_SESSION_PATH) return json(SESSION);
         if (request.path === "/api/config") return json(CONFIG);
         if (request.path === "/api/auth/update-user") {
           return json({ status: true });
@@ -931,8 +924,8 @@ describe("SettingsPage", () => {
     function openAppearance() {
       vi.stubGlobal("EventSource", MockEventSource);
       const api = stubApi((request) => {
-        if (request.path === "/api/auth-status") {
-          return json({ ...AUTH_STATUS_RESPONSE, theme: "dark" });
+        if (request.path === GET_SESSION_PATH) {
+          return json(sessionBody({ email: OWNER_EMAIL, theme: "dark" }));
         }
         if (request.path === "/api/config") return json(CONFIG);
         if (request.path === "/api/auth/update-user") {
@@ -968,9 +961,7 @@ describe("SettingsPage", () => {
     function openAccount(answer: (path: string) => Response | undefined) {
       vi.stubGlobal("EventSource", MockEventSource);
       const api = stubApi((request) => {
-        if (request.path === "/api/auth-status") {
-          return json({ ...AUTH_STATUS_RESPONSE, theme: "system" });
-        }
+        if (request.path === GET_SESSION_PATH) return json(SESSION);
         if (request.path === "/api/config") return json(CONFIG);
         return answer(request.path);
       });
@@ -1046,6 +1037,8 @@ describe("SettingsPage", () => {
         if (path === "/api/auth/list-sessions") return json([]);
         if (path === "/api/auth/revoke-sessions") return json({ status: true });
         if (path === "/api/auth/sign-out") return json({ success: true });
+        // The login page asks whether setup is still waiting.
+        if (path === "/api/setup") return json({ required: false });
         return undefined;
       });
 

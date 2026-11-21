@@ -40,7 +40,7 @@ function isRoleName(name: string): name is keyof typeof ROLES {
 
 // The admin plugin stores several roles comma-separated, and any one may grant.
 export function isAllowed(
-  role: string | null,
+  role: string | null | undefined,
   permission: Permission,
 ): boolean {
   return (role ?? "")

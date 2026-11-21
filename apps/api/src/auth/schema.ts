@@ -22,7 +22,7 @@ export const user = sqliteTable(
     image: text("image"),
     createdAt: timestamp("created_at").notNull(),
     updatedAt: timestamp("updated_at").notNull(),
-    // 'admin' or 'member', the first owner raised to 'admin' by a create hook.
+    // 'admin' or 'member', the owner created as 'admin' by the setup route.
     role: text("role"),
     banned: integer("banned", { mode: "boolean" }),
     banReason: text("ban_reason"),

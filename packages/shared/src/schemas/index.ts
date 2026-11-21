@@ -85,7 +85,7 @@ export {
 export type { ConfigPatch, SettingsPatch } from "./config.js";
 
 export { errorBodySchema, refusals } from "./http.js";
-export { authStatusResponseSchema } from "./auth.js";
+export { setupRequestSchema, setupStatusSchema } from "./auth.js";
 export {
   alertSourceCredentialSchema,
   alertSourceStatusSchema,

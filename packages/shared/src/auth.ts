@@ -2,7 +2,16 @@
 export const THEME_PREFERENCES = ["system", "light", "dark"] as const;
 export type ThemePreference = (typeof THEME_PREFERENCES)[number];
 
-// Enforced by the server's sign-up and change-password, and stated on each form.
+// The theme field Better Auth declares on the server and mirrors in the browser.
+// `required` stays a literal true, which is what Better Auth's types read.
+export const THEME_FIELD = {
+  type: [...THEME_PREFERENCES],
+  required: true as const,
+  defaultValue: "system",
+  input: true,
+};
+
+// Enforced by the server's setup and change-password, and stated on each form.
 export const PASSWORD_MIN_LENGTH = 12;
 
 /* A profile picture is stored as the small data URL the browser drew, so no file

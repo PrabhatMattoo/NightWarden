@@ -1,20 +1,12 @@
 import { act, screen, waitFor } from "@testing-library/react";
 import { describe, it, expect, vi, afterEach } from "vitest";
 
+import { GET_SESSION_PATH, sessionBody } from "./auth-session.js";
 import { renderApp } from "./renderWithProviders.js";
 import { json, stubApi } from "./stubApi.js";
 import type { ApiRequest } from "./stubApi.js";
 import { MockEventSource } from "./mockEventSource.js";
 import { runnersQuery } from "../features/integrations/queries.js";
-
-const SIGNED_IN = {
-  ownerExists: true,
-  authenticated: true,
-  email: "a@b.com",
-  name: "Admin",
-  image: null,
-  theme: "system",
-};
 
 const EMPTY_LIST = {
   rows: [],
@@ -39,11 +31,20 @@ afterEach(() => {
   window.localStorage.clear();
 });
 
+// Signed out answers get-session with null, as Better Auth does.
+function signedOut(setupRequired: boolean) {
+  return stubApi((request) => {
+    if (request.path === GET_SESSION_PATH) return json(null);
+    if (request.path === "/api/setup") return json({ required: setupRequired });
+    return undefined;
+  });
+}
+
 describe("the session check", () => {
-  it("opens the app on the investigations page when signed in", async () => {
+  it("opens the app on the investigations page when signed in, asking nothing of setup", async () => {
     vi.stubGlobal("EventSource", MockEventSource);
-    stubApi((request) =>
-      request.path === "/api/auth-status" ? json(SIGNED_IN) : pages(request),
+    const { requests } = stubApi((request) =>
+      request.path === GET_SESSION_PATH ? json(sessionBody()) : pages(request),
     );
     const { router } = renderApp({ path: "/" });
 
@@ -51,46 +52,43 @@ describe("the session check", () => {
       await screen.findByRole("link", { name: /integrations/i }),
     ).toBeInTheDocument();
     expect(router.state.location.pathname).toBe("/investigations");
+    expect(requests(GET_SESSION_PATH)).toHaveLength(1);
+    expect(requests("/api/setup")).toHaveLength(0);
   });
 
-  it("sends a fresh install to account setup", async () => {
-    stubApi((request) =>
-      request.path === "/api/auth-status"
-        ? json({ ownerExists: false })
-        : undefined,
-    );
+  it("sends a fresh install to account setup, from the app or the login page", async () => {
+    signedOut(true);
     const { router } = renderApp({ path: "/" });
 
     expect(await screen.findByText(/create your account/i)).toBeInTheDocument();
-    expect(router.state.location.pathname).toBe("/login");
+    expect(router.state.location.pathname).toBe("/setup");
+
+    await act(() => router.navigate({ to: "/login" }));
+    expect(router.state.location.pathname).toBe("/setup");
   });
 
-  it("sends a signed-out visit to the login form", async () => {
-    stubApi((request) =>
-      request.path === "/api/auth-status"
-        ? json({ ownerExists: true, authenticated: false })
-        : undefined,
-    );
+  it("sends a signed-out visit to the login form, and setup there once the owner exists", async () => {
+    signedOut(false);
     const { router } = renderApp({ path: "/integrations" });
 
     expect(
       await screen.findByRole("heading", { name: /^log in$/i }),
     ).toBeInTheDocument();
     expect(router.state.location.pathname).toBe("/login");
+
+    await act(() => router.navigate({ to: "/setup" }));
+    expect(router.state.location.pathname).toBe("/login");
   });
 
-  it("signs out on a data route's 401 only once the status says the session is gone", async () => {
+  it("signs out on a data route's 401 only once the session read says it is gone", async () => {
     vi.stubGlobal("EventSource", MockEventSource);
     // Flipped to model a session that dies between two identical failures.
     let authenticated = true;
     stubApi((request) => {
-      if (request.path === "/api/auth-status") {
-        return json(
-          authenticated
-            ? SIGNED_IN
-            : { ownerExists: true, authenticated: false },
-        );
+      if (request.path === GET_SESSION_PATH) {
+        return json(authenticated ? sessionBody() : null);
       }
+      if (request.path === "/api/setup") return json({ required: false });
       // A rejected integration credential: a real 401 from a data route.
       if (request.path === "/api/runners") {
         return json({ error: "bad credential" }, 401);

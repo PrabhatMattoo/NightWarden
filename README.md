@@ -73,7 +73,7 @@ export NIGHTWARDEN_PUBLIC_URL=http://203.0.113.10:3000   # routable from your se
 docker compose up -d
 ```
 
-`NIGHTWARDEN_PUBLIC_URL` is the only variable you must set - the address runners dial back to and Alertmanager posts to, so a browser's `localhost` is not it. Open it, create your account, and under **Settings → Provider** pick a provider, paste a key, and choose a model. Then connect your monitoring - and optionally a runner and a GitHub repository - from **Integrations**, where every connection is probed before it saves, so a green card means it is reachable.
+`NIGHTWARDEN_PUBLIC_URL` is the only variable you must set - the address runners dial back to and Alertmanager posts to, so a browser's `localhost` is not it. Open the setup link NightWarden prints to its log on first start (`docker compose logs nightwarden`), create your account, and under **Settings → Provider** pick a provider, paste a key, and choose a model. Then connect your monitoring - and optionally a runner and a GitHub repository - from **Integrations**, where every connection is probed before it saves, so a green card means it is reachable.
 
 Everything else has a default.
 

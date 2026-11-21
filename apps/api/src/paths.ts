@@ -31,6 +31,11 @@ export function authSecretPath(): string {
   return join(nightwardenDir(), "auth.key");
 }
 
+// Present only while the install has no owner.
+export function setupTokenPath(): string {
+  return join(nightwardenDir(), "setup-token");
+}
+
 // Absolute so the Docker bind mount accepts it (a relative source reads as a
 // named volume).
 export function workspacesDir(): string {

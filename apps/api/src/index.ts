@@ -1,6 +1,7 @@
 import "dotenv/config";
 import { initSecrets } from "./secrets.js";
 import { initDb } from "./db.js";
+import { prepareSetup } from "./auth/setup-token.js";
 import { buildServer } from "./server.js";
 import {
   RECONCILE_TICK_MS,
@@ -56,6 +57,7 @@ const start = async (): Promise<void> => {
     fastify.log.info("SQLite ready");
     // Before the seeds below, which encrypt with the key this decides on.
     checkSecretKey();
+    prepareSetup();
     // Env is a first-boot seed only: this writes the config row on an install
     // that has none, and never again. After that the database is the sole source.
     seedConfigFromEnv();
