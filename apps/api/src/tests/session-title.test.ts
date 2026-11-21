@@ -59,11 +59,8 @@ function scriptTitleAsProse(text: string): void {
   scripted.titles({ toolUses: [], text });
 }
 
-async function seedSession(
-  sessionId: string,
-  temporary: string,
-): Promise<void> {
-  await createSession({
+function seedSession(sessionId: string, temporary: string): void {
+  createSession({
     sessionId,
     title: temporary,
     createdAt: new Date().toISOString(),
@@ -89,7 +86,7 @@ describe("session title generation", () => {
   it("sends the message as quoted material on a small budget, not as a live turn", async () => {
     scriptTitleAsProse("Greeting");
     const sessionId = "sess-title-framing";
-    await seedSession(sessionId, "temp");
+    seedSession(sessionId, "temp");
 
     await title(sessionId, "Hey there, how's it going?");
 
@@ -100,21 +97,21 @@ describe("session title generation", () => {
     expect(framed).toContain("Hey there, how's it going?");
     expect(framed).toContain("<content>");
     expect(request?.maxOutputTokens).toBe(1024);
-    expect((await getSession(sessionId))?.title).toBe("Greeting");
+    expect(getSession(sessionId)?.title).toBe("Greeting");
   });
 
   it("strips trailing punctuation, including after the word cap", async () => {
     scriptTitleOnce("Identity Inquiry,");
     const sessionId = "sess-title-comma";
-    await seedSession(sessionId, "temp");
+    seedSession(sessionId, "temp");
     await title(sessionId, "who are you?");
-    expect((await getSession(sessionId))?.title).toBe("Identity Inquiry");
+    expect(getSession(sessionId)?.title).toBe("Identity Inquiry");
 
     scriptTitleOnce("One Two Three Four, Five");
     const sessionId2 = "sess-title-comma-2";
-    await seedSession(sessionId2, "temp");
+    seedSession(sessionId2, "temp");
     await title(sessionId2, "some question");
-    expect((await getSession(sessionId2))?.title).toBe("One Two Three Four");
+    expect(getSession(sessionId2)?.title).toBe("One Two Three Four");
   });
 
   /* "Here's a thinking process" was the first four words of a reply that had
@@ -122,21 +119,21 @@ describe("session title generation", () => {
   it("reads a title out of prose when the model will not call the tool", async () => {
     scriptTitleAsProse("Redis OOM Restart");
     const sessionId = "sess-title-prose";
-    await seedSession(sessionId, "temp");
+    seedSession(sessionId, "temp");
 
     await title(sessionId, "redis is full");
 
-    expect((await getSession(sessionId))?.title).toBe("Redis OOM Restart");
+    expect(getSession(sessionId)?.title).toBe("Redis OOM Restart");
   });
 
   it("leaves the title untouched when the model returns nothing usable", async () => {
     scriptTitleOnce("   ");
     const sessionId = "sess-title-3";
-    await seedSession(sessionId, "original temp title");
+    seedSession(sessionId, "original temp title");
 
     await title(sessionId, "some question");
 
-    expect((await getSession(sessionId))?.title).toBe("original temp title");
+    expect(getSession(sessionId)?.title).toBe("original temp title");
   });
 
   it("builds an alert title source capped to the first ten alerts", () => {
@@ -181,8 +178,7 @@ describe("session title generation", () => {
 
     // Fire-and-forget: wait on the row, not on the run finishing.
     await waitFor(
-      async () =>
-        (await getSession(sessionId))?.title === "Checkout Latency Spike",
+      () => getSession(sessionId)?.title === "Checkout Latency Spike",
     );
     unsubscribe();
     const titleEvent = events.find((e) => e.type === "SESSION_TITLE_UPDATED");

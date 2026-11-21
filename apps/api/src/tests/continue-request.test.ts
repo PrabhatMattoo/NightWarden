@@ -45,7 +45,7 @@ describe("continue-request interrupts", () => {
     // The deadline is propagated into the request itself, so a turn already in
     // flight is aborted. That abort is the check-in, not a run failure.
     const gates = createGateController();
-    await updateConfig({ checkInAfterMs: 200 });
+    updateConfig({ checkInAfterMs: 200 });
     setScript([FINISH_TURN]);
 
     let sessionId = "";
@@ -66,8 +66,8 @@ describe("continue-request interrupts", () => {
       await new Promise((r) => setTimeout(r, 400));
       gates.releaseAll();
 
-      await waitFor(async () => await hasPendingHumanInput(sessionId));
-      expect(await isRunning(sessionId)).toBe(false);
+      await waitFor(() => hasPendingHumanInput(sessionId));
+      expect(isRunning(sessionId)).toBe(false);
     } finally {
       gates.releaseAll();
       scripted.park();
@@ -85,7 +85,7 @@ describe("continue-request interrupts", () => {
 
   it("checkInAfterMs=0 suspends immediately: kind=continue, HUMAN_INPUT_REQUIRED event, run exited", async () => {
     // Deadline expires before any turns run.
-    await updateConfig({ checkInAfterMs: 0 });
+    updateConfig({ checkInAfterMs: 0 });
     setScript([FINISH_TURN]);
 
     const { events, close } = await connectFrontendEvents(port, SESSION);
@@ -111,10 +111,10 @@ describe("continue-request interrupts", () => {
     );
 
     // Run must have exited
-    expect(await isRunning(sessionId)).toBe(false);
+    expect(isRunning(sessionId)).toBe(false);
 
     // DB row must have kind=continue
-    expect(await hasPendingHumanInput(sessionId)).toBe(true);
+    expect(hasPendingHumanInput(sessionId)).toBe(true);
 
     // INTERRUPT event carries kind=continue and no tool-specific payload
     expect(interrupt.payload["kind"]).toBe("continue");
@@ -122,7 +122,7 @@ describe("continue-request interrupts", () => {
 
     // And it survives a reload: published live, but absent from the saved
     // turns, so a refreshed page showed a parked run as an idle one.
-    const parked = (await buildTranscript(sessionId)).filter(
+    const parked = buildTranscript(sessionId).filter(
       (item) => item.kind === "continue_card",
     );
     expect(parked).toHaveLength(1);
@@ -140,11 +140,11 @@ describe("continue-request interrupts", () => {
       },
       body: JSON.stringify({ decision: "reject" }),
     });
-    await waitFor(async () => !(await hasPendingHumanInput(sessionId)));
+    await waitFor(() => !hasPendingHumanInput(sessionId));
   });
 
   it("continuing resumes with fresh deadline and run completes", async () => {
-    await updateConfig({ checkInAfterMs: 0 });
+    updateConfig({ checkInAfterMs: 0 });
     setScript([FINISH_TURN]);
 
     const { events, close } = await connectFrontendEvents(port, SESSION);
@@ -168,10 +168,10 @@ describe("continue-request interrupts", () => {
           e.payload["kind"] === "continue",
       ),
     );
-    expect(await hasPendingHumanInput(sessionId)).toBe(true);
+    expect(hasPendingHumanInput(sessionId)).toBe(true);
 
     // Grant a fresh deadline before responding
-    await updateConfig({ checkInAfterMs: 300_000 });
+    updateConfig({ checkInAfterMs: 300_000 });
 
     // Respond to continue (no decision = continue)
     const continueRes = await fetch(
@@ -200,16 +200,16 @@ describe("continue-request interrupts", () => {
     );
 
     // Interrupt row is gone, run completes (FINISH_TURN script)
-    await waitFor(async () => !(await hasPendingHumanInput(sessionId)));
-    expect(await hasPendingHumanInput(sessionId)).toBe(false);
-    await waitFor(async () => !(await isRunning(sessionId)));
-    expect(await isRunning(sessionId)).toBe(false);
+    await waitFor(() => !hasPendingHumanInput(sessionId));
+    expect(hasPendingHumanInput(sessionId)).toBe(false);
+    await waitFor(() => !isRunning(sessionId));
+    expect(isRunning(sessionId)).toBe(false);
 
     close();
   });
 
   it("ending runs a closing turn and finishes the investigation", async () => {
-    await updateConfig({ checkInAfterMs: 0 });
+    updateConfig({ checkInAfterMs: 0 });
     setScript([FINISH_TURN]);
 
     const { events, close } = await connectFrontendEvents(port, SESSION);
@@ -260,15 +260,15 @@ describe("continue-request interrupts", () => {
     );
 
     // Interrupt row gone, closing run completes
-    await waitFor(async () => !(await hasPendingHumanInput(sessionId)));
-    await waitFor(async () => !(await isRunning(sessionId)));
-    expect(await isRunning(sessionId)).toBe(false);
+    await waitFor(() => !hasPendingHumanInput(sessionId));
+    await waitFor(() => !isRunning(sessionId));
+    expect(isRunning(sessionId)).toBe(false);
 
     close();
   });
 
   it("restart-resume: continue interrupt survives process exit, resolve still works", async () => {
-    await updateConfig({ checkInAfterMs: 0 });
+    updateConfig({ checkInAfterMs: 0 });
     setScript([FINISH_TURN]);
 
     const { events, close } = await connectFrontendEvents(port, SESSION);
@@ -293,11 +293,11 @@ describe("continue-request interrupts", () => {
     );
 
     // Simulate process exit: run has exited, interrupt row is in DB
-    expect(await isRunning(sessionId)).toBe(false);
-    expect(await hasPendingHumanInput(sessionId)).toBe(true);
+    expect(isRunning(sessionId)).toBe(false);
+    expect(hasPendingHumanInput(sessionId)).toBe(true);
 
     // Grant a fresh deadline before responding (mimics user action after restart)
-    await updateConfig({ checkInAfterMs: 300_000 });
+    updateConfig({ checkInAfterMs: 300_000 });
 
     // Resolve purely from DB state
     const resumeRes = await fetch(
@@ -314,14 +314,14 @@ describe("continue-request interrupts", () => {
     expect(resumeRes.status).toBe(200);
 
     // Interrupt row gone, run resumes and completes
-    await waitFor(async () => !(await hasPendingHumanInput(sessionId)));
-    expect(await hasPendingHumanInput(sessionId)).toBe(false);
+    await waitFor(() => !hasPendingHumanInput(sessionId));
+    expect(hasPendingHumanInput(sessionId)).toBe(false);
 
     close();
   });
 
-  it("config has no tool-call budget field", async () => {
-    const config = await updateConfig({});
+  it("config has no tool-call budget field", () => {
+    const config = updateConfig({});
     expect(Object.keys(config)).not.toContain("maxToolCalls");
   });
 });

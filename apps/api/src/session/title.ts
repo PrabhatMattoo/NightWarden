@@ -111,7 +111,7 @@ export async function generateSessionTitle(
       );
       return;
     }
-    await updateSessionTitle(sessionId, title);
+    updateSessionTitle(sessionId, title);
     publishSessionTitleUpdated(sessionId, title);
   } catch (err) {
     logger.warn({ err, sessionId }, "session title generation failed");

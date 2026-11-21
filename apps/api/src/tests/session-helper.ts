@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { NormalizedAlert, SessionMeta } from "@nightwarden/shared";
 import type { DeliveryContext } from "../alerts/delivery.js";
 import { getAuth } from "../auth/instance.js";
+import { user } from "../auth/schema.js";
 import { getDb } from "../db.js";
 import { buildSessionMeta } from "../agent/loop/run-session.js";
 import type { Dispatcher } from "../dispatcher.js";
@@ -18,16 +19,16 @@ export const WHOLE_DELIVERY: DeliveryContext = {
 
 // By the only route production has, unlimited because these tests are not about
 // the hourly limit, then released so the session reads as idle.
-export async function seedAlertSession(
+export function seedAlertSession(
   meta: SessionMeta,
   alerts: NormalizedAlert[],
   groupKey = `test-group-${randomUUID()}`,
-): Promise<void> {
+): void {
   if (alerts.length === 0) {
-    await createSession(meta, true);
+    createSession(meta, true);
     return;
   }
-  const admission = await admitDelivery(
+  const admission = admitDelivery(
     meta,
     groupKey,
     alerts,
@@ -39,18 +40,18 @@ export async function seedAlertSession(
       `seedAlertSession opened nothing (${admission.kind}): an alert here is already held and still firing`,
     );
   }
-  await releaseRun(meta.sessionId);
+  releaseRun(meta.sessionId);
 }
 
 // The row and its alerts exist before anything dispatches into it, so a test
 // that skips this is testing a shape ingest cannot reach.
-export async function dispatchAlertSession(
+export function dispatchAlertSession(
   dispatcher: Dispatcher,
   sessionId: string,
   alerts: NormalizedAlert[],
   groupKey = `test-group-${randomUUID()}`,
-): Promise<boolean> {
-  const admission = await admitDelivery(
+): boolean {
+  const admission = admitDelivery(
     buildSessionMeta(sessionId, alerts[0] ?? null, undefined),
     groupKey,
     alerts,
@@ -64,11 +65,8 @@ export async function dispatchAlertSession(
 
 // A chat session's row, on the same terms: the route writes it before handing
 // out the id, so a run dispatched into one always finds it there.
-export async function seedChatSession(
-  sessionId: string,
-  message?: string,
-): Promise<void> {
-  await createSession(buildSessionMeta(sessionId, null, message));
+export function seedChatSession(sessionId: string, message?: string): void {
+  createSession(buildSessionMeta(sessionId, null, message));
 }
 
 /* A real signed-in session, issued the way production does: the owner is created
@@ -83,7 +81,7 @@ export async function issueTestSession(
     name: "Owner",
   };
   const member = { ...owner, email: "member@example.test", name: "Member" };
-  const existing = await getDb().selectFrom("user").select("email").execute();
+  const existing = getDb().select({ email: user.email }).from(user).all();
   const emails = new Set(existing.map((row) => row.email));
   if (!emails.has(owner.email)) await auth.api.signUpEmail({ body: owner });
   // Created the way an admin adds a colleague, so it carries the default role.

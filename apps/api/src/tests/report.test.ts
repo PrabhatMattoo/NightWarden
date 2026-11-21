@@ -76,9 +76,9 @@ function alert(sourceAlertId: string): NormalizedAlert {
 describe("the investigation record", () => {
   // A read only answers if a runner is there to answer it, and a call that
   // failed is issued no handle, so a fixture without one cites nothing.
-  async function connectRunner(): Promise<HarnessRunner> {
+  function connectRunner(): HarnessRunner {
     return fakeRunner({
-      id: (await createRunner("docker", "rc-host")).id,
+      id: createRunner("docker", "rc-host").id,
       name: "rc-host",
       manifest: manifest("rc-host"),
     });
@@ -86,8 +86,8 @@ describe("the investigation record", () => {
 
   let cleanupDb: () => void;
 
-  beforeAll(async () => {
-    cleanupDb = await useTempDb();
+  beforeAll(() => {
+    cleanupDb = useTempDb();
   });
 
   afterAll(() => {
@@ -132,9 +132,9 @@ describe("the investigation record", () => {
   });
 
   // Stamped as the loop stamps it, on the answer rather than the request.
-  async function appendCitableRows(rows: TranscriptRow[]): Promise<void> {
+  function appendCitableRows(rows: TranscriptRow[]): void {
     const sessionId = rows[0]!.sessionId;
-    const stored = await getTranscriptRows(sessionId);
+    const stored = getTranscriptRows(sessionId);
     let next = highestEvidenceNumber(stored) + 1;
     const citable = new Set(
       [...stored, ...rows]
@@ -170,12 +170,12 @@ describe("the investigation record", () => {
         ),
       };
     });
-    await appendTranscriptRows(stamped);
+    appendTranscriptRows(stamped);
   }
 
   // One record entry at a chosen instant, so a read after a remediation is
   // distinguishable from one before. The parts carry what production carries.
-  async function appendCall(
+  function appendCall(
     sessionId: string,
     seq: number,
     entry: { toolCallId: string; name: string; input: Record<string, unknown> },
@@ -184,10 +184,10 @@ describe("the investigation record", () => {
     isError?: true,
     approved?: boolean,
     actor?: { id: string; name: string; email: string },
-  ): Promise<void> {
+  ): void {
     // Stamped as the loop stamps it, so a call here is citable exactly when a
     // call in a real run would be.
-    await appendCitableRows([
+    appendCitableRows([
       {
         sessionId,
         seq,
@@ -233,12 +233,12 @@ describe("the investigation record", () => {
 
   // tu-1 a Prometheus range query, tu-2 a GitHub change list: two sources, so
   // citing both is corroboration and citing either alone is not.
-  async function seedTranscript(sessionId: string): Promise<void> {
-    await seedAlertSession(
+  function seedTranscript(sessionId: string): void {
+    seedAlertSession(
       { sessionId, title: "t", createdAt: new Date().toISOString() },
       [alert("seed")],
     );
-    await appendCall(
+    appendCall(
       sessionId,
       0,
       {
@@ -249,7 +249,7 @@ describe("the investigation record", () => {
       METRICS,
       "2026-07-03T02:00:00.000Z",
     );
-    await appendCall(
+    appendCall(
       sessionId,
       2,
       { toolCallId: "tu-2", name: "ListRecentGitChanges", input: {} },
@@ -257,7 +257,7 @@ describe("the investigation record", () => {
       "2026-07-03T02:01:00.000Z",
     );
     // Findings settle candidates, so the record every case records into has two.
-    await seedCandidates(sessionId, 2);
+    seedCandidates(sessionId, 2);
   }
 
   // Written down before it runs, as the loop writes it, so a refusal here reads
@@ -268,10 +268,10 @@ describe("the investigation record", () => {
     input: Record<string, unknown>,
   ): Promise<{ content: unknown; isError?: true }> {
     const toolCallId = `tu-${toolName}-${randomUUID()}`;
-    await appendCitableRows([
+    appendCitableRows([
       {
         sessionId,
-        seq: await getNextSeq(sessionId),
+        seq: getNextSeq(sessionId),
         kind: "assistant",
         content: `[tool: ${toolName}]`,
         parts: [
@@ -302,7 +302,7 @@ describe("the investigation record", () => {
       evidenceIds,
       candidate,
     });
-    const findings = (await getRecord(sessionId))!.findings;
+    const findings = getRecord(sessionId)!.findings;
     return findings[findings.length - 1]!.id;
   }
 
@@ -329,7 +329,7 @@ describe("the investigation record", () => {
   describe("recording a hypothesis", () => {
     it("records what was tested and how it settled as one act", async () => {
       const sessionId = randomUUID();
-      await seedTranscript(sessionId);
+      seedTranscript(sessionId);
 
       const id = await record(
         sessionId,
@@ -337,7 +337,7 @@ describe("the investigation record", () => {
         ["e1"],
         "the climb starts at the merge",
       );
-      const stored = (await getRecord(sessionId))!.findings[0]!;
+      const stored = getRecord(sessionId)!.findings[0]!;
       expect(stored).toMatchObject({
         id,
         verdict: "root_cause",
@@ -350,7 +350,7 @@ describe("the investigation record", () => {
 
     it("expresses all five verdicts, every one of them settled", async () => {
       const sessionId = randomUUID();
-      await seedTranscript(sessionId);
+      seedTranscript(sessionId);
       const verdicts = [
         "root_cause",
         "trigger",
@@ -361,14 +361,14 @@ describe("the investigation record", () => {
       for (const verdict of verdicts) {
         await record(sessionId, verdict, ["e1"]);
       }
-      expect(
-        (await getRecord(sessionId))!.findings.map((h) => h.verdict),
-      ).toEqual(verdicts);
+      expect(getRecord(sessionId)!.findings.map((h) => h.verdict)).toEqual(
+        verdicts,
+      );
     });
 
     it("refuses a verdict that is not one of the five", async () => {
       const sessionId = randomUUID();
-      await seedTranscript(sessionId);
+      seedTranscript(sessionId);
       const result = await call("RecordFinding", sessionId, {
         verdict: "open",
         explanation: "still looking",
@@ -376,13 +376,13 @@ describe("the investigation record", () => {
         evidenceIds: ["e1"],
       });
       expect(result.isError).toBe(true);
-      expect((await getRecord(sessionId))!.findings).toHaveLength(0);
+      expect(getRecord(sessionId)!.findings).toHaveLength(0);
     });
 
     it("refuses a claim with nothing behind it, unless it is untestable", async () => {
       const sessionId = randomUUID();
-      await seedTranscript(sessionId);
-      await seedCandidates(sessionId, 3);
+      seedTranscript(sessionId);
+      seedCandidates(sessionId, 3);
       let cand = 0;
       for (const verdict of ["root_cause", "disproven"]) {
         const result = await call("RecordFinding", sessionId, {
@@ -403,19 +403,19 @@ describe("the investigation record", () => {
         evidenceIds: [],
       });
       expect(untestable.isError).toBeFalsy();
-      expect((await getRecord(sessionId))!.findings).toHaveLength(1);
+      expect(getRecord(sessionId)!.findings).toHaveLength(1);
     });
 
     /* Append-only: there is no call that rewrites a row, so a changed mind is a
        second record beside the first rather than an edit of it. */
     it("keeps a claim the run later disagreed with beside the one that replaced it", async () => {
       const sessionId = randomUUID();
-      await seedTranscript(sessionId);
+      seedTranscript(sessionId);
       await record(sessionId, "root_cause", ["e1"]);
       await record(sessionId, "disproven", ["e2"]);
 
       expect(
-        (await getRecord(sessionId))!.findings.map((h) => [h.id, h.verdict]),
+        getRecord(sessionId)!.findings.map((h) => [h.id, h.verdict]),
       ).toEqual([
         ["f1", "root_cause"],
         ["f2", "disproven"],
@@ -426,11 +426,11 @@ describe("the investigation record", () => {
        stands behind without naming a row it has to remember. */
     it("lets a later claim about one candidate replace the earlier one", async () => {
       const sessionId = randomUUID();
-      await seedTranscript(sessionId);
+      seedTranscript(sessionId);
       await record(sessionId, "root_cause", ["e1"]);
       await record(sessionId, "root_cause", ["e2"]);
 
-      const { findings } = (await getRecord(sessionId))!;
+      const { findings } = getRecord(sessionId)!;
       expect(findings).toHaveLength(2);
       // Both stand on the record; only the second can lead.
       expect(principalFindings(findings)[0]!.id).toBe("f2");
@@ -439,7 +439,7 @@ describe("the investigation record", () => {
 
     it("refuses a claim naming a candidate that does not exist", async () => {
       const sessionId = randomUUID();
-      await seedTranscript(sessionId);
+      seedTranscript(sessionId);
       const result = await call("RecordFinding", sessionId, {
         verdict: "root_cause",
         explanation: "",
@@ -448,7 +448,7 @@ describe("the investigation record", () => {
       });
 
       // Nothing is recorded, and the ids it may use are named back to it.
-      expect((await getRecord(sessionId))!.findings).toHaveLength(0);
+      expect(getRecord(sessionId)!.findings).toHaveLength(0);
       expect(String(result.content)).toContain("c9 is not a candidate");
       expect(String(result.content)).toContain("c1");
     });
@@ -457,7 +457,7 @@ describe("the investigation record", () => {
        the model made, and drop it from corroborated to cited without saying so. */
     it("refuses a claim citing one real call and one that names nothing", async () => {
       const sessionId = randomUUID();
-      await seedTranscript(sessionId);
+      seedTranscript(sessionId);
       const refused = await call("RecordFinding", sessionId, {
         verdict: "root_cause",
         explanation: "",
@@ -465,7 +465,7 @@ describe("the investigation record", () => {
         evidenceIds: ["e1", "e9"],
       });
 
-      expect((await getRecord(sessionId))!.findings).toHaveLength(0);
+      expect(getRecord(sessionId)!.findings).toHaveLength(0);
       // Told which one failed, and the range it could have picked from.
       expect(String(refused.content)).toContain("e9");
       expect(String(refused.content)).toContain("e1 through e2");
@@ -475,7 +475,7 @@ describe("the investigation record", () => {
   describe("the written report", () => {
     it("writes the prose the record has no field for, over a record it leaves alone", async () => {
       const sessionId = randomUUID();
-      await seedTranscript(sessionId);
+      seedTranscript(sessionId);
       await record(sessionId, "root_cause", ["e1"]);
 
       await submit(sessionId, {
@@ -492,7 +492,7 @@ describe("the investigation record", () => {
         recommendation: "revert PR #482",
       });
 
-      const written = (await getRecord(sessionId))!;
+      const written = getRecord(sessionId)!;
       expect(written.report).toMatchObject({
         summary:
           "web-01 was OOM-killed because the cache bump raised its floor",
@@ -506,7 +506,7 @@ describe("the investigation record", () => {
 
     it("refuses a timeline whose time is not in the result it cites", async () => {
       const sessionId = randomUUID();
-      await seedTranscript(sessionId);
+      seedTranscript(sessionId);
       await record(sessionId, "root_cause", ["e1"]);
 
       const refused = await submit(sessionId, {
@@ -525,14 +525,14 @@ describe("the investigation record", () => {
       // Names the entry, the id, and the times the cited result actually holds.
       expect(String(refused.content)).toContain("does not appear in e1");
       expect(String(refused.content)).toContain("2026-07-03T00:00:00.000Z");
-      expect((await getRecord(sessionId))!.report).toBeNull();
+      expect(getRecord(sessionId)!.report).toBeNull();
     });
 
     /* Refused rather than stored as "none": a report claiming a headline and a
        recommendation it does not have reads as complete downstream. */
     it("refuses a blank in a field the schema declares required", async () => {
       const sessionId = randomUUID();
-      await seedTranscript(sessionId);
+      seedTranscript(sessionId);
       await record(sessionId, "root_cause", ["e1"]);
 
       const refused = await submit(sessionId, {
@@ -543,12 +543,12 @@ describe("the investigation record", () => {
 
       expect(refused.isError).toBe(true);
       expect(String(refused.content)).toContain("headline");
-      expect((await getRecord(sessionId))?.report ?? null).toBeNull();
+      expect(getRecord(sessionId)?.report ?? null).toBeNull();
     });
 
     it("stores every field once they are all filled in", async () => {
       const sessionId = randomUUID();
-      await seedTranscript(sessionId);
+      seedTranscript(sessionId);
       await record(sessionId, "root_cause", ["e1"]);
 
       await submit(sessionId, {
@@ -556,7 +556,7 @@ describe("the investigation record", () => {
         timeline: [],
       });
 
-      const submitted = (await getRecord(sessionId))!.report!;
+      const submitted = getRecord(sessionId)!.report!;
       expect(submitted.headline).toBe("the cache bump raised the memory floor");
       expect(submitted.affected).toBe("web-01");
       expect(submitted.summary).toBe("the limit was lowered");
@@ -565,7 +565,7 @@ describe("the investigation record", () => {
     // One more attempt is all it gets, so "invalid input" would tell it nothing.
     it("names the field that failed rather than refusing the whole call blindly", async () => {
       const sessionId = randomUUID();
-      await seedTranscript(sessionId);
+      seedTranscript(sessionId);
 
       const refused = await submit(sessionId, {
         summary: "",
@@ -575,14 +575,14 @@ describe("the investigation record", () => {
 
       expect(refused.isError).toBe(true);
       expect(String(refused.content)).toContain("summary");
-      expect((await getRecord(sessionId))?.report ?? null).toBeNull();
+      expect(getRecord(sessionId)?.report ?? null).toBeNull();
     });
   });
 
   describe("evidence", () => {
     it("resolves a citation to the call that produced it, quoting the result verbatim", async () => {
       const sessionId = randomUUID();
-      await seedTranscript(sessionId);
+      seedTranscript(sessionId);
       await record(sessionId, "root_cause", ["e1"]);
       // The timeline cites too, so a call named only there still resolves.
       await submit(sessionId, {
@@ -598,8 +598,8 @@ describe("the investigation record", () => {
       });
 
       const evidence = resolveEvidence(
-        await toolCallsIn(sessionId),
-        (await getRecord(sessionId))!,
+        toolCallsIn(sessionId),
+        getRecord(sessionId)!,
       );
       expect(evidence.map((e) => e.toolCallId)).toEqual(["tu-1", "tu-2"]);
       expect(evidence[0]).toMatchObject({
@@ -620,7 +620,7 @@ describe("the investigation record", () => {
     // invented 21 ids rather than copy a real one.
     it("puts each call's citation handle in its own result, and takes it back", async () => {
       const sessionId = randomUUID();
-      await seedTranscript(sessionId);
+      seedTranscript(sessionId);
 
       const { content } = await call("RecordFinding", sessionId, {
         verdict: "root_cause",
@@ -633,13 +633,13 @@ describe("the investigation record", () => {
 
       // Stored as the handle it was cited by, so the record speaks one
       // vocabulary and nothing has to translate on the way back out.
-      const [hypothesis] = (await getRecord(sessionId))!.findings;
+      const [hypothesis] = getRecord(sessionId)!.findings;
       expect(hypothesis?.evidenceIds).toEqual(["e1"]);
 
       // And it resolves to real evidence rather than a dangling reference.
       const resolved = resolveEvidence(
-        await toolCallsIn(sessionId),
-        (await getRecord(sessionId))!,
+        toolCallsIn(sessionId),
+        getRecord(sessionId)!,
       );
       expect(resolved.map((e) => e.toolCallId)).toEqual(["tu-1"]);
     });
@@ -648,7 +648,7 @@ describe("the investigation record", () => {
        tool no claim may rest on carries none, so three calls leave two citable. */
     it("numbers a citable result, and leaves a recording call unnumbered", async () => {
       const sessionId = randomUUID();
-      await seedTranscript(sessionId);
+      seedTranscript(sessionId);
 
       const stored = await record(
         sessionId,
@@ -656,9 +656,7 @@ describe("the investigation record", () => {
         ["e1"],
         "the read showed 98 percent",
       );
-      expect((await getRecord(sessionId))!.findings[0]!.evidenceIds).toEqual([
-        "e1",
-      ]);
+      expect(getRecord(sessionId)!.findings[0]!.evidenceIds).toEqual(["e1"]);
 
       // Two recording calls are on the transcript by now and neither took a
       // number, so the range the refusal offers still ends at e2.
@@ -669,15 +667,15 @@ describe("the investigation record", () => {
         evidenceIds: ["e3"],
       });
       expect(String(refused.content)).toContain("e1 through e2");
-      expect((await getRecord(sessionId))!.findings).toHaveLength(1);
+      expect(getRecord(sessionId)!.findings).toHaveLength(1);
       expect(stored).toBe("f1");
     });
 
     // Counted from the transcript, the only thing that can answer it, so a
     // fifth restart at 3am is reported rather than slipped past.
-    it("tells a card how often this same write already ran here", async () => {
+    it("tells a card how often this same write already ran here", () => {
       const sessionId = randomUUID();
-      await seedAlertSession(
+      seedAlertSession(
         { sessionId, title: "t", createdAt: new Date().toISOString() },
         [alert("prior-runs")],
       );
@@ -686,7 +684,7 @@ describe("the investigation record", () => {
         name: "RestartDockerService",
         input: { target, reason: "r" },
       });
-      await appendCall(
+      appendCall(
         sessionId,
         0,
         restart("tu-1", "prod-1/web/api"),
@@ -695,7 +693,7 @@ describe("the investigation record", () => {
         undefined,
         true,
       );
-      await appendCall(
+      appendCall(
         sessionId,
         2,
         restart("tu-2", "prod-1/web/api"),
@@ -705,7 +703,7 @@ describe("the investigation record", () => {
         true,
       );
       // A different service, so it must not add to the count above.
-      await appendCall(
+      appendCall(
         sessionId,
         4,
         restart("tu-3", "prod-1/web/cache"),
@@ -714,7 +712,7 @@ describe("the investigation record", () => {
         undefined,
         true,
       );
-      await appendCall(
+      appendCall(
         sessionId,
         6,
         restart("tu-4", "prod-1/web/api"),
@@ -724,7 +722,7 @@ describe("the investigation record", () => {
         true,
       );
 
-      const cards = (await buildTranscript(sessionId)).flatMap((item) =>
+      const cards = buildTranscript(sessionId).flatMap((item) =>
         item.kind === "tool_call" ? [item] : [],
       );
       const priorOf = (toolCallId: string): number | undefined =>
@@ -742,7 +740,7 @@ describe("the investigation record", () => {
     // identical uncited root causes when both were said in one breath.
     it("refuses a claim whose every citation names no call", async () => {
       const sessionId = randomUUID();
-      await seedTranscript(sessionId);
+      seedTranscript(sessionId);
 
       const { content } = await call("RecordFinding", sessionId, {
         verdict: "symptom",
@@ -752,7 +750,7 @@ describe("the investigation record", () => {
       });
       const answer = String(content);
 
-      expect((await getRecord(sessionId))?.findings ?? []).toHaveLength(0);
+      expect(getRecord(sessionId)?.findings ?? []).toHaveLength(0);
       expect(answer).toContain("Not recorded");
       expect(answer).toContain("e9");
       // Told what it could have cited, in the vocabulary it was given.
@@ -785,7 +783,7 @@ describe("the investigation record", () => {
         { toolUses: [], text: "still going" },
       ]);
       const sessionId = randomUUID();
-      await seedAlertSession(buildSessionMeta(sessionId, null, undefined), [
+      seedAlertSession(buildSessionMeta(sessionId, null, undefined), [
         alert("barren"),
       ]);
 
@@ -793,7 +791,7 @@ describe("the investigation record", () => {
         "completed",
       );
 
-      const ended = (await getTranscriptRows(sessionId)).find(
+      const ended = getTranscriptRows(sessionId).find(
         (row) => row.kind === "error",
       );
       expect(ended?.content).toContain("asked only for tools");
@@ -820,14 +818,14 @@ describe("the investigation record", () => {
         { toolUses: [], text: "Nothing I can reach." },
       ]);
       const sessionId = randomUUID();
-      await seedAlertSession(buildSessionMeta(sessionId, null, undefined), [
+      seedAlertSession(buildSessionMeta(sessionId, null, undefined), [
         alert("refusals"),
       ]);
 
       await run({ sessionId, alerts: [alert("refusals")] });
 
-      const answerTo = async (toolCallId: string): Promise<string> => {
-        const part = (await getTranscriptRows(sessionId))
+      const answerTo = (toolCallId: string): string => {
+        const part = getTranscriptRows(sessionId)
           .flatMap((row) => row.parts)
           .find((p) => p.type === "tool_result" && p.toolCallId === toolCallId);
         return part !== undefined && part.type === "tool_result"
@@ -836,18 +834,18 @@ describe("the investigation record", () => {
       };
 
       // A real tool the fleet cannot serve blames the connection, not the name.
-      const withheld = await answerTo("tu-withheld");
+      const withheld = answerTo("tu-withheld");
       expect(withheld).toContain("is a real tool");
       expect(withheld).toContain("Kubernetes cluster");
 
       // An invented name close to a real one is pointed at it.
-      const near = await answerTo("tu-near");
+      const near = answerTo("tu-near");
       expect(near).toContain("There is no tool called");
       expect(near).toContain("Did you mean RecordFinding?");
 
       /* One that resembles nothing on offer gets no suggestion. Naming an
          unrelated tool would send the model somewhere it was never going. */
-      const far = await answerTo("tu-far");
+      const far = answerTo("tu-far");
       expect(far).toContain("There is no tool called");
       expect(far).not.toContain("Did you mean");
 
@@ -876,7 +874,7 @@ describe("the investigation record", () => {
         { toolUses: [], text: "done" },
       ]);
       const sessionId = randomUUID();
-      await seedAlertSession(buildSessionMeta(sessionId, null, undefined), [
+      seedAlertSession(buildSessionMeta(sessionId, null, undefined), [
         alert("stamped"),
       ]);
 
@@ -884,18 +882,18 @@ describe("the investigation record", () => {
 
       // No Kubernetes runner is connected, so the tool is not in the offered
       // set and the turn answers with a refusal rather than a result.
-      const answering = (await getTranscriptRows(sessionId))
+      const answering = getTranscriptRows(sessionId)
         .flatMap((row) => row.parts)
         .find((p) => p.type === "tool_result" && p.toolCallId === "tu-gone");
       expect(answering).toMatchObject({ isError: true });
     });
 
-    it("never counts an answered question as the write a later read confirms", async () => {
+    it("never counts an answered question as the write a later read confirms", () => {
       const sessionId = randomUUID();
-      await seedTranscript(sessionId);
+      seedTranscript(sessionId);
       // A question suspends the run for a human exactly as a write does, and
       // changes nothing, so it starts no clock a later reading can confirm.
-      await appendCall(
+      appendCall(
         sessionId,
         4,
         {
@@ -906,7 +904,7 @@ describe("the investigation record", () => {
         "the 14:02 one",
         "2026-07-03T02:05:00.000Z",
       );
-      await appendCall(
+      appendCall(
         sessionId,
         6,
         {
@@ -919,15 +917,15 @@ describe("the investigation record", () => {
       );
 
       // It is not a decision the user made about a write.
-      expect(gatedCalls(await toolCallsIn(sessionId))).toHaveLength(0);
+      expect(gatedCalls(toolCallsIn(sessionId))).toHaveLength(0);
     });
 
     // A refused call still carries the name of a gated tool, which is all the
     // old check looked at: five refusals read as five approved writes.
-    it("never counts a call the harness refused as a write the user released", async () => {
+    it("never counts a call the harness refused as a write the user released", () => {
       const sessionId = randomUUID();
-      await seedTranscript(sessionId);
-      await appendCall(
+      seedTranscript(sessionId);
+      appendCall(
         sessionId,
         4,
         {
@@ -939,7 +937,7 @@ describe("the investigation record", () => {
         "2026-07-03T02:05:00.000Z",
         true,
       );
-      await appendCall(
+      appendCall(
         sessionId,
         6,
         {
@@ -952,13 +950,13 @@ describe("the investigation record", () => {
       );
 
       // Nobody was asked, so there is nothing to report either way.
-      expect(gatedCalls(await toolCallsIn(sessionId))).toHaveLength(0);
+      expect(gatedCalls(toolCallsIn(sessionId))).toHaveLength(0);
     });
 
-    it("carries who released a write onto the gated call", async () => {
+    it("carries who released a write onto the gated call", () => {
       const sessionId = randomUUID();
-      await seedTranscript(sessionId);
-      await appendCall(
+      seedTranscript(sessionId);
+      appendCall(
         sessionId,
         4,
         {
@@ -973,7 +971,7 @@ describe("the investigation record", () => {
         { id: "u-7", name: "Prabhat", email: "prabhat@nw.local" },
       );
 
-      const [call] = gatedCalls(await toolCallsIn(sessionId));
+      const [call] = gatedCalls(toolCallsIn(sessionId));
       expect(call?.decision).toBe("approved");
       expect(call?.actor).toEqual({
         id: "u-7",
@@ -986,7 +984,7 @@ describe("the investigation record", () => {
   /* The counter is carried for the length of a run rather than recounted on
      every write, so a resume has to pick it up from the transcript. */
   it("numbers a resumed run's reads on from where the last run stopped", async () => {
-    const runner = await connectRunner();
+    const runner = connectRunner();
     const read = (toolCallId: string) => ({
       toolUses: [
         {
@@ -1003,18 +1001,18 @@ describe("the investigation record", () => {
     wire.script(firstRun);
 
     const sessionId = randomUUID();
-    await seedChatSession(sessionId, "why is web slow?");
+    seedChatSession(sessionId, "why is web slow?");
     await run({ sessionId, userMessage: "why is web slow?" });
     // A resume always carries a turn of its own, which is what a second
     // message is: a seed alone would end on the assistant and answer nothing.
     wire.script(secondRun);
     await run({
       sessionId,
-      seed: await buildSeed(sessionId),
+      seed: buildSeed(sessionId),
       userMessage: "check again",
     });
 
-    const issued = (await getTranscriptRows(sessionId))
+    const issued = getTranscriptRows(sessionId)
       .flatMap((row) => row.parts)
       .flatMap((part) =>
         part.type === "tool_result" && part.evidenceId !== undefined
@@ -1032,8 +1030,8 @@ describe("the investigation record", () => {
 
   describe("the finish gate", () => {
     let runner: HarnessRunner;
-    beforeEach(async () => {
-      runner = await connectRunner();
+    beforeEach(() => {
+      runner = connectRunner();
     });
     afterEach(() => {
       runner.disconnect();
@@ -1195,7 +1193,7 @@ describe("the investigation record", () => {
         CLOSING_TURN,
       ]);
       const sessionId = randomUUID();
-      await seedAlertSession(buildSessionMeta(sessionId, null, undefined), [
+      seedAlertSession(buildSessionMeta(sessionId, null, undefined), [
         alert("tagged"),
       ]);
 
@@ -1219,7 +1217,7 @@ describe("the investigation record", () => {
         CLOSING_TURN,
       ]);
       const sessionId = randomUUID();
-      await seedAlertSession(buildSessionMeta(sessionId, null, undefined), [
+      seedAlertSession(buildSessionMeta(sessionId, null, undefined), [
         alert("handed"),
       ]);
 
@@ -1237,7 +1235,7 @@ describe("the investigation record", () => {
       // asked for anything: it is told so three times, then stood down.
       wire.script([{ toolUses: [], text: "All done." }]);
       const sessionId = randomUUID();
-      await seedAlertSession(buildSessionMeta(sessionId, null, undefined), [
+      seedAlertSession(buildSessionMeta(sessionId, null, undefined), [
         alert("gate"),
       ]);
       const outcome = await run({
@@ -1251,13 +1249,13 @@ describe("the investigation record", () => {
       expect(requests[0]).toContain("Open your candidates now");
       // No write-up: the run never reached the record, let alone the report.
       expect(reportRequests()).toHaveLength(0);
-      expect((await getRecord(sessionId))?.report ?? null).toBeNull();
+      expect(getRecord(sessionId)?.report ?? null).toBeNull();
       // One gathering turn, three opening nudges, one stand-down, then the closing.
       expect(requestsOf(0)).toBe(6);
 
       // Neither the prompts nor the alert briefing NightWarden opened with is
       // drawn: the user sees one conversation, with the agent.
-      const drawn = JSON.stringify(await buildTranscript(sessionId));
+      const drawn = JSON.stringify(buildTranscript(sessionId));
       expect(drawn).not.toContain("Your last reply called no tool");
       expect(drawn).not.toContain("Your investigation is over");
       expect(drawn).not.toContain("<alert>");
@@ -1265,12 +1263,12 @@ describe("the investigation record", () => {
 
     /* A run already in falsification that has had three closes refused, then an
        answered approval: the shape an approval resume picks up. */
-    async function refusedThriceThenApproved(): Promise<string> {
+    function refusedThriceThenApproved(): string {
       const sessionId = randomUUID();
-      await seedAlertSession(buildSessionMeta(sessionId, null, undefined), [
+      seedAlertSession(buildSessionMeta(sessionId, null, undefined), [
         alert("spent"),
       ]);
-      await seedCompleteReport(sessionId);
+      seedCompleteReport(sessionId);
       const at = new Date().toISOString();
       const row = (
         kind: TranscriptRow["kind"],
@@ -1317,10 +1315,8 @@ describe("the investigation record", () => {
           { type: "tool_approval", toolCallId: "tu-restart", approved: true },
         ]),
       ];
-      const first = await getNextSeq(sessionId);
-      await appendTranscriptRows(
-        rows.map((r, i) => ({ ...r, seq: first + i })),
-      );
+      const first = getNextSeq(sessionId);
+      appendTranscriptRows(rows.map((r, i) => ({ ...r, seq: first + i })));
       return sessionId;
     }
 
@@ -1336,27 +1332,27 @@ describe("the investigation record", () => {
        is not a person speaking, so the resume inherits what the run spent. */
     it("carries a spent allowance across an approval resume", async () => {
       wire.script([openAndClose(), { toolUses: [], text: "Stopping here." }]);
-      const sessionId = await refusedThriceThenApproved();
+      const sessionId = refusedThriceThenApproved();
 
       const outcome = await run({
         sessionId,
-        seed: await buildSeed(sessionId),
+        seed: buildSeed(sessionId),
       });
 
       expect(outcome).toBe("completed");
       // The refused close, then the stand-down's closing turn: nothing in between.
       expect(requestsOf(0)).toBe(2);
       expect(closePrompts()).toHaveLength(0);
-      expect((await getRecord(sessionId))!.report).toBeNull();
+      expect(getRecord(sessionId)!.report).toBeNull();
     });
 
     it("resets the allowance once a person speaks", async () => {
       wire.script([openAndClose(), { toolUses: [], text: "Still thinking." }]);
-      const sessionId = await refusedThriceThenApproved();
+      const sessionId = refusedThriceThenApproved();
 
       await run({
         sessionId,
-        seed: await buildSeed(sessionId),
+        seed: buildSeed(sessionId),
         userMessage: "keep going, check the new candidate",
         clientMessageId: randomUUID(),
       });
@@ -1370,12 +1366,12 @@ describe("the investigation record", () => {
        the time the gate runs the turn that could fix it is over. */
     it("refuses a claim citing a call that has not answered", async () => {
       const sessionId = randomUUID();
-      await seedAlertSession(
+      seedAlertSession(
         { sessionId, title: "t", createdAt: new Date().toISOString() },
         [alert("unresolvable")],
       );
-      await seedCandidates(sessionId);
-      await appendCitableRows([
+      seedCandidates(sessionId);
+      appendCitableRows([
         {
           sessionId,
           seq: 0,
@@ -1406,13 +1402,13 @@ describe("the investigation record", () => {
         "names no result you have read",
       );
       expect(String(refused.content)).toContain("in your next message");
-      expect((await getRecord(sessionId))!.findings).toHaveLength(0);
+      expect(getRecord(sessionId)!.findings).toHaveLength(0);
 
       // Once the call answers, the same claim records against it.
-      await appendCitableRows([
+      appendCitableRows([
         {
           sessionId,
-          seq: await getNextSeq(sessionId),
+          seq: getNextSeq(sessionId),
           kind: "user",
           content: "result",
           parts: [
@@ -1431,8 +1427,8 @@ describe("the investigation record", () => {
         candidate: "c1",
         evidenceIds: ["e1"],
       });
-      expect((await getRecord(sessionId))!.findings).toHaveLength(1);
-      expect(await recordGaps(sessionId)).toEqual([]);
+      expect(getRecord(sessionId)!.findings).toHaveLength(1);
+      expect(recordGaps(sessionId)).toEqual([]);
     });
 
     // The largest single output of the run, so the ceiling is where it most
@@ -1444,7 +1440,7 @@ describe("the investigation record", () => {
         { toolUses: [], text: "", stopReason: "length" },
       ]);
       const sessionId = randomUUID();
-      await seedAlertSession(buildSessionMeta(sessionId, null, undefined), [
+      seedAlertSession(buildSessionMeta(sessionId, null, undefined), [
         alert("cut-off"),
       ]);
 
@@ -1454,12 +1450,12 @@ describe("the investigation record", () => {
       });
       expect(outcome).toBe("completed");
 
-      const drawn = JSON.stringify(await buildTranscript(sessionId));
+      const drawn = JSON.stringify(buildTranscript(sessionId));
       expect(drawn).toContain("cut off at this model's output limit");
       expect(drawn).toContain("Your findings below are complete.");
       // The record survives the failure: it is the half worth keeping.
-      expect((await getRecord(sessionId))!.findings).toHaveLength(2);
-      expect((await getRecord(sessionId))!.report).toBeNull();
+      expect(getRecord(sessionId)!.findings).toHaveLength(2);
+      expect(getRecord(sessionId)!.report).toBeNull();
 
       /* One report turn, not two: the same request against the same ceiling
          truncates identically, so a retry only writes a second failure. */
@@ -1484,7 +1480,7 @@ describe("the investigation record", () => {
       ];
       wire.script(firstRun);
       const sessionId = randomUUID();
-      await seedAlertSession(buildSessionMeta(sessionId, null, undefined), [
+      seedAlertSession(buildSessionMeta(sessionId, null, undefined), [
         alert("revise"),
       ]);
 
@@ -1496,7 +1492,7 @@ describe("the investigation record", () => {
       wire.script(secondRun);
       await run({
         sessionId,
-        seed: await buildSeed(sessionId),
+        seed: buildSeed(sessionId),
         userMessage: "the disk is filling again, check the volume",
         clientMessageId: randomUUID(),
         reopen: true,
@@ -1509,7 +1505,7 @@ describe("the investigation record", () => {
       // Its own work, named as such, with the text it is replacing.
       expect(second).toContain("You wrote this at the end of your last run");
       expect(second).toContain("free up the disk");
-      expect((await getRecord(sessionId))!.report).toMatchObject({
+      expect(getRecord(sessionId)!.report).toMatchObject({
         recommendation: "add a volume",
       });
     });
@@ -1528,7 +1524,7 @@ describe("the investigation record", () => {
       ];
       wire.script(firstRun);
       const sessionId = randomUUID();
-      await seedAlertSession(buildSessionMeta(sessionId, null, undefined), [
+      seedAlertSession(buildSessionMeta(sessionId, null, undefined), [
         alert("unchanged"),
       ]);
 
@@ -1536,14 +1532,14 @@ describe("the investigation record", () => {
       wire.script(secondRun);
       await run({
         sessionId,
-        seed: await buildSeed(sessionId),
+        seed: buildSeed(sessionId),
         userMessage: "anything else?",
       });
 
       // The second run never reached its report turn, and the write-up the
       // first one composed is still the one on the record.
       expect(reportRequests(1)).toHaveLength(0);
-      expect((await getRecord(sessionId))!.report).toMatchObject({
+      expect(getRecord(sessionId)!.report).toMatchObject({
         recommendation: "free up the disk",
       });
     });
@@ -1566,7 +1562,7 @@ describe("the investigation record", () => {
         })),
       ]);
       const sessionId = randomUUID();
-      await seedAlertSession(buildSessionMeta(sessionId, null, undefined), [
+      seedAlertSession(buildSessionMeta(sessionId, null, undefined), [
         alert("refused-writeup"),
       ]);
 
@@ -1576,8 +1572,8 @@ describe("the investigation record", () => {
       });
       expect(outcome).toBe("completed");
       // No write-up landed, but every finding the run settled is still on record.
-      expect((await getRecord(sessionId))!.report).toBeNull();
-      expect((await getRecord(sessionId))!.findings.length).toBeGreaterThan(0);
+      expect(getRecord(sessionId)!.report).toBeNull();
+      expect(getRecord(sessionId)!.findings.length).toBeGreaterThan(0);
     });
 
     /* Asked over calls that answered and questioned the system: a refused call
@@ -1622,7 +1618,7 @@ describe("the investigation record", () => {
           CLOSING_TURN,
         ]);
         const sessionId = randomUUID();
-        await seedAlertSession(buildSessionMeta(sessionId, null, undefined), [
+        seedAlertSession(buildSessionMeta(sessionId, null, undefined), [
           alert("record-check"),
         ]);
 
@@ -1646,7 +1642,7 @@ describe("the investigation record", () => {
           CLOSING_TURN,
         ]);
         const sessionId = randomUUID();
-        await seedAlertSession(buildSessionMeta(sessionId, null, undefined), [
+        seedAlertSession(buildSessionMeta(sessionId, null, undefined), [
           alert("record-check-quiet"),
         ]);
 
@@ -1670,25 +1666,25 @@ describe("the investigation record", () => {
       ];
       wire.script(firstRun);
       const sessionId = randomUUID();
-      await seedAlertSession(buildSessionMeta(sessionId, null, undefined), [
+      seedAlertSession(buildSessionMeta(sessionId, null, undefined), [
         alert("retry"),
       ]);
 
       await run({ sessionId, alerts: [alert("retry")] });
-      expect((await getRecord(sessionId))!.report).toBeNull();
+      expect(getRecord(sessionId)!.report).toBeNull();
 
       wire.script(secondRun);
       await run({
         sessionId,
-        seed: await buildSeed(sessionId),
+        seed: buildSeed(sessionId),
         userMessage:
           "Settle any candidate still open and write up the investigation.",
       });
 
-      expect((await getRecord(sessionId))!.report).toMatchObject({
+      expect(getRecord(sessionId)!.report).toMatchObject({
         recommendation: "free up the disk",
       });
-      const drawn = JSON.stringify(await buildTranscript(sessionId));
+      const drawn = JSON.stringify(buildTranscript(sessionId));
       expect(drawn).not.toContain("Your investigation is over and its record");
     });
 
@@ -1706,22 +1702,22 @@ describe("the investigation record", () => {
       ];
       wire.script(firstRun);
       const sessionId = randomUUID();
-      await seedAlertSession(buildSessionMeta(sessionId, null, undefined), [
+      seedAlertSession(buildSessionMeta(sessionId, null, undefined), [
         alert("resume-report"),
       ]);
 
       await run({ sessionId, alerts: [alert("resume-report")] });
-      expect((await getRecord(sessionId))!.report).toBeNull();
+      expect(getRecord(sessionId)!.report).toBeNull();
 
       wire.script(secondRun);
       await run({
         sessionId,
-        seed: await buildSeed(sessionId),
+        seed: buildSeed(sessionId),
         userMessage: "Write up the investigation.",
       });
 
       // The resumed run reached ComposeReport rather than being refused it.
-      expect((await getRecord(sessionId))!.report).toMatchObject({
+      expect(getRecord(sessionId)!.report).toMatchObject({
         recommendation: "free up the disk",
       });
       // The challenge was answered in the first run, so it is not put again.
@@ -1740,7 +1736,7 @@ describe("the investigation record", () => {
         CLOSING_TURN,
       ]);
       const sessionId = randomUUID();
-      await seedAlertSession(buildSessionMeta(sessionId, null, undefined), [
+      seedAlertSession(buildSessionMeta(sessionId, null, undefined), [
         alert("gate-pass"),
       ]);
       const outcome = await run({
@@ -1756,7 +1752,7 @@ describe("the investigation record", () => {
       // The verdict and the handles, so a timeline can copy an id from nearby.
       expect(reportRequests()[0]).toContain("[disproven] cites: e2");
 
-      const written = (await getRecord(sessionId))!;
+      const written = getRecord(sessionId)!;
       expect(written.findings[0]!.verdict).toBe("disproven");
       expect(written.report).toMatchObject({
         summary: "the worker ran out of memory",
@@ -1767,14 +1763,14 @@ describe("the investigation record", () => {
     it("does not write up a chat, which keeps no record at all", async () => {
       wire.script([{ toolUses: [], text: "Nine containers." }]);
       const sessionId = randomUUID();
-      await seedChatSession(sessionId, "how many containers are running?");
+      seedChatSession(sessionId, "how many containers are running?");
       const outcome = await run({
         sessionId,
         userMessage: "how many containers are running?",
       });
       expect(outcome).toBe("completed");
       expect(harnessMessages()).toHaveLength(0);
-      expect(await getRecord(sessionId)).toBeUndefined();
+      expect(getRecord(sessionId)).toBeUndefined();
     });
 
     // Ruling things out is a complete ending; releasing a write and then going
@@ -1782,11 +1778,8 @@ describe("the investigation record", () => {
     describe("a run that acted", () => {
       // A write the user was asked about and let through, recorded on the call
       // where it happened. Nothing about the tool's name could say this.
-      async function releasedWrite(
-        sessionId: string,
-        seq: number,
-      ): Promise<void> {
-        await appendCall(
+      function releasedWrite(sessionId: string, seq: number): void {
+        appendCall(
           sessionId,
           seq,
           {
@@ -1813,11 +1806,11 @@ describe("the investigation record", () => {
       it("is asked for a recommendation when nothing can confirm recovery", async () => {
         settledRun();
         const sessionId = randomUUID();
-        await seedAlertSession(
+        seedAlertSession(
           { sessionId, title: "t", createdAt: new Date().toISOString() },
           [alert("acted-firing")],
         );
-        await releasedWrite(sessionId, 0);
+        releasedWrite(sessionId, 0);
 
         await run({ sessionId, alerts: [alert("acted-firing")] });
 
@@ -1833,11 +1826,11 @@ describe("the investigation record", () => {
       it("refuses a write-up that recommends nothing, and asks again", async () => {
         settledRun(submitTurn(""), submitTurn("cap concurrency at one job"));
         const sessionId = randomUUID();
-        await seedAlertSession(
+        seedAlertSession(
           { sessionId, title: "t", createdAt: new Date().toISOString() },
           [alert("acted-no-recommendation")],
         );
-        await releasedWrite(sessionId, 0);
+        releasedWrite(sessionId, 0);
 
         await run({
           sessionId,
@@ -1848,7 +1841,7 @@ describe("the investigation record", () => {
           m.includes("did not land"),
         );
         expect(retries).toHaveLength(1);
-        expect((await getRecord(sessionId))!.report!.recommendation).toBe(
+        expect(getRecord(sessionId)!.report!.recommendation).toBe(
           "cap concurrency at one job",
         );
       });
@@ -1856,7 +1849,7 @@ describe("the investigation record", () => {
       it("says nothing about recovery to a run that only looked", async () => {
         settledRun();
         const sessionId = randomUUID();
-        await seedAlertSession(buildSessionMeta(sessionId, null, undefined), [
+        seedAlertSession(buildSessionMeta(sessionId, null, undefined), [
           alert("only-looked"),
         ]);
         await run({ sessionId, alerts: [alert("only-looked")] });

@@ -55,13 +55,13 @@ const start = async (): Promise<void> => {
     initDb();
     fastify.log.info("SQLite ready");
     // Before the seeds below, which encrypt with the key this decides on.
-    await checkSecretKey();
+    checkSecretKey();
     // Env is a first-boot seed only: this writes the config row on an install
     // that has none, and never again. After that the database is the sole source.
-    await seedConfigFromEnv();
+    seedConfigFromEnv();
     // Same first-boot rule for the evidence integrations, so a fresh install can
     // come up fully configured without anyone opening a browser.
-    await seedIntegrationsFromEnv();
+    seedIntegrationsFromEnv();
     // Containers first, killing any still-running writer, then salvage: orphaned
     // work is pushed here before listen() lets a session provision over it.
     try {
@@ -75,7 +75,7 @@ const start = async (): Promise<void> => {
     const salvaged = await salvageWorkspaces({
       workspacesDir: workspacesDir(),
       authHeader: async () => {
-        const row = await getGitHubIntegration();
+        const row = getGitHubIntegration();
         if (row === null) {
           return Promise.reject(
             new Error("GitHub integration is not configured"),
@@ -92,7 +92,7 @@ const start = async (): Promise<void> => {
       );
     }
     // Before listen(), so no dispatch can claim a session this is still failing.
-    const recovered = await recoverDeadRuns();
+    const recovered = recoverDeadRuns();
     if (recovered > 0) {
       fastify.log.info(`interrupted runs: ${recovered} marked failed`);
     }

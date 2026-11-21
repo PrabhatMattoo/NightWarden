@@ -37,11 +37,8 @@ function makeAlert(sourceAlertId: string, firedAt = FIRED_AT): NormalizedAlert {
 
 // Every session row exists before anything dispatches into it: the chat route
 // writes it, and ingest writes it together with the alerts it opens on.
-async function seedSession(
-  sessionId: string,
-  alerts: NormalizedAlert[],
-): Promise<void> {
-  await seedAlertSession(
+function seedSession(sessionId: string, alerts: NormalizedAlert[]): void {
+  seedAlertSession(
     { sessionId, title: "t", createdAt: new Date().toISOString() },
     alerts,
   );
@@ -51,21 +48,19 @@ describe("dispatcher", () => {
   // Claiming a run is a write to the session row, so this seam needs a
   // database even with the run itself faked.
   let cleanupDb: () => void;
-  beforeAll(async () => {
-    cleanupDb = await useTempDb();
+  beforeAll(() => {
+    cleanupDb = useTempDb();
   });
   afterAll(() => {
     cleanupDb();
     vi.unstubAllEnvs();
   });
 
-  it("refuses to dispatch into a session nothing has written", async () => {
+  it("refuses to dispatch into a session nothing has written", () => {
     const dispatcher = createDispatcher({
       run: () => Promise.resolve<RunOutcome>("completed"),
     });
-    expect(await dispatcher.dispatch({ sessionId: "never-created" })).toBe(
-      false,
-    );
+    expect(dispatcher.dispatch({ sessionId: "never-created" })).toBe(false);
   });
 
   // The conditional UPDATE is the mutex, not a check before it, so the loser
@@ -74,17 +69,17 @@ describe("dispatcher", () => {
     const gate = deferred();
     const dispatcher = createDispatcher({ run: () => gate.promise });
     const sessionId = "s-race";
-    await seedSession(sessionId, [makeAlert("race-1")]);
+    seedSession(sessionId, [makeAlert("race-1")]);
 
-    expect(await dispatcher.dispatch({ sessionId })).toBe(true);
-    expect(await dispatcher.dispatch({ sessionId })).toBe(false);
-    expect(await isRunning(sessionId)).toBe(true);
+    expect(dispatcher.dispatch({ sessionId })).toBe(true);
+    expect(dispatcher.dispatch({ sessionId })).toBe(false);
+    expect(isRunning(sessionId)).toBe(true);
 
     gate.resolve();
     await flush();
-    expect(await isRunning(sessionId)).toBe(false);
+    expect(isRunning(sessionId)).toBe(false);
     // Released, so the same session can run again - which is what a resume is.
-    expect(await dispatcher.dispatch({ sessionId })).toBe(true);
+    expect(dispatcher.dispatch({ sessionId })).toBe(true);
   });
 
   it("stop aborts the running session's signal, and answers false for an idle one", async () => {
@@ -97,10 +92,10 @@ describe("dispatcher", () => {
       },
     });
     const sessionId = "s-stop";
-    await seedSession(sessionId, [makeAlert("stop-1")]);
+    seedSession(sessionId, [makeAlert("stop-1")]);
 
     expect(dispatcher.stop(sessionId)).toBe(false);
-    await dispatcher.dispatch({ sessionId });
+    dispatcher.dispatch({ sessionId });
     expect(dispatcher.stop(sessionId)).toBe(true);
     expect(seen?.aborted).toBe(true);
 

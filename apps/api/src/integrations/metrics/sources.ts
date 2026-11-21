@@ -93,8 +93,8 @@ function resolve(row: MetricsSourceRow): MetricsSource {
 }
 
 // One connected source or none, so nothing addresses it and no call names it.
-export async function getMetricsSource(): Promise<MetricsSource | null> {
-  const row = await metricsSourceRow();
+export function getMetricsSource(): MetricsSource | null {
+  const row = metricsSourceRow();
   return row === null ? null : resolve(row);
 }
 

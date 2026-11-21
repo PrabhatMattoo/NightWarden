@@ -132,8 +132,8 @@ describe("parseAlertmanager", () => {
 // the database and must never reach the real one.
 describe("user context reaches the model", () => {
   let cleanupDb: () => void;
-  beforeAll(async () => {
-    cleanupDb = await useTempDb();
+  beforeAll(() => {
+    cleanupDb = useTempDb();
   });
   afterAll(() => {
     cleanupDb();
@@ -234,8 +234,8 @@ describe("user context reaches the model", () => {
 // already worked out why these belong together; nothing here re-derives it.
 describe("what a delivery says about its group", () => {
   let cleanupDb: () => void;
-  beforeAll(async () => {
-    cleanupDb = await useTempDb();
+  beforeAll(() => {
+    cleanupDb = useTempDb();
   });
   afterAll(() => {
     cleanupDb();

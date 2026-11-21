@@ -1,29 +1,35 @@
+import { and, eq } from "drizzle-orm";
 import { getDb } from "../db.js";
+import { toolResultStore } from "./schema.js";
 
 // Keyed by the call, so a retried call replaces its own copy rather than adding one.
-export async function storeToolResult(
+export function storeToolResult(
   sessionId: string,
   toolCallId: string,
   content: string,
-): Promise<void> {
-  await getDb()
-    .insertInto("tool_result_store")
-    .values({ session_id: sessionId, tool_call_id: toolCallId, content })
-    .onConflict((oc) =>
-      oc.columns(["session_id", "tool_call_id"]).doUpdateSet({ content }),
-    )
-    .execute();
+): void {
+  getDb()
+    .insert(toolResultStore)
+    .values({ sessionId, toolCallId, content })
+    .onConflictDoUpdate({
+      target: [toolResultStore.sessionId, toolResultStore.toolCallId],
+      set: { content },
+    })
+    .run();
 }
 
-export async function readToolResult(
+export function readToolResult(
   sessionId: string,
   toolCallId: string,
-): Promise<string | undefined> {
-  const row = await getDb()
-    .selectFrom("tool_result_store")
-    .select("content")
-    .where("session_id", "=", sessionId)
-    .where("tool_call_id", "=", toolCallId)
-    .executeTakeFirst();
-  return row?.content;
+): string | undefined {
+  return getDb()
+    .select({ content: toolResultStore.content })
+    .from(toolResultStore)
+    .where(
+      and(
+        eq(toolResultStore.sessionId, sessionId),
+        eq(toolResultStore.toolCallId, toolCallId),
+      ),
+    )
+    .get()?.content;
 }

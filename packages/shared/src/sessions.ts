@@ -10,26 +10,46 @@ export type TranscriptKind = "user" | "assistant" | "error" | "system_reminder";
 
 // Which note a system_reminder row is. The run's position is folded from these,
 // never from the prose the note carried.
-export type ReminderKind =
-  | "alert_opening"
-  | "candidates_opening"
-  | "frontier"
-  | "falsification"
-  | "report_request"
-  | "report_retry"
-  | "closing"
-  | "text_only"
-  | "reopen"
-  | "record_check"
-  | "toolset_change"
-  | "injected_alerts"
-  | "sandbox_ready";
+export const REMINDER_KINDS = [
+  "alert_opening",
+  "candidates_opening",
+  "frontier",
+  "falsification",
+  "report_request",
+  "report_retry",
+  "closing",
+  "text_only",
+  "reopen",
+  "record_check",
+  "toolset_change",
+  "injected_alerts",
+  "sandbox_ready",
+] as const;
+export type ReminderKind = (typeof REMINDER_KINDS)[number];
 
 // Whether a failed run is retried automatically or waits for a person.
-export type FailureKind = "transient" | "permanent";
+export const FAILURE_KINDS = ["transient", "permanent"] as const;
+export type FailureKind = (typeof FAILURE_KINDS)[number];
 
 // Which gate a parked session waits on.
-export type AwaitingKind = "approval" | "clarification" | "continue";
+export const AWAITING_KINDS = [
+  "approval",
+  "clarification",
+  "continue",
+] as const;
+export type AwaitingKind = (typeof AWAITING_KINDS)[number];
+
+// Derived server-side and never declared by the model. `not_started` is held by
+// the hourly limit until a person starts it.
+export const INVESTIGATION_STATUSES = [
+  "action_required",
+  "running",
+  "resolved",
+  "stopped",
+  "failed",
+  "completed",
+  "not_started",
+] as const;
 
 // The Investigations page's views beside All: what is still in play, what
 // recovered, and what ended without the alert clearing.

@@ -78,11 +78,11 @@ describe("flat runner registry", () => {
   afterAll(closeHarness);
 
   it("lists two runners each on their own token with correct manifests", async () => {
-    const { plaintext: tokenA, id: tokenAId } = await createRunner(
+    const { plaintext: tokenA, id: tokenAId } = createRunner(
       "docker",
       "one-up-a",
     );
-    const { plaintext: tokenB, id: tokenBId } = await createRunner(
+    const { plaintext: tokenB, id: tokenBId } = createRunner(
       "docker",
       "one-up-b",
     );
@@ -131,11 +131,11 @@ describe("flat runner registry", () => {
   });
 
   it("drops a runner from the fleet when its socket closes, leaving the other", async () => {
-    const { plaintext: tokenA, id: tokenAId } = await createRunner(
+    const { plaintext: tokenA, id: tokenAId } = createRunner(
       "docker",
       "close-one-a",
     );
-    const { plaintext: tokenB, id: tokenBId } = await createRunner(
+    const { plaintext: tokenB, id: tokenBId } = createRunner(
       "docker",
       "close-one-b",
     );
@@ -170,7 +170,7 @@ describe("flat runner registry", () => {
   });
 
   it("a reconnect on the same token displaces the old socket and survives its late close", async () => {
-    const { plaintext: token, id: tokenId } = await createRunner(
+    const { plaintext: token, id: tokenId } = createRunner(
       "docker",
       "displace",
     );
@@ -218,7 +218,7 @@ describe("flat runner registry", () => {
 
   describe("in-flight commands on socket close", () => {
     it("rejects an in-flight command promptly when the runner socket closes, and drops the late result", async () => {
-      const { plaintext: token, id: tokenId } = await createRunner(
+      const { plaintext: token, id: tokenId } = createRunner(
         "docker",
         "inflight",
       );
@@ -279,7 +279,7 @@ describe("flat runner registry", () => {
     });
 
     it("a displaced socket's in-flight command rejects while the replacement stays online", async () => {
-      const { plaintext: token, id: tokenId } = await createRunner(
+      const { plaintext: token, id: tokenId } = createRunner(
         "docker",
         "inflight-displace",
       );
@@ -361,10 +361,7 @@ describe("protocol ping/pong liveness", () => {
   afterAll(closeHarness);
 
   it("terminates a socket that stops answering pings and drops the runner offline", async () => {
-    const { plaintext: token, id: tokenId } = await createRunner(
-      "docker",
-      "no-pong",
-    );
+    const { plaintext: token, id: tokenId } = createRunner("docker", "no-pong");
     // Fake timers before connecting: the per-connection ping interval must be
     // created under fake timers to be advanceable. Date stays real.
     vi.useFakeTimers({
@@ -400,7 +397,7 @@ describe("protocol ping/pong liveness", () => {
   });
 
   it("pongs keep the runner online past the liveness TTL", async () => {
-    const { plaintext: token, id: tokenId } = await createRunner(
+    const { plaintext: token, id: tokenId } = createRunner(
       "docker",
       "pong-live",
     );

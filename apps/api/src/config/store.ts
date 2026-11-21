@@ -1,3 +1,4 @@
+import { eq } from "drizzle-orm";
 import { getDb } from "../db.js";
 import {
   DEFAULT_CHECK_IN_AFTER_MS,
@@ -14,12 +15,12 @@ import { PROVIDER_OPTIONS, baseUrlFor, optionFor } from "../llm/catalog.js";
 import { decrypt, encrypt, generateSecretKey, maskKey } from "../secrets.js";
 import { secretKeyPath } from "../paths.js";
 import { logger } from "../logger.js";
+import { config, providerConfig } from "./schema.js";
 import type {
   AgentConfig,
   LLMProviderName,
   ProviderSettings,
   ProviderSettingsMap,
-  SandboxNetwork,
   SettingsPatch,
 } from "@nightwarden/shared";
 
@@ -30,62 +31,18 @@ const PROVIDER_NAMES: readonly LLMProviderName[] = PROVIDER_OPTIONS.map(
   (p) => p.name,
 );
 
-type ConfigRow = {
-  activeProvider: string | null;
-  maxRetries: number;
-  maxInvestigationsPerHour: number;
-  checkInAfterMs: number;
-  toolCallCeilingMs: number;
-  sandboxIdleTimeoutMs: number;
-  sandboxCpus: number;
-  sandboxMemoryMb: number;
-  sandboxNetwork: string;
-  sandboxAllowlistHosts: string;
-};
+type ProviderRow = typeof providerConfig.$inferSelect;
 
-// reasoning_level is plain TEXT: the legal values come from the chosen model's
-// descriptor, so no column constraint could express them.
-type ProviderRow = {
-  provider: string;
-  model: string | null;
-  baseUrl: string | null;
-  apiKeyEncrypted: string | null;
-  reasoningLevel: string | null;
-};
-
-function readConfigRow(): Promise<ConfigRow | undefined> {
-  return getDb()
-    .selectFrom("config")
-    .select([
-      "active_provider as activeProvider",
-      "max_retries as maxRetries",
-      "max_investigations_per_hour as maxInvestigationsPerHour",
-      "check_in_after_ms as checkInAfterMs",
-      "tool_call_ceiling_ms as toolCallCeilingMs",
-      "sandbox_idle_timeout_ms as sandboxIdleTimeoutMs",
-      "sandbox_cpus as sandboxCpus",
-      "sandbox_memory_mb as sandboxMemoryMb",
-      "sandbox_network as sandboxNetwork",
-      "sandbox_allowlist_hosts as sandboxAllowlistHosts",
-    ])
-    .where("id", "=", CONFIG_ID)
-    .executeTakeFirst();
+function readConfigRow(): typeof config.$inferSelect | undefined {
+  return getDb().select().from(config).where(eq(config.id, CONFIG_ID)).get();
 }
 
-function readProviderRow(
-  provider: LLMProviderName,
-): Promise<ProviderRow | undefined> {
+function readProviderRow(provider: LLMProviderName): ProviderRow | undefined {
   return getDb()
-    .selectFrom("provider_config")
-    .select([
-      "provider",
-      "model",
-      "base_url as baseUrl",
-      "api_key_encrypted as apiKeyEncrypted",
-      "reasoning_level as reasoningLevel",
-    ])
-    .where("provider", "=", provider)
-    .executeTakeFirst();
+    .select()
+    .from(providerConfig)
+    .where(eq(providerConfig.provider, provider))
+    .get();
 }
 
 // Stored newline-joined (the Settings textarea shape); empty lines dropped.
@@ -109,11 +66,9 @@ function toSettings(row: ProviderRow | undefined): ProviderSettings {
   };
 }
 
-async function loadProviders(): Promise<ProviderSettingsMap> {
-  const blocks = await Promise.all(
-    PROVIDER_NAMES.map(
-      async (name) => [name, toSettings(await readProviderRow(name))] as const,
-    ),
+function loadProviders(): ProviderSettingsMap {
+  const blocks = PROVIDER_NAMES.map(
+    (name) => [name, toSettings(readProviderRow(name))] as const,
   );
   // fromEntries widens the keys to string; PROVIDER_NAMES is exactly the keys.
   return Object.fromEntries(blocks) as ProviderSettingsMap;
@@ -121,9 +76,9 @@ async function loadProviders(): Promise<ProviderSettingsMap> {
 
 // Operational defaults are engineering choices and stay; which provider is active
 // is the user's to pick, so it starts null and the run gate refuses until set.
-export async function loadConfig(): Promise<AgentConfig> {
-  const row = await readConfigRow();
-  const providers = await loadProviders();
+export function loadConfig(): AgentConfig {
+  const row = readConfigRow();
+  const providers = loadProviders();
   if (!row) {
     return {
       provider: null,
@@ -142,7 +97,7 @@ export async function loadConfig(): Promise<AgentConfig> {
   }
 
   return {
-    provider: row.activeProvider as LLMProviderName | null,
+    provider: row.activeProvider,
     providers,
     providerOptions: [...PROVIDER_OPTIONS],
     maxRetries: row.maxRetries,
@@ -152,41 +107,39 @@ export async function loadConfig(): Promise<AgentConfig> {
     sandboxIdleTimeoutMs: row.sandboxIdleTimeoutMs,
     sandboxCpus: row.sandboxCpus,
     sandboxMemoryMb: row.sandboxMemoryMb,
-    sandboxNetwork: row.sandboxNetwork as SandboxNetwork,
+    sandboxNetwork: row.sandboxNetwork,
     sandboxAllowlistHosts: splitHosts(row.sandboxAllowlistHosts),
   };
 }
 
 // The decrypted key for one provider, or undefined when it has none stored.
-export async function loadApiKey(
-  provider: LLMProviderName,
-): Promise<string | undefined> {
-  const row = await readProviderRow(provider);
+export function loadApiKey(provider: LLMProviderName): string | undefined {
+  const row = readProviderRow(provider);
   return row?.apiKeyEncrypted ? decrypt(row.apiKeyEncrypted) : undefined;
 }
 
 // Global settings only; the per-provider blocks are written by updateProvider so
 // a change to one provider can never disturb the other.
-export async function updateConfig(patch: SettingsPatch): Promise<AgentConfig> {
-  const next: AgentConfig = { ...(await loadConfig()), ...patch };
+export function updateConfig(patch: SettingsPatch): AgentConfig {
+  const next: AgentConfig = { ...loadConfig(), ...patch };
   const values = {
-    active_provider: next.provider,
-    max_retries: next.maxRetries,
-    max_investigations_per_hour: next.maxInvestigationsPerHour,
-    check_in_after_ms: next.checkInAfterMs,
-    tool_call_ceiling_ms: next.toolCallCeilingMs,
-    sandbox_idle_timeout_ms: next.sandboxIdleTimeoutMs,
-    sandbox_cpus: next.sandboxCpus,
-    sandbox_memory_mb: next.sandboxMemoryMb,
-    sandbox_network: next.sandboxNetwork,
-    sandbox_allowlist_hosts: next.sandboxAllowlistHosts.join("\n"),
-    updated_at: new Date().toISOString(),
+    activeProvider: next.provider,
+    maxRetries: next.maxRetries,
+    maxInvestigationsPerHour: next.maxInvestigationsPerHour,
+    checkInAfterMs: next.checkInAfterMs,
+    toolCallCeilingMs: next.toolCallCeilingMs,
+    sandboxIdleTimeoutMs: next.sandboxIdleTimeoutMs,
+    sandboxCpus: next.sandboxCpus,
+    sandboxMemoryMb: next.sandboxMemoryMb,
+    sandboxNetwork: next.sandboxNetwork,
+    sandboxAllowlistHosts: next.sandboxAllowlistHosts.join("\n"),
+    updatedAt: new Date().toISOString(),
   };
-  await getDb()
-    .insertInto("config")
+  getDb()
+    .insert(config)
     .values({ id: CONFIG_ID, ...values })
-    .onConflict((oc) => oc.column("id").doUpdateSet(values))
-    .execute();
+    .onConflictDoUpdate({ target: config.id, set: values })
+    .run();
   return next;
 }
 
@@ -200,41 +153,41 @@ export interface ProviderPatch {
 
 // Fields absent from the patch keep their stored value; the key is only replaced
 // when a new one is supplied, so saving a model never clears the credential.
-export async function updateProvider(
+export function updateProvider(
   provider: LLMProviderName,
   patch: ProviderPatch,
-): Promise<AgentConfig> {
-  const existing = await readProviderRow(provider);
+): AgentConfig {
+  const existing = readProviderRow(provider);
   const values = {
     provider,
     model: patch.model !== undefined ? patch.model : (existing?.model ?? null),
-    base_url:
+    baseUrl:
       patch.baseUrl !== undefined
         ? (patch.baseUrl ?? null)
         : (existing?.baseUrl ?? null),
-    api_key_encrypted:
+    apiKeyEncrypted:
       patch.apiKey !== undefined
         ? encrypt(patch.apiKey)
         : (existing?.apiKeyEncrypted ?? null),
-    reasoning_level:
+    reasoningLevel:
       patch.reasoningLevel !== undefined
         ? patch.reasoningLevel
         : (existing?.reasoningLevel ?? null),
-    updated_at: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
   };
-  await getDb()
-    .insertInto("provider_config")
+  getDb()
+    .insert(providerConfig)
     .values(values)
-    .onConflict((oc) => oc.column("provider").doUpdateSet(values))
-    .execute();
-  return await loadConfig();
+    .onConflictDoUpdate({ target: providerConfig.provider, set: values })
+    .run();
+  return loadConfig();
 }
 
 // Env is a first-boot seed, never a live source, so the database stays the one
 // runtime source of truth.
-export async function seedConfigFromEnv(): Promise<void> {
+export function seedConfigFromEnv(): void {
   for (const provider of PROVIDER_NAMES) {
-    await seedProviderFromEnv(provider);
+    seedProviderFromEnv(provider);
   }
 
   const requested = process.env["NIGHTWARDEN_LLM_PROVIDER"];
@@ -249,11 +202,11 @@ export async function seedConfigFromEnv(): Promise<void> {
     );
     return;
   }
-  if ((await loadConfig()).provider !== null) return;
+  if (loadConfig().provider !== null) return;
 
   // Activating a block that cannot run would produce an install that looks
   // configured and fails at the first alert, so require what it needs first.
-  const block = await readProviderRow(provider);
+  const block = readProviderRow(provider);
   if (!block?.model || !hasKeyAndAddress(provider, block)) {
     logger.warn(
       { provider },
@@ -261,7 +214,7 @@ export async function seedConfigFromEnv(): Promise<void> {
     );
     return;
   }
-  await updateConfig({ provider });
+  updateConfig({ provider });
   logger.info({ provider }, "active LLM provider seeded from environment");
 }
 
@@ -275,10 +228,10 @@ function hasKeyAndAddress(
   return keyed && baseUrlFor(provider, block.baseUrl ?? undefined) !== null;
 }
 
-async function seedProviderFromEnv(provider: LLMProviderName): Promise<void> {
+function seedProviderFromEnv(provider: LLMProviderName): void {
   // Only an untouched block is seeded: once a user has saved anything for a
   // provider, the database owns it and a stale compose file cannot overwrite it.
-  const existing = await readProviderRow(provider);
+  const existing = readProviderRow(provider);
   if (existing?.model || existing?.apiKeyEncrypted) return;
 
   // A hyphen is not legal in a variable name.
@@ -304,7 +257,7 @@ async function seedProviderFromEnv(provider: LLMProviderName): Promise<void> {
     return;
   }
 
-  await updateProvider(provider, {
+  updateProvider(provider, {
     model,
     ...(apiKey ? { apiKey } : {}),
     ...(baseUrl ? { baseUrl } : {}),
@@ -316,24 +269,24 @@ const KEY_CHECK = "nightwarden";
 
 /* Written on first boot and decrypted on every boot after, so a database restored
    without its key refuses to start rather than reading each credential as unset. */
-export async function checkSecretKey(): Promise<void> {
-  const row = await getDb()
-    .selectFrom("config")
-    .select("key_check as keyCheck")
-    .where("id", "=", CONFIG_ID)
-    .executeTakeFirst();
+export function checkSecretKey(): void {
+  const row = getDb()
+    .select({ keyCheck: config.keyCheck })
+    .from(config)
+    .where(eq(config.id, CONFIG_ID))
+    .get();
   if (row?.keyCheck == null) {
     generateSecretKey();
-    const values = { key_check: encrypt(KEY_CHECK) };
-    await getDb()
-      .insertInto("config")
+    const values = { keyCheck: encrypt(KEY_CHECK) };
+    getDb()
+      .insert(config)
       .values({
         id: CONFIG_ID,
         ...values,
-        updated_at: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
       })
-      .onConflict((oc) => oc.column("id").doUpdateSet(values))
-      .execute();
+      .onConflictDoUpdate({ target: config.id, set: values })
+      .run();
     return;
   }
   let matches = false;

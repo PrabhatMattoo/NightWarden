@@ -24,9 +24,9 @@ function expectRestrictedPermissions(file: string): void {
   }
 }
 
-async function boot(): Promise<void> {
+function boot(): void {
   initSecrets();
-  await checkSecretKey();
+  checkSecretKey();
 }
 
 describe("the secret key at boot", () => {
@@ -46,50 +46,50 @@ describe("the secret key at boot", () => {
     initSecrets();
   });
 
-  it("generates a restricted-access key file on a fresh install, creating the state directory", async () => {
+  it("generates a restricted-access key file on a fresh install, creating the state directory", () => {
     const freshDir = join(dir, "not-yet-created");
     vi.stubEnv("NIGHTWARDEN_DIR", freshDir);
 
-    await boot();
+    boot();
 
     expectRestrictedPermissions(join(freshDir, "secret.key"));
   });
 
-  it("starts again on the same key and decrypts what the first boot stored", async () => {
-    await boot();
-    await updateProvider("anthropic", { apiKey: "sk-live-1234" });
+  it("starts again on the same key and decrypts what the first boot stored", () => {
+    boot();
+    updateProvider("anthropic", { apiKey: "sk-live-1234" });
 
-    await boot();
+    boot();
 
-    expect(await loadApiKey("anthropic")).toBe("sk-live-1234");
+    expect(loadApiKey("anthropic")).toBe("sk-live-1234");
   });
 
-  it("refuses to start on a different key, and a stored credential raises rather than reading as unset", async () => {
+  it("refuses to start on a different key, and a stored credential raises rather than reading as unset", () => {
     vi.stubEnv(
       "NIGHTWARDEN_SECRET_KEY",
       "the-key-this-database-was-written-with",
     );
-    await boot();
-    await updateProvider("anthropic", { apiKey: "sk-live-1234" });
+    boot();
+    updateProvider("anthropic", { apiKey: "sk-live-1234" });
 
     vi.stubEnv("NIGHTWARDEN_SECRET_KEY", "some-other-key");
     initSecrets();
 
-    await expect(checkSecretKey()).rejects.toThrow(join(dir, "secret.key"));
-    await expect(loadApiKey("anthropic")).rejects.toThrow();
+    expect(() => checkSecretKey()).toThrow(join(dir, "secret.key"));
+    expect(() => loadApiKey("anthropic")).toThrow();
   });
 
-  it("refuses to start over an empty or missing key file instead of generating a new one", async () => {
-    await boot();
+  it("refuses to start over an empty or missing key file instead of generating a new one", () => {
+    boot();
     const keyFile = join(dir, "secret.key");
 
     // An empty file is what a crash mid-write or a full disk leaves.
     writeFileSync(keyFile, "", { mode: 0o600 });
-    await expect(boot()).rejects.toThrow(keyFile);
+    expect(() => boot()).toThrow(keyFile);
     expect(readFileSync(keyFile, "utf8")).toBe("");
 
     rmSync(keyFile);
-    await expect(boot()).rejects.toThrow(keyFile);
+    expect(() => boot()).toThrow(keyFile);
     expect(existsSync(keyFile)).toBe(false);
   });
 });

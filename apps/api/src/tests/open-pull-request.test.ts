@@ -224,15 +224,15 @@ async function runOpr(
   });
 }
 
-beforeAll(async () => {
-  cleanupDb = await useTempDb();
+beforeAll(() => {
+  cleanupDb = useTempDb();
   // Network detachment is covered in sandbox-workspace tests; keep this
   // PR-focused test on the open path so the mock needs no network machinery.
-  await updateConfig({ sandboxNetwork: "open" });
+  updateConfig({ sandboxNetwork: "open" });
   installGitMock();
   installDockerMock();
   installGitHubMock();
-  await saveGitHubIntegration({
+  saveGitHubIntegration({
     token: "github_pat_fixture",
     repoOwner: "acme",
     repoName: "api",

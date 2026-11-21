@@ -86,16 +86,16 @@ describe("multi-runner routing", () => {
     const sessionId = randomUUID();
     // The chat route writes the row before dispatching, so that a run always has
     // a session to claim; this drives the dispatcher directly and must do the same.
-    await createSession({
+    createSession({
       sessionId,
       title: "t",
       createdAt: new Date().toISOString(),
     });
-    await nw.dispatcher.dispatch({
+    nw.dispatcher.dispatch({
       sessionId,
       userMessage: "investigate",
     });
-    await waitFor(async () => !(await isRunning(sessionId)));
+    await waitFor(() => !isRunning(sessionId));
     return sessionId;
   }
 
@@ -143,7 +143,7 @@ describe("multi-runner routing", () => {
     expect(db.commands).toHaveLength(0);
 
     // The error is persisted as a user-turn message in the transcript.
-    const messages = await getTranscriptRows(sessionId);
+    const messages = getTranscriptRows(sessionId);
     const errorMsg = messages.find(
       (m) => m.kind === "user" && m.content.includes("ghost-svc"),
     );
@@ -172,7 +172,7 @@ describe("multi-runner routing", () => {
     const sessionId = await runSession();
     runnerError = null;
 
-    const answer = (await getTranscriptRows(sessionId))
+    const answer = getTranscriptRows(sessionId)
       .flatMap((row) => row.parts)
       .find((p) => p.type === "tool_result" && p.toolCallId === "tu-missing");
     expect(answer).toMatchObject({ isError: true });
@@ -227,7 +227,7 @@ describe("multi-runner routing", () => {
     expect(db.commands).toHaveLength(1);
 
     // Each answer is attributed, so the model can tell which host is the sick one.
-    const messages = await getTranscriptRows(sessionId);
+    const messages = getTranscriptRows(sessionId);
     const result = messages.find(
       (m) => m.kind === "user" && m.content.includes("byServer"),
     );

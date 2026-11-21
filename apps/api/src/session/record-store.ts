@@ -1,16 +1,11 @@
-import type {
-  Candidate,
-  Finding,
-  InvestigationRecord,
-} from "@nightwarden/shared";
+import { eq } from "drizzle-orm";
+import type { InvestigationRecord } from "@nightwarden/shared";
 import { getDb, type Db } from "../db.js";
+import { sessions } from "./schema.js";
 
-interface RecordRow {
-  candidates: string;
-  findings: string;
-  report: string | null;
+type RecordRow = Omit<InvestigationRecord, "updatedAt"> & {
   updatedAt: string | null;
-}
+};
 
 // The one place the columns become a record, so the session list's own query
 // assembles it the same way. Nothing recorded reads as absent, not empty.
@@ -18,13 +13,7 @@ export function assembleRecord(
   row: RecordRow | undefined,
 ): InvestigationRecord | undefined {
   if (row === undefined) return undefined;
-  // These columns hold what this store serialised, so the casts restate it.
-  const candidates = JSON.parse(row.candidates) as Candidate[];
-  const findings = JSON.parse(row.findings) as Finding[];
-  const report =
-    row.report === null
-      ? null
-      : (JSON.parse(row.report) as InvestigationRecord["report"]);
+  const { candidates, findings, report } = row;
   if (candidates.length === 0 && findings.length === 0 && report === null) {
     return undefined;
   }
@@ -36,21 +25,22 @@ export function assembleRecord(
   };
 }
 
-export async function getRecord(
+export function getRecord(
   sessionId: string,
   db: Db = getDb(),
-): Promise<InvestigationRecord | undefined> {
-  const row = await db
-    .selectFrom("sessions")
-    .select([
-      "candidates",
-      "findings",
-      "report",
-      "record_updated_at as updatedAt",
-    ])
-    .where("session_id", "=", sessionId)
-    .executeTakeFirst();
-  return assembleRecord(row);
+): InvestigationRecord | undefined {
+  return assembleRecord(
+    db
+      .select({
+        candidates: sessions.candidates,
+        findings: sessions.findings,
+        report: sessions.report,
+        updatedAt: sessions.recordUpdatedAt,
+      })
+      .from(sessions)
+      .where(eq(sessions.sessionId, sessionId))
+      .get(),
+  );
 }
 
 function emptyRecord(): InvestigationRecord {
@@ -62,21 +52,16 @@ function emptyRecord(): InvestigationRecord {
   };
 }
 
-async function write(
-  db: Db,
-  sessionId: string,
-  record: InvestigationRecord,
-): Promise<void> {
-  await db
-    .updateTable("sessions")
+function write(sessionId: string, record: InvestigationRecord, db: Db): void {
+  db.update(sessions)
     .set({
-      candidates: JSON.stringify(record.candidates),
-      findings: JSON.stringify(record.findings),
-      report: record.report === null ? null : JSON.stringify(record.report),
-      record_updated_at: new Date().toISOString(),
+      candidates: record.candidates,
+      findings: record.findings,
+      report: record.report,
+      recordUpdatedAt: new Date().toISOString(),
     })
-    .where("session_id", "=", sessionId)
-    .execute();
+    .where(eq(sessions.sessionId, sessionId))
+    .run();
 }
 
 // Read-modify-write in a transaction, so two calls in the same turn cannot lose
@@ -87,16 +72,12 @@ export function updateRecord<T>(
     next: InvestigationRecord;
     value: T;
   },
-): Promise<T> {
-  return getDb()
-    .transaction()
-    .execute(async (trx) => {
-      const { next, value } = apply(
-        (await getRecord(sessionId, trx)) ?? emptyRecord(),
-      );
-      await write(trx, sessionId, next);
-      return value;
-    });
+): T {
+  return getDb().transaction((tx) => {
+    const { next, value } = apply(getRecord(sessionId, tx) ?? emptyRecord());
+    write(sessionId, next, tx);
+    return value;
+  });
 }
 
 // The same, for an act that may refuse: `apply` returns null to leave the row
@@ -104,13 +85,11 @@ export function updateRecord<T>(
 export function amendRecord(
   sessionId: string,
   apply: (record: InvestigationRecord) => InvestigationRecord | null,
-): Promise<boolean> {
-  return getDb()
-    .transaction()
-    .execute(async (trx) => {
-      const next = apply((await getRecord(sessionId, trx)) ?? emptyRecord());
-      if (next === null) return false;
-      await write(trx, sessionId, next);
-      return true;
-    });
+): boolean {
+  return getDb().transaction((tx) => {
+    const next = apply(getRecord(sessionId, tx) ?? emptyRecord());
+    if (next === null) return false;
+    write(sessionId, next, tx);
+    return true;
+  });
 }

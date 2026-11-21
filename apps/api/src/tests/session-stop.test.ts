@@ -73,7 +73,7 @@ describe("POST /sessions/:id/stop", () => {
       body: messageBody("Long running."),
     });
     const { sessionId } = (await chatRes.json()) as { sessionId: string };
-    await waitFor(async () => await isRunning(sessionId));
+    await waitFor(() => isRunning(sessionId));
 
     const stopRes = await fetch(
       `http://127.0.0.1:${port}/api/sessions/${sessionId}/stop`,
@@ -86,12 +86,12 @@ describe("POST /sessions/:id/stop", () => {
 
     scripted.park();
     gateController.releaseAll();
-    await waitFor(async () => !(await isRunning(sessionId)));
+    await waitFor(() => !isRunning(sessionId));
   });
 
   // Stop answers every call it cut short, so the resumed run is not refused.
   it("ends a run as stopped when the stop lands on a turn holding a write", async () => {
-    await connectTestMetrics({ queryUrl: "http://prom.test" });
+    connectTestMetrics({ queryUrl: "http://prom.test" });
     scripted.script([
       {
         text: "Checking, then I need you.",
@@ -154,7 +154,7 @@ describe("POST /sessions/:id/stop", () => {
     const frontend = await connectFrontendEvents(port, SESSION);
     // An alert opens it, which is the only way an investigation starts.
     const sessionId = randomUUID();
-    await dispatchAlertSession(nw.dispatcher, sessionId, [
+    dispatchAlertSession(nw.dispatcher, sessionId, [
       {
         sourceAlertId: `stop-${randomUUID()}`,
         labels: {},
@@ -180,9 +180,9 @@ describe("POST /sessions/:id/stop", () => {
       ),
     );
 
-    expect(await isRunning(sessionId)).toBe(false);
+    expect(isRunning(sessionId)).toBe(false);
     // Nothing to approve: the user stopped the run before the write ran.
-    expect(await hasPendingHumanInput(sessionId)).toBe(false);
+    expect(hasPendingHumanInput(sessionId)).toBe(false);
     expect(
       frontend.events.some(
         (e) =>
@@ -193,13 +193,13 @@ describe("POST /sessions/:id/stop", () => {
 
     // Without the stop recorded this falls through to Completed, which names a
     // run that ran out of ideas rather than a decision the user made.
-    const row = (await listSessionPage(50, 0, "investigation")).rows.find(
+    const row = listSessionPage(50, 0, "investigation").rows.find(
       (r) => r.sessionId === sessionId,
     );
     expect(row?.status).toBe("stopped");
 
     // Both calls are answered: the read as stopped, not as a source that is down.
-    const rows = await getTranscriptRows(sessionId);
+    const rows = getTranscriptRows(sessionId);
     const read = resultFor(rows, "tu-read");
     expect(read?.isError).toBe(true);
     expect(read?.output).toMatch(/stopped before it answered/);
@@ -218,7 +218,7 @@ describe("POST /sessions/:id/stop", () => {
     );
     expect(sent.status).toBe(202);
     await waitFor(() => scripted.requests.length > resumed);
-    await waitFor(async () => !(await isRunning(sessionId)));
+    await waitFor(() => !isRunning(sessionId));
     const history = messagesSentTo(scripted, resumed).flatMap(
       (m) => m.toolUses,
     );
@@ -226,7 +226,7 @@ describe("POST /sessions/:id/stop", () => {
 
     frontend.close();
     vi.unstubAllGlobals();
-    await deleteMetricsSource();
+    deleteMetricsSource();
   });
 
   // The stop lands while the turn's read is still running, so the run reaches

@@ -74,7 +74,7 @@ export const STORED_RESULT_TOOLS: Tool[] = [
     citable: true,
     renderAs: "text",
     execute: async ({ evidenceId, page }, ctx) => {
-      const rows = await getTranscriptRows(ctx.sessionId);
+      const rows = getTranscriptRows(ctx.sessionId);
       const part = rows
         .flatMap((row) => row.parts)
         .find(
@@ -87,7 +87,7 @@ export const STORED_RESULT_TOOLS: Tool[] = [
       const stored =
         toolCallId === null
           ? undefined
-          : await readToolResult(ctx.sessionId, toolCallId);
+          : readToolResult(ctx.sessionId, toolCallId);
       if (stored === undefined) {
         return {
           content: `${evidenceId} was shown whole, or is not an Evidence ID in this session, so there is no further page to read.`,

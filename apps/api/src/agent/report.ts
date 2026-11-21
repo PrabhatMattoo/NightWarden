@@ -127,8 +127,8 @@ export function toolCallsFrom(messages: readonly TranscriptRow[]): ToolCall[] {
 
 // The one read a report request makes: every join below is a pure function over
 // what it returns, so the same transcript is not fetched three times.
-export async function toolCallsIn(sessionId: string): Promise<ToolCall[]> {
-  return toolCallsFrom(await getTranscriptRows(sessionId));
+export function toolCallsIn(sessionId: string): ToolCall[] {
+  return toolCallsFrom(getTranscriptRows(sessionId));
 }
 
 /* One split, because a handle exists only once its result does: an id naming no
@@ -252,8 +252,8 @@ export interface OpenCandidate {
 
 /* Read off the record: an empty one is named alone, and an open candidate is a
    test the run owes before it can finish. */
-export async function recordGaps(sessionId: string): Promise<RecordGap[]> {
-  const record = await getRecord(sessionId);
+export function recordGaps(sessionId: string): RecordGap[] {
+  const record = getRecord(sessionId);
   if (record === undefined || record.findings.length === 0) {
     return [{ kind: "empty_record" }];
   }
@@ -284,16 +284,14 @@ interface OpenCandidatesInput {
 
 // Assigns each id and appends. A parent must name a candidate that already
 // exists or one opened earlier in this same call, or it is dropped.
-export async function openCandidates(
+export function openCandidates(
   sessionId: string,
   input: OpenCandidatesInput,
-): Promise<RecordOutcome> {
+): RecordOutcome {
   // The evidence in hand now, stamped on each candidate so a finding is later
   // held to a result gathered after this point.
-  const openedAtEvidence = highestEvidenceNumber(
-    await getTranscriptRows(sessionId),
-  );
-  const opened = await updateRecord(sessionId, (record) => {
+  const openedAtEvidence = highestEvidenceNumber(getTranscriptRows(sessionId));
+  const opened = updateRecord(sessionId, (record) => {
     const known = new Set(record.candidates.map((c) => c.id));
     let n = record.candidates.length;
     const added: Candidate[] = input.candidates.map((c) => {
@@ -371,11 +369,11 @@ function citationGap(
 
 // One act, recorded once the candidate it names has been tested. Append-only: a
 // later finding about that candidate carries the verdict that now stands.
-export async function recordFinding(
+export function recordFinding(
   sessionId: string,
   input: RecordFindingInput,
-): Promise<RecordOutcome> {
-  const entries = await toolCallsIn(sessionId);
+): RecordOutcome {
+  const entries = toolCallsIn(sessionId);
   const { kept, unknown } = knownCitations(entries, input.evidenceIds);
   /* All of them or none: recording what survives changes the claim the model
      made, on a record that says nothing about what it dropped. */
@@ -385,7 +383,7 @@ export async function recordFinding(
   const evidenceIds = kept;
   const untestable = input.verdict === "untestable";
   type Outcome = { refusal: string } | { id: string; open: string[] };
-  const outcome = await updateRecord<Outcome>(sessionId, (record) => {
+  const outcome = updateRecord<Outcome>(sessionId, (record) => {
     const candidate = record.candidates.find((c) => c.id === input.candidate);
     if (candidate === undefined) {
       return {
@@ -471,11 +469,11 @@ function timelineGap(
 
 // Authored once and written whole; a timeline entry whose time or citation does
 // not hold up refuses the report rather than landing a time nobody can check.
-export async function composeReport(
+export function composeReport(
   sessionId: string,
   input: ComposeReportInput,
-): Promise<RecordOutcome> {
-  const entries = await toolCallsIn(sessionId);
+): RecordOutcome {
+  const entries = toolCallsIn(sessionId);
   const byEvidence = new Map(
     entries.flatMap((e) =>
       e.evidenceId === undefined ? [] : [[e.evidenceId, e]],
@@ -486,7 +484,7 @@ export async function composeReport(
     if (gap !== null) return { recorded: false, message: gap };
   }
   const timeline = input.timeline.map((entry) => ({ ...entry }));
-  await amendRecord(sessionId, (record) => ({
+  amendRecord(sessionId, (record) => ({
     ...record,
     report: {
       headline: input.headline,

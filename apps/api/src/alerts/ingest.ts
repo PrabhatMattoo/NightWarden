@@ -54,7 +54,7 @@ export async function registerAlertRoutes(
         });
       }
 
-      const sourceKind = await findAlertSourceKindByToken(plaintext);
+      const sourceKind = findAlertSourceKindByToken(plaintext);
       if (sourceKind === null) {
         return reply.code(401).send({ error: "unknown or revoked token" });
       }
@@ -69,7 +69,7 @@ export async function registerAlertRoutes(
 
       // Delivery is proven by an authenticated, well-formed webhook - stamped on
       // the matched source, before the evidence gate, even when everything dedups.
-      await setAlertSourceReceived(sourceKind, new Date().toISOString());
+      setAlertSourceReceived(sourceKind, new Date().toISOString());
 
       // 503 rather than a drop, so Alertmanager retries once the user finishes
       // setup instead of losing the alert.
@@ -84,8 +84,8 @@ export async function registerAlertRoutes(
       // logs) makes an investigation worth starting; misroute protection is downstream.
       if (
         getFleetView().length === 0 &&
-        (await getMetricsSource()) === null &&
-        (await getLokiIntegration()) === null
+        getMetricsSource() === null &&
+        getLokiIntegration() === null
       ) {
         return reply.code(503).send({
           error:
@@ -97,7 +97,7 @@ export async function registerAlertRoutes(
       // alert and fires another leaves both facts on the sessions they belong to.
       const clearedAt = new Date().toISOString();
       for (const { sourceAlertId, firedAt } of parsed.cleared) {
-        for (const sessionId of await markAlertCleared(
+        for (const sessionId of markAlertCleared(
           sourceAlertId,
           firedAt,
           clearedAt,
@@ -106,7 +106,7 @@ export async function registerAlertRoutes(
         }
       }
 
-      const { stored, skipped } = await routeDelivery(
+      const { stored, skipped } = routeDelivery(
         dispatcher,
         parsed.groupKey,
         parsed.firing,

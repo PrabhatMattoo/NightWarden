@@ -179,16 +179,16 @@ export function fakeRunner(spec: RunnerSpec = {}): HarnessRunner {
 }
 
 export async function harness(options: HarnessOptions = {}): Promise<Harness> {
-  const cleanupDb = await useTempDb();
+  const cleanupDb = useTempDb();
   const session = await issueTestSession();
 
-  const runners: HarnessRunner[] = await Promise.all(
-    (options.runners ?? []).map(async (spec, index) => {
+  const runners: HarnessRunner[] = (options.runners ?? []).map(
+    (spec, index) => {
       const platform = spec.platform ?? "docker";
       const name = spec.name ?? `test-runner-${index + 1}`;
-      const id = (await createRunner(platform, name)).id;
+      const id = createRunner(platform, name).id;
       return fakeRunner({ ...spec, platform, name, id });
-    }),
+    },
   );
 
   const model = options.model ?? fakeModel();
@@ -220,8 +220,8 @@ export async function harness(options: HarnessOptions = {}): Promise<Harness> {
     url: (path) => `http://127.0.0.1:${port}${path}`,
     async close() {
       // A run left working would write into the next test's database.
-      for (const id of await runningSessionIds()) dispatcher.stop(id);
-      await waitFor(async () => (await runningSessionIds()).length === 0);
+      for (const id of runningSessionIds()) dispatcher.stop(id);
+      await waitFor(() => runningSessionIds().length === 0);
       for (const entry of runners) entry.disconnect();
       await server.close();
       cleanupDb();

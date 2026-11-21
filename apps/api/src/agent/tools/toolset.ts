@@ -122,7 +122,7 @@ export async function executeTool(
   }
   // Indented so each item starts its own line and a page can end between them.
   const stored = keptForPaging(rendered(result.content, 2));
-  await storeToolResult(identity.sessionId, identity.toolCallId, stored);
+  storeToolResult(identity.sessionId, identity.toolCallId, stored);
   return {
     content: pageOf(
       stored,

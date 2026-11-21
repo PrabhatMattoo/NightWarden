@@ -14,8 +14,8 @@ describe("GET /runners/install", () => {
   beforeAll(async () => {
     nw = await harness();
     SESSION = nw.session;
-    DOCKER_TOKEN = (await createRunner("docker", "test-server")).plaintext;
-    K8S_TOKEN = (await createRunner("kubernetes", "k8s-server")).plaintext;
+    DOCKER_TOKEN = createRunner("docker", "test-server").plaintext;
+    K8S_TOKEN = createRunner("kubernetes", "k8s-server").plaintext;
   });
 
   afterAll(async () => {

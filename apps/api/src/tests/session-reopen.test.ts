@@ -109,7 +109,7 @@ describe("POST /sessions/:id/reopen", () => {
       { toolUses: [], text: "The report is ready." },
     ]);
     const id = randomUUID();
-    await dispatchAlertSession(nw.dispatcher, id, [
+    dispatchAlertSession(nw.dispatcher, id, [
       {
         sourceAlertId: `reopen-${id}`,
         labels: {},
@@ -132,19 +132,19 @@ describe("POST /sessions/:id/reopen", () => {
 
   it("refuses a chat, which has no investigation to reopen", async () => {
     const id = randomUUID();
-    await seedChatSession(id, "hello");
+    seedChatSession(id, "hello");
     expect((await reopen(id)).status).toBe(400);
   });
 
   it("refuses an investigation that has not closed", async () => {
     const id = randomUUID();
-    await seedAlertSession(buildSessionMeta(id, null, undefined), []);
+    seedAlertSession(buildSessionMeta(id, null, undefined), []);
     expect((await reopen(id)).status).toBe(409);
   });
 
   it("refuses a reopen that gives no reason", async () => {
     const id = randomUUID();
-    await seedAlertSession(buildSessionMeta(id, null, undefined), []);
+    seedAlertSession(buildSessionMeta(id, null, undefined), []);
     const response = await reopen(id, {
       reason: "   ",
       clientMessageId: randomUUID(),
@@ -165,8 +165,8 @@ describe("POST /sessions/:id/reopen", () => {
     });
     expect(response.status).toBe(202);
 
-    const rows = await waitFor(async () =>
-      (await isRunning(id)) ? null : await getTranscriptRows(id),
+    const rows = await waitFor(() =>
+      isRunning(id) ? null : getTranscriptRows(id),
     );
     const reason = rows.findIndex((row) => row.clientId === clientMessageId);
     expect(rows[reason]).toMatchObject({

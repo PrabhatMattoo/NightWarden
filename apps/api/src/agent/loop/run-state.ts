@@ -96,12 +96,12 @@ export class RunState {
     return [...this.seeded, ...this.rows.map(toProviderMessage)];
   }
 
-  async flush(interrupt?: PendingHumanInput): Promise<void> {
+  flush(interrupt?: PendingHumanInput): void {
     const unwritten = this.rows.slice(this.flushed);
     if (unwritten.length === 0 && interrupt === undefined) return;
     this.flushed = this.rows.length;
-    if (interrupt) await appendRowsAndPark(unwritten, interrupt);
-    else await appendTranscriptRows(unwritten);
+    if (interrupt) appendRowsAndPark(unwritten, interrupt);
+    else appendTranscriptRows(unwritten);
     // A harness row draws nothing, so publishing it costs a refetch that
     // changes no pixel.
     for (const row of unwritten) {

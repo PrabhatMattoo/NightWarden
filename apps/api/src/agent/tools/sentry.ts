@@ -61,12 +61,12 @@ function list(row: Row, key: string): Row[] {
 
 // Evidence windows never extend into the future; errors after the alert are
 // still evidence (did it stop?) up to now.
-async function anchoredWindow(
+function anchoredWindow(
   sessionId: string,
   back: number,
   forward: number,
-): Promise<{ anchor: Date; start: Date; end: Date }> {
-  const anchor = await alertAnchorFor(sessionId);
+): { anchor: Date; start: Date; end: Date } {
+  const anchor = alertAnchorFor(sessionId);
   return {
     anchor,
     start: new Date(anchor.getTime() - back * 60_000),
@@ -123,10 +123,8 @@ function corrective(err: unknown): ToolExecuteResult {
   };
 }
 
-async function connection(): Promise<
-  (SentryConnection & { id: string }) | null
-> {
-  const row = await getSentryIntegration();
+function connection(): (SentryConnection & { id: string }) | null {
+  const row = getSentryIntegration();
   return row === null
     ? null
     : {
@@ -440,12 +438,12 @@ export const SENTRY_TOOLS: Tool[] = [
     renderAs: "exception",
     timeoutMs: 30_000,
     execute: async (input, ctx): Promise<ToolExecuteResult> => {
-      const conn = await connection();
+      const conn = connection();
       if (conn === null) return notConfigured();
       const { query, sort, limit, cursor } = input;
       const projects = input.projects ?? [];
       const environments = input.environments ?? [];
-      const { start, end } = await anchoredWindow(
+      const { start, end } = anchoredWindow(
         ctx.sessionId,
         input.lookbackMinutes,
         input.lookforwardMinutes,
@@ -526,7 +524,7 @@ export const SENTRY_TOOLS: Tool[] = [
     renderAs: "exception",
     timeoutMs: 30_000,
     execute: async (input, ctx): Promise<ToolExecuteResult> => {
-      const conn = await connection();
+      const conn = connection();
       if (conn === null) return notConfigured();
       const { issueId } = input;
       const environments = input.environments ?? [];
@@ -614,7 +612,7 @@ export const SENTRY_TOOLS: Tool[] = [
     renderAs: "text",
     timeoutMs: 30_000,
     execute: async (input, ctx): Promise<ToolExecuteResult> => {
-      const conn = await connection();
+      const conn = connection();
       if (conn === null) return notConfigured();
       const { issueId, key } = input;
       const environments = input.environments ?? [];
@@ -685,11 +683,11 @@ export const SENTRY_TOOLS: Tool[] = [
     renderAs: "change",
     timeoutMs: 30_000,
     execute: async (input, ctx): Promise<ToolExecuteResult> => {
-      const conn = await connection();
+      const conn = connection();
       if (conn === null) return notConfigured();
       const { limit, cursor } = input;
       const projects = input.projects ?? [];
-      const anchor = await alertAnchorFor(ctx.sessionId);
+      const anchor = alertAnchorFor(ctx.sessionId);
 
       try {
         return await withStoredCredential(
@@ -759,7 +757,7 @@ export const SENTRY_TOOLS: Tool[] = [
     renderAs: "change",
     timeoutMs: 30_000,
     execute: async (input, ctx): Promise<ToolExecuteResult> => {
-      const conn = await connection();
+      const conn = connection();
       if (conn === null) return notConfigured();
       const { version, cursor } = input;
 

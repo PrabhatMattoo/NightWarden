@@ -1,10 +1,13 @@
 import { createHash } from "node:crypto";
 import { harness, type Harness } from "./harness.js";
+import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import WebSocket from "ws";
 
 import { getFleetView } from "../fleet/connections.js";
 import { getDb } from "../db.js";
+import { runner } from "../fleet/schema.js";
+import { sessions } from "../session/schema.js";
 import { createRunner, touchLastUsed } from "../fleet/runners-store.js";
 import { createSession } from "../session/store.js";
 import { frameText } from "./wire-helper.js";
@@ -14,13 +17,13 @@ function sha256hex(s: string): string {
 }
 
 // The row's last_used_at, or undefined once the row is gone.
-async function lastUsedAt(id: string): Promise<string | null | undefined> {
-  const row = await getDb()
-    .selectFrom("runner")
-    .select("last_used_at")
-    .where("id", "=", id)
-    .executeTakeFirst();
-  return row?.last_used_at;
+function lastUsedAt(id: string): string | null | undefined {
+  const row = getDb()
+    .select({ lastUsedAt: runner.lastUsedAt })
+    .from(runner)
+    .where(eq(runner.id, id))
+    .get();
+  return row?.lastUsedAt;
 }
 
 // A socket error is a failure here, so a refusal is only ever read from the close code it sent.
@@ -78,11 +81,11 @@ describe("Runner token lifecycle", () => {
         token: string;
         id: string;
       };
-      const row = await getDb()
-        .selectFrom("runner")
-        .select("token")
-        .where("id", "=", id)
-        .executeTakeFirst();
+      const row = getDb()
+        .select({ token: runner.token })
+        .from(runner)
+        .where(eq(runner.id, id))
+        .get();
       expect(row).toBeDefined();
       expect(row!.token).toBe(sha256hex(token));
       expect(row!.token).not.toContain("nwr_");
@@ -126,11 +129,11 @@ describe("Runner token lifecycle", () => {
         platform: string;
       };
       expect(platform).toBe("kubernetes");
-      const row = await getDb()
-        .selectFrom("runner")
-        .select("platform")
-        .where("id", "=", id)
-        .executeTakeFirst();
+      const row = getDb()
+        .select({ platform: runner.platform })
+        .from(runner)
+        .where(eq(runner.id, id))
+        .get();
       expect(row?.platform).toBe("kubernetes");
     });
 
@@ -204,11 +207,11 @@ describe("Runner token lifecycle", () => {
       expect(second.statusCode).toBe(201);
 
       // The abandoned orphan is gone; only the fresh reservation holds the name.
-      const rows = await getDb()
-        .selectFrom("runner")
-        .select("id")
-        .where("server_name", "=", "db-server-01")
-        .execute();
+      const rows = getDb()
+        .select({ id: runner.id })
+        .from(runner)
+        .where(eq(runner.serverName, "db-server-01"))
+        .all();
       expect(rows).toHaveLength(1);
       expect(rows[0]!.id).not.toBe(firstId);
     });
@@ -222,7 +225,7 @@ describe("Runner token lifecycle", () => {
       });
       const { id } = JSON.parse(first.body) as { id: string };
       // Simulate the runner manifesting (manifest handler sets last_used_at).
-      await touchLastUsed(id);
+      touchLastUsed(id);
 
       const res = await nw.server.inject({
         method: "POST",
@@ -254,7 +257,7 @@ describe("Runner token lifecycle", () => {
         headers: { cookie: `${SESSION}` },
       });
       expect(del.statusCode).toBe(204);
-      expect(await lastUsedAt(id)).toBeUndefined();
+      expect(lastUsedAt(id)).toBeUndefined();
     });
 
     it("returns 404 for unknown id", async () => {
@@ -483,7 +486,7 @@ describe("Runner token lifecycle", () => {
         ws.on("error", reject);
       });
 
-      expect(await lastUsedAt(id)).toBeTruthy();
+      expect(lastUsedAt(id)).toBeTruthy();
     });
 
     // A runner whose platform API is down authenticates but never manifests.
@@ -516,7 +519,7 @@ describe("Runner token lifecycle", () => {
         ws.on("error", reject);
       });
 
-      expect(await lastUsedAt(id)).toBeTruthy();
+      expect(lastUsedAt(id)).toBeTruthy();
 
       // So its name is no longer free, and the live runner keeps its token.
       const second = await nw.server.inject({
@@ -531,8 +534,8 @@ describe("Runner token lifecycle", () => {
 
   describe("session history after token deletion", () => {
     it("session row survives hard-deleting its runner token", async () => {
-      const { id: runnerId } = await createRunner("docker", "history-test");
-      await createSession({
+      const { id: runnerId } = createRunner("docker", "history-test");
+      createSession({
         sessionId: "sess-history-1",
         title: "history session",
         createdAt: new Date().toISOString(),
@@ -544,11 +547,11 @@ describe("Runner token lifecycle", () => {
         headers: { cookie: `${SESSION}` },
       });
 
-      const row = await getDb()
-        .selectFrom("sessions")
-        .select("session_id")
-        .where("session_id", "=", "sess-history-1")
-        .executeTakeFirst();
+      const row = getDb()
+        .select({ sessionId: sessions.sessionId })
+        .from(sessions)
+        .where(eq(sessions.sessionId, "sess-history-1"))
+        .get();
       expect(row).toBeDefined();
     });
   });

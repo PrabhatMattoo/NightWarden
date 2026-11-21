@@ -65,7 +65,7 @@ export async function registerSessionRoutes(
     },
     async (request) => {
       const { limit, offset, kind, status, q } = request.query;
-      return await listSessionPage(limit, offset, kind, {
+      return listSessionPage(limit, offset, kind, {
         ...(status !== undefined && { status }),
         ...(q !== undefined && { q }),
       });
@@ -84,7 +84,7 @@ export async function registerSessionRoutes(
       },
     },
     async (request, reply) => {
-      const session = await getSession(request.params.id);
+      const session = getSession(request.params.id);
       if (session === undefined) {
         return reply.code(404).send({ error: "unknown session" });
       }
@@ -94,11 +94,10 @@ export async function registerSessionRoutes(
         createdAt: session.createdAt,
         lastActivityAt: session.lastActivityAt,
         investigation: session.investigation,
-        running: await isRunning(request.params.id),
-        reopenable:
-          session.investigation && (await isReopenable(request.params.id)),
+        running: isRunning(request.params.id),
+        reopenable: session.investigation && isReopenable(request.params.id),
         alerts: session.alerts,
-        transcript: await buildTranscript(request.params.id),
+        transcript: buildTranscript(request.params.id),
       };
       return response;
     },
@@ -114,13 +113,13 @@ export async function registerSessionRoutes(
       },
     },
     async (request, reply) => {
-      const record = await getRecord(request.params.id);
+      const record = getRecord(request.params.id);
       if (record === undefined) {
         return reply.code(404).send({ error: "no report for session" });
       }
       // Everything beside `record` is joined rather than stored, so what the
       // model wrote cannot disagree with what ran. One walk serves both joins.
-      const calls = await toolCallsIn(request.params.id);
+      const calls = toolCallsIn(request.params.id);
       const response: SessionReportResponse = {
         record,
         decisions: gatedCalls(calls),
@@ -138,7 +137,7 @@ export async function registerSessionRoutes(
     },
     async (request, reply) => {
       const sessionId = request.params.id;
-      if (await isRunning(sessionId)) {
+      if (isRunning(sessionId)) {
         return reply
           .code(409)
           .send({ error: "session is running: stop it before deleting" });
@@ -146,7 +145,7 @@ export async function registerSessionRoutes(
       // Awaited, because a truthful 204 beats a fast one. Left behind, the idle
       // sweep would push work for a session the user asked to remove.
       await teardown(sessionId, "deleted");
-      await deleteSession(sessionId);
+      deleteSession(sessionId);
       return reply.code(204).send();
     },
   );
@@ -217,8 +216,8 @@ export async function registerSessionRoutes(
       const sessionId = randomUUID();
       // The row exists before its id is handed out, so a 202 never names a
       // session the next request cannot fetch. The run's own call is idempotent.
-      await createSession(buildSessionMeta(sessionId, null, message), false);
-      await dispatcher.dispatch({
+      createSession(buildSessionMeta(sessionId, null, message), false);
+      dispatcher.dispatch({
         sessionId,
         userMessage: message,
         clientMessageId,
@@ -242,26 +241,26 @@ export async function registerSessionRoutes(
     async (request, reply) => {
       const sessionId = request.params.id;
       const { message, clientMessageId } = request.body;
-      if (!(await sessionExists(sessionId))) {
+      if (!sessionExists(sessionId)) {
         return reply.code(404).send({ error: "unknown session" });
       }
       // Parked on a human rather than racing: the answer comes from the respond
       // route, so this is refused before anything tries to claim the session.
-      if (await hasPendingHumanInput(sessionId)) {
+      if (hasPendingHumanInput(sessionId)) {
         return reply
           .code(409)
           .send({ error: "session is busy: awaiting approval" });
       }
-      const seed = await buildSeed(sessionId);
+      const seed = buildSeed(sessionId);
       // The claim inside dispatch decides it, not a check up here: the loser is
       // told rather than colliding on the transcript's primary key.
       if (
-        !(await dispatcher.dispatch({
+        !dispatcher.dispatch({
           sessionId,
           seed,
           userMessage: message,
           clientMessageId,
-        }))
+        })
       ) {
         return reply
           .code(409)
@@ -281,10 +280,10 @@ export async function registerSessionRoutes(
     },
     async (request, reply) => {
       const sessionId = request.params.id;
-      if (!(await sessionExists(sessionId))) {
+      if (!sessionExists(sessionId)) {
         return reply.code(404).send({ error: "unknown session" });
       }
-      if ((await deriveStatus(sessionId)) !== "not_started") {
+      if (deriveStatus(sessionId) !== "not_started") {
         return reply
           .code(409)
           .send({ error: "the investigation has already started" });
@@ -295,7 +294,7 @@ export async function registerSessionRoutes(
           .code(503)
           .send({ error: notConfiguredMessage(readiness.missing) });
       }
-      if (!(await dispatcher.dispatch({ sessionId }))) {
+      if (!dispatcher.dispatch({ sessionId })) {
         return reply
           .code(409)
           .send({ error: "session is busy: a run is already in flight" });
@@ -320,7 +319,7 @@ export async function registerSessionRoutes(
     async (request, reply) => {
       const sessionId = request.params.id;
       const { reason, clientMessageId } = request.body;
-      const session = await getSession(sessionId);
+      const session = getSession(sessionId);
       if (session === undefined) {
         return reply.code(404).send({ error: "unknown session" });
       }
@@ -329,20 +328,20 @@ export async function registerSessionRoutes(
           .code(400)
           .send({ error: "a chat has no investigation to reopen" });
       }
-      if (!(await isReopenable(sessionId))) {
+      if (!isReopenable(sessionId)) {
         return reply
           .code(409)
           .send({ error: "the investigation is not closed, or is busy" });
       }
-      const seed = await buildSeed(sessionId);
+      const seed = buildSeed(sessionId);
       if (
-        !(await dispatcher.dispatch({
+        !dispatcher.dispatch({
           sessionId,
           seed,
           userMessage: reason,
           clientMessageId,
           reopen: true,
-        }))
+        })
       ) {
         return reply
           .code(409)

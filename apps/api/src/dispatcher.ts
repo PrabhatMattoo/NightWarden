@@ -23,7 +23,7 @@ import type { TranscriptRow } from "@nightwarden/shared";
 export interface Dispatcher {
   // Answers whether the run started. False means the session already holds a
   // run, which is a race the caller reports rather than a fault.
-  dispatch(input: RunSessionInput): Promise<boolean>;
+  dispatch(input: RunSessionInput): boolean;
   // Runs a session its opening transaction already claimed as running.
   launch(input: RunSessionInput): void;
   // Aborts the in-flight LLM request for a running session. Returns false if
@@ -46,18 +46,18 @@ export function createDispatcher(opts: DispatcherOptions): Dispatcher {
 
   /* Classified here or not at all: only the error object can say whether trying
      again could ever work, and it does not survive into the transcript row. */
-  async function recordFailure(sessionId: string, err: unknown): Promise<void> {
+  function recordFailure(sessionId: string, err: unknown): void {
     logger.error({ err, sessionId }, "investigation failed");
-    await recordRunFailure(
+    recordRunFailure(
       sessionId,
       isRetryableLLMError(err) ? "transient" : "permanent",
     );
     // The failure becomes a durable transcript row rendered like any other
     // message; a synthetic row still unsticks the frontend if persist fails.
-    const text = describeLLMError(err, (await loadConfig()).maxRetries);
+    const text = describeLLMError(err, loadConfig().maxRetries);
     let row: TranscriptRow;
     try {
-      row = await appendErrorMessage(sessionId, text);
+      row = appendErrorMessage(sessionId, text);
     } catch (persistErr: unknown) {
       logger.warn(
         { err: persistErr, sessionId },
@@ -77,32 +77,29 @@ export function createDispatcher(opts: DispatcherOptions): Dispatcher {
 
   // Every run ends here, named. Exactly one terminal event each: a suspended run
   // already published its interrupt, and a failed one its row above.
-  async function onRunEnded(
-    sessionId: string,
-    ending: RunEnding,
-  ): Promise<void> {
+  function onRunEnded(sessionId: string, ending: RunEnding): void {
     if (ending === "failed") return;
     // A run that reached an ending, however it ended, is not a failure any more,
     // so it stops carrying one and gets its full three attempts back.
-    await clearRunFailure(sessionId);
+    clearRunFailure(sessionId);
     if (ending === "completed") publishRunFinished(sessionId);
     else if (ending === "stopped") {
-      await markStopped(sessionId);
+      markStopped(sessionId);
       publishRunStopped(sessionId);
     }
   }
 
-  async function start(input: RunSessionInput): Promise<boolean> {
+  function start(input: RunSessionInput): boolean {
     // Claimed durably first, so a restart can tell a run that was alive from one
     // that concluded, and a second dispatch cannot start.
-    if (!(await sessionExists(input.sessionId))) {
+    if (!sessionExists(input.sessionId)) {
       logger.error(
         { sessionId: input.sessionId },
         "dispatch refused: no such session, its row must be written first",
       );
       return false;
     }
-    if (!(await claimRun(input.sessionId))) {
+    if (!claimRun(input.sessionId)) {
       logger.warn(
         { sessionId: input.sessionId },
         "dispatch refused: a run already holds this session",
@@ -126,13 +123,13 @@ export function createDispatcher(opts: DispatcherOptions): Dispatcher {
   ): Promise<void> {
     try {
       const outcome = await run({ ...input, signal: controller.signal });
-      await onRunEnded(input.sessionId, outcome);
+      onRunEnded(input.sessionId, outcome);
     } catch (err: unknown) {
-      await recordFailure(input.sessionId, err);
-      await onRunEnded(input.sessionId, "failed");
+      recordFailure(input.sessionId, err);
+      onRunEnded(input.sessionId, "failed");
     } finally {
       // Conditional on 'running', so a run that suspended stays waiting on its human.
-      await releaseRun(input.sessionId);
+      releaseRun(input.sessionId);
       controllers.delete(input.sessionId);
     }
   }

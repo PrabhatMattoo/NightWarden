@@ -26,8 +26,8 @@ function uncleared(alerts: SessionAlert[]): SessionAlert[] {
 
 // The webhook and the reconciler both stamp clearedAt, so the finish gate
 // reads the answer instead of making an HTTP call as a run ends.
-export async function recoveryState(sessionId: string): Promise<RecoveryState> {
-  const alerts = (await getSession(sessionId))?.alerts ?? [];
+export function recoveryState(sessionId: string): RecoveryState {
+  const alerts = getSession(sessionId)?.alerts ?? [];
   if (alerts.length === 0) return "no_condition";
   return uncleared(alerts).length === 0 ? "confirmed" : "unconfirmed";
 }
@@ -46,7 +46,7 @@ export async function verifyRecovery(
   sessionId: string,
   cache?: ConditionCache,
 ): Promise<RecoveryState> {
-  const alerts = (await getSession(sessionId))?.alerts ?? [];
+  const alerts = getSession(sessionId)?.alerts ?? [];
   if (alerts.length === 0) return "no_condition";
 
   const open = uncleared(alerts);
@@ -58,7 +58,7 @@ export async function verifyRecovery(
     // which is always truthy, so the first source would always win.
     let source: (typeof SOURCES)[number] | undefined;
     for (const candidate of SOURCES) {
-      if (await candidate.claims(entry.alert)) {
+      if (candidate.claims(entry.alert)) {
         source = candidate;
         break;
       }
@@ -75,7 +75,7 @@ export async function verifyRecovery(
       { sessionId, source: source.name, alertType: entry.alert.alertType },
       "verification: condition is no longer true",
     );
-    await markAlertCleared(
+    markAlertCleared(
       entry.alert.sourceAlertId,
       entry.alert.firedAt,
       new Date().toISOString(),
@@ -86,6 +86,6 @@ export async function verifyRecovery(
 
   // Re-read rather than reasoning about what was just written: a second alert
   // may have arrived while the sources were being asked.
-  const stillOpen = uncleared((await getSession(sessionId))?.alerts ?? []);
+  const stillOpen = uncleared(getSession(sessionId)?.alerts ?? []);
   return stillOpen.length === 0 ? "confirmed" : "unconfirmed";
 }

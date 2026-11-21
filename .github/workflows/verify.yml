@@ -23,8 +23,8 @@ jobs:
 
       - run: pnpm format:check
 
-      # The committed database types must match what the migrations build.
-      - run: pnpm --filter @nightwarden/api db:types:check
+      # The committed migrations must match the schema.
+      - run: pnpm --filter @nightwarden/api db:check
 
       - run: pnpm typecheck
 

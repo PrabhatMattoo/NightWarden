@@ -1,6 +1,7 @@
 // What the session routes answer. A session is the agent's conversation thread,
 // and an investigation is a session opened by an alert.
 import { z } from "zod";
+import { INVESTIGATION_STATUSES } from "../sessions.js";
 import { approvalStatusSchema, transcriptItemSchema } from "./transcript.js";
 
 const stringMap = z.record(z.string(), z.string());
@@ -30,17 +31,7 @@ const alertGroupContextSchema = z.object({
 });
 export type AlertGroupContext = z.infer<typeof alertGroupContextSchema>;
 
-// Derived server-side and never declared by the model. `not_started` is held by
-// the hourly limit until a person starts it.
-const investigationStatusSchema = z.enum([
-  "action_required",
-  "running",
-  "resolved",
-  "stopped",
-  "failed",
-  "completed",
-  "not_started",
-]);
+const investigationStatusSchema = z.enum(INVESTIGATION_STATUSES);
 export type InvestigationStatus = z.infer<typeof investigationStatusSchema>;
 
 const sessionMetaSchema = z.object({

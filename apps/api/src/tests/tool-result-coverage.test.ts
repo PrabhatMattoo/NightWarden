@@ -51,11 +51,8 @@ const fanOut = {
 };
 
 // The model reads an evidence id where the transcript stamped one.
-async function stampEvidence(
-  toolCallId: string,
-  output: string,
-): Promise<void> {
-  await appendTranscriptRows([
+function stampEvidence(toolCallId: string, output: string): void {
+  appendTranscriptRows([
     {
       sessionId: SESSION,
       seq: 1,
@@ -69,9 +66,9 @@ async function stampEvidence(
 
 describe("a tool result past the ceiling", () => {
   let cleanup: () => void;
-  beforeAll(async () => {
-    cleanup = await useTempDb();
-    await seedChatSession(SESSION);
+  beforeAll(() => {
+    cleanup = useTempDb();
+    seedChatSession(SESSION);
   });
   afterAll(() => {
     cleanup();
@@ -127,7 +124,7 @@ describe("a tool result past the ceiling", () => {
       {},
       ctx("tu-read"),
     );
-    await stampEvidence("tu-read", first.content);
+    stampEvidence("tu-read", first.content);
     const pages = Number(/\[Page 1 of (\d+)\./.exec(first.content)?.[1]);
     const reader = findTool("ReadToolResult")!;
 

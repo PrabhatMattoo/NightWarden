@@ -110,11 +110,9 @@ function capSeries(data: MetricsQueryData): MetricsQueryResult {
 }
 
 // One source or none, so a call names nothing and this only reports absence.
-async function resolveMetricsSource(): Promise<
-  MetricsSource | ToolExecuteResult
-> {
+function resolveMetricsSource(): MetricsSource | ToolExecuteResult {
   return (
-    (await getMetricsSource()) ?? {
+    getMetricsSource() ?? {
       content:
         "No metrics source is connected. The user can connect one from the Integrations page. Continue without metric evidence.",
       isError: true,
@@ -244,7 +242,7 @@ export const METRICS_TOOLS: Tool[] = [
     renderAs: "metric",
     timeoutMs: 30_000,
     execute: async (input, ctx): Promise<ToolExecuteResult> => {
-      const source = await resolveMetricsSource();
+      const source = resolveMetricsSource();
       if (!isSource(source)) return source;
       const { query } = input;
       try {
@@ -256,7 +254,7 @@ export const METRICS_TOOLS: Tool[] = [
               ctx.signal,
               query,
               input.at === "alert"
-                ? (await alertAnchorFor(ctx.sessionId)).toISOString()
+                ? alertAnchorFor(ctx.sessionId).toISOString()
                 : undefined,
             );
             const result: MetricsQueryResult = capSeries(data);
@@ -287,11 +285,11 @@ export const METRICS_TOOLS: Tool[] = [
     renderAs: "metric",
     timeoutMs: 30_000,
     execute: async (input, ctx): Promise<ToolExecuteResult> => {
-      const source = await resolveMetricsSource();
+      const source = resolveMetricsSource();
       if (!isSource(source)) return source;
       const { query, stepSeconds } = input;
 
-      const anchor = await alertAnchorFor(ctx.sessionId);
+      const anchor = alertAnchorFor(ctx.sessionId);
       const lookbackMs = input.lookbackMinutes * 60_000;
       const lookforwardMs = input.lookforwardMinutes * 60_000;
       // Metrics after the alert are evidence too (did it recover?), but the
@@ -360,7 +358,7 @@ export const METRICS_TOOLS: Tool[] = [
     renderAs: "text",
     timeoutMs: 30_000,
     execute: async (input, ctx): Promise<ToolExecuteResult> => {
-      const source = await resolveMetricsSource();
+      const source = resolveMetricsSource();
       if (!isSource(source)) return source;
       const contains = input.contains ?? null;
       try {
@@ -416,7 +414,7 @@ export const METRICS_TOOLS: Tool[] = [
     renderAs: "text",
     timeoutMs: 30_000,
     execute: async (input, ctx): Promise<ToolExecuteResult> => {
-      const source = await resolveMetricsSource();
+      const source = resolveMetricsSource();
       if (!isSource(source)) return source;
       const { metric } = input;
       /* Stating the condition rather than the limitation: on VictoriaMetrics an
@@ -460,7 +458,7 @@ export const METRICS_TOOLS: Tool[] = [
     renderAs: "text",
     timeoutMs: 30_000,
     execute: async (input, ctx): Promise<ToolExecuteResult> => {
-      const source = await resolveMetricsSource();
+      const source = resolveMetricsSource();
       if (!isSource(source)) return source;
       // A source with no rules endpoint has told us nothing, not that it
       // evaluates none: VictoriaMetrics serves them from vmalert alone.

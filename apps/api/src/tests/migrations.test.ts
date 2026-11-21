@@ -1,24 +1,22 @@
-import { writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { pathToFileURL } from "node:url";
 import Database from "better-sqlite3";
-import { sql } from "kysely";
+import { sql } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/better-sqlite3";
+import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import {
   afterAll,
-  afterEach,
   beforeAll,
-  beforeEach,
   describe,
   expect,
   it,
+  onTestFinished,
   vi,
 } from "vitest";
-import { applyMigrations, getDb, resetDb } from "../db.js";
+import { getDb, resetDb } from "../db.js";
 import { createTempFolder } from "./temp-folder.js";
 
-// The runner is the only thing standing between a schema change and a deleted
-// database, so what it does on a second boot is the property worth pinning.
-describe("the migration runner", () => {
+describe("the migrations", () => {
   let dir: string;
 
   beforeAll(() => {
@@ -31,17 +29,17 @@ describe("the migration runner", () => {
     vi.unstubAllEnvs();
   });
 
-  async function appliedVersions(): Promise<number[]> {
-    const rows = await getDb()
-      .selectFrom("schema_migrations")
-      .select("version")
-      .orderBy("version")
-      .execute();
-    return rows.map((r) => r.version);
-  }
+  const recorded = () =>
+    getDb().all(sql`SELECT * FROM __drizzle_migrations ORDER BY id`);
 
-  it("creates every table on a database that has none", async () => {
-    const tables = (await getDb().introspection.getTables()).map((t) => t.name);
+  it("creates every table on a database that has none", () => {
+    const tables = getDb()
+      .all<{ name: string }>(
+        sql`SELECT name FROM sqlite_master
+            WHERE type = 'table' AND name NOT LIKE 'sqlite_%'
+              AND name != '__drizzle_migrations'`,
+      )
+      .map((t) => t.name);
     expect(tables.sort()).toEqual([
       "account",
       "alerts",
@@ -50,7 +48,6 @@ describe("the migration runner", () => {
       "integrations",
       "provider_config",
       "runner",
-      "schema_migrations",
       "session_transcript",
       "sessions",
       "tool_result_store",
@@ -59,94 +56,69 @@ describe("the migration runner", () => {
     ]);
   });
 
-  it("applies nothing on a second boot against the same directory", async () => {
-    const first = await appliedVersions();
-    const stamps = await getDb()
-      .selectFrom("schema_migrations")
-      .select("applied_at")
-      .execute();
+  it("applies nothing on a second boot against the same directory", () => {
+    const first = recorded();
     resetDb();
-    expect(await appliedVersions()).toEqual(first);
-    // A reapplied migration would rewrite its stamp, so the stamps prove it.
-    expect(
-      await getDb()
-        .selectFrom("schema_migrations")
-        .select("applied_at")
-        .execute(),
-    ).toEqual(stamps);
+    expect(recorded()).toEqual(first);
   });
 
-  it("serves the session list's whole sort from one index", async () => {
-    const plan = await sql<{
-      detail: string;
-    }>`EXPLAIN QUERY PLAN SELECT s.session_id FROM sessions s
-         WHERE s.investigation = 1
-         ORDER BY (s.awaiting_tool_use_id IS NOT NULL) DESC,
-                  s.last_activity_at DESC, s.session_id ASC
-         LIMIT 21`.execute(getDb());
-    const detail = plan.rows[0]?.detail ?? "";
+  it("serves the session list's whole sort from one index", () => {
+    const plan = getDb().all<{ detail: string }>(
+      sql`EXPLAIN QUERY PLAN SELECT s.session_id FROM sessions s
+            WHERE s.investigation = 1
+            ORDER BY (s.awaiting_tool_use_id IS NOT NULL) DESC,
+                     s.last_activity_at DESC, s.session_id ASC
+            LIMIT 21`,
+    );
+    const detail = plan[0]?.detail ?? "";
     expect(detail).toContain("idx_sessions_list");
     // A temp B-tree would mean every session materialises to answer one page.
     expect(detail).not.toContain("TEMP B-TREE");
   });
-});
 
-describe("the migrations folder", () => {
-  let dir: string;
-  let handle: Database.Database;
-
-  beforeEach(() => {
-    dir = createTempFolder();
-    handle = new Database(":memory:");
-  });
-
-  afterEach(() => {
-    handle.close();
-  });
-
-  function writeMigrations(files: Record<string, string>): URL {
-    for (const [name, text] of Object.entries(files)) {
-      writeFileSync(join(dir, name), text);
-    }
-    return pathToFileURL(`${dir}/`);
-  }
-
-  const recorded = () =>
-    handle
-      .prepare(`SELECT version, name FROM schema_migrations ORDER BY version`)
-      .all();
-
-  it("applies the files in filename order, each versioned by its prefix", () => {
-    const folder = writeMigrations({
-      "0002_add_note.sql": "ALTER TABLE probe ADD COLUMN note TEXT;",
-      "0001_create_probe.sql": "CREATE TABLE probe (id TEXT);",
+  /* A half-applied schema is the one state a boot cannot recover from, so a
+     failure in a later migration has to take the earlier ones back with it. */
+  it("rolls every migration back when a later one fails, recording none", () => {
+    const folder = createTempFolder();
+    mkdirSync(join(folder, "meta"));
+    const entry = (idx: number, tag: string) => ({
+      idx,
+      version: "6",
+      when: idx + 1,
+      tag,
+      breakpoints: true,
     });
-    applyMigrations(handle, folder);
-    expect(recorded()).toEqual([
-      { version: 1, name: "create_probe" },
-      { version: 2, name: "add_note" },
-    ]);
-  });
+    writeFileSync(
+      join(folder, "meta", "_journal.json"),
+      JSON.stringify({
+        version: "7",
+        dialect: "sqlite",
+        entries: [entry(0, "0000_create_probe"), entry(1, "0001_fails")],
+      }),
+    );
+    writeFileSync(
+      join(folder, "0000_create_probe.sql"),
+      "CREATE TABLE probe (id TEXT);",
+    );
+    writeFileSync(
+      join(folder, "0001_fails.sql"),
+      "INSERT INTO missing VALUES (1);",
+    );
 
-  it("refuses two files that claim one version", () => {
-    const folder = writeMigrations({
-      "0001_create_probe.sql": "CREATE TABLE probe (id TEXT);",
-      "0001_create_other.sql": "CREATE TABLE other (id TEXT);",
+    const handle = new Database(":memory:");
+    onTestFinished(() => {
+      handle.close();
     });
-    expect(() => applyMigrations(handle, folder)).toThrow(/ascend/);
-  });
-
-  it("rolls a failing migration back whole and records nothing for it", () => {
-    const folder = writeMigrations({
-      "0001_create_probe.sql": "CREATE TABLE probe (id TEXT);",
-      "0002_half.sql":
-        "CREATE TABLE half (id TEXT); INSERT INTO missing VALUES (1);",
-    });
-    expect(() => applyMigrations(handle, folder)).toThrow(/migration 2/);
-    expect(recorded()).toEqual([{ version: 1, name: "create_probe" }]);
-    const half = handle
-      .prepare(`SELECT name FROM sqlite_master WHERE name = 'half'`)
-      .all();
-    expect(half).toEqual([]);
+    expect(() =>
+      migrate(drizzle(handle), { migrationsFolder: folder }),
+    ).toThrow();
+    expect(
+      handle
+        .prepare(`SELECT name FROM sqlite_master WHERE name = 'probe'`)
+        .all(),
+    ).toEqual([]);
+    expect(handle.prepare(`SELECT * FROM __drizzle_migrations`).all()).toEqual(
+      [],
+    );
   });
 });

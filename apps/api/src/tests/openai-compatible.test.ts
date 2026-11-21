@@ -35,7 +35,7 @@ describe("an OpenAI-compatible server", () => {
         },
       },
     });
-    await configureTestLLM("openai-compatible");
+    configureTestLLM("openai-compatible");
   });
 
   afterAll(async () => {
@@ -43,10 +43,10 @@ describe("an OpenAI-compatible server", () => {
     vi.unstubAllEnvs();
   });
 
-  afterEach(async () => {
+  afterEach(() => {
     vi.unstubAllGlobals();
     nw.model.script([]);
-    await configureTestLLM("openai-compatible");
+    configureTestLLM("openai-compatible");
   });
 
   // A block the patch schema does not name is stripped without an error.
@@ -77,9 +77,9 @@ describe("an OpenAI-compatible server", () => {
 
   describe("readiness", () => {
     it("asks for a base URL, since the provider has none of its own", async () => {
-      await clearTestLLM();
-      await updateProvider("openai-compatible", { model: "llama3.1:8b" });
-      await updateConfig({ provider: "openai-compatible" });
+      clearTestLLM();
+      updateProvider("openai-compatible", { model: "llama3.1:8b" });
+      updateConfig({ provider: "openai-compatible" });
 
       expect(await checkLLMReadiness()).toEqual({
         ready: false,
@@ -88,12 +88,12 @@ describe("an OpenAI-compatible server", () => {
     });
 
     it("runs with no key, which a local server often does not take", async () => {
-      await clearTestLLM();
-      await updateProvider("openai-compatible", {
+      clearTestLLM();
+      updateProvider("openai-compatible", {
         model: "llama3.1:8b",
         baseUrl: "http://localhost:11434/v1",
       });
-      await updateConfig({ provider: "openai-compatible" });
+      updateConfig({ provider: "openai-compatible" });
 
       expect(await checkLLMReadiness()).toMatchObject({
         ready: true,
@@ -314,7 +314,7 @@ describe("an OpenAI-compatible server", () => {
     });
 
     it("asks for the base URL when neither the form nor the install has one", async () => {
-      await clearTestLLM();
+      clearTestLLM();
 
       expect(await check({})).toEqual({ ok: false, reason: "needs_url" });
     });

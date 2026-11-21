@@ -3,12 +3,12 @@ import { composeReport } from "../agent/report.js";
 
 /* Candidates for a test to settle, so RecordFinding has something to name. The
    claim lives here, so a test asserting on one names it here too. */
-export async function seedCandidates(
+export function seedCandidates(
   sessionId: string,
   count = 1,
   statements: string[] = [],
-): Promise<string[]> {
-  return await updateRecord(sessionId, (record) => {
+): string[] {
+  return updateRecord(sessionId, (record) => {
     const added = Array.from({ length: count }, (_, i) => ({
       id: `c${record.candidates.length + i + 1}`,
       statement:
@@ -26,8 +26,8 @@ export async function seedCandidates(
 
 // Satisfies the finish gate for tests exercising run mechanics: one candidate
 // carrying one finding is a complete record, so the run reaches its report turn.
-export async function seedCompleteReport(sessionId: string): Promise<void> {
-  await updateRecord(sessionId, (record) => ({
+export function seedCompleteReport(sessionId: string): void {
+  updateRecord(sessionId, (record) => ({
     next: {
       ...record,
       candidates: [
@@ -56,11 +56,11 @@ export async function seedCompleteReport(sessionId: string): Promise<void> {
 
 // A finished write-up carrying one recommendation, for tests about what an
 // investigation is waiting on rather than about how it was written.
-export async function seedRecommendation(
+export function seedRecommendation(
   sessionId: string,
   recommendation: string,
-): Promise<void> {
-  await composeReport(sessionId, {
+): void {
+  composeReport(sessionId, {
     headline: "seeded by test",
     affected: "seeded by test",
     summary: "seeded by test",

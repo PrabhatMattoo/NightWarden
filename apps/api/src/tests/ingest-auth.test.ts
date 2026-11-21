@@ -30,8 +30,8 @@ import {
   getAlertSource,
 } from "../integrations/alert-sources.js";
 
-async function lastReceived(): Promise<string | null> {
-  return (await getAlertSource("alertmanager"))?.lastReceivedAt ?? null;
+function lastReceived(): string | null {
+  return getAlertSource("alertmanager")?.lastReceivedAt ?? null;
 }
 import {
   clearTestLLM,
@@ -79,7 +79,7 @@ describe("POST /alerts/ingest auth", () => {
   beforeAll(async () => {
     nw = await harness({ model: scripted, listen: false });
     ({ server } = nw);
-    VALID_TOKEN = await generateAlertSourceToken("alertmanager");
+    VALID_TOKEN = generateAlertSourceToken("alertmanager");
     // A connected runner is an evidence source, so an accepted delivery opens an investigation.
     runner = fakeRunner({
       name: "auth-host",
@@ -104,12 +104,11 @@ describe("POST /alerts/ingest auth", () => {
     const body = JSON.parse(res.body) as { error: string };
     expect(body.error).toMatch(/token/i);
     // A rejected request proves nothing about the pipe - no delivery stamp.
-    expect(await lastReceived()).toBeNull();
+    expect(lastReceived()).toBeNull();
   });
 
   it("rejects runner tokens - a runner credential grants runner things, never ingest", async () => {
-    const runnerToken = (await createRunner("docker", "not-an-alert-source"))
-      .plaintext;
+    const runnerToken = createRunner("docker", "not-an-alert-source").plaintext;
     const res = await server.inject({
       method: "POST",
       url: "/api/alerts/ingest",
@@ -117,7 +116,7 @@ describe("POST /alerts/ingest auth", () => {
       payload: ALERTMANAGER_BODY,
     });
     expect(res.statusCode).toBe(401);
-    expect(await lastReceived()).toBeNull();
+    expect(lastReceived()).toBeNull();
   });
 
   it("rejects missing token with 401", async () => {
@@ -142,7 +141,7 @@ describe("POST /alerts/ingest auth", () => {
     expect(body.received).toBe(1);
     // Authenticated, well-formed delivery stamps the pipe as proven - even if
     // this particular alert dedups against an earlier test's routing.
-    expect(await lastReceived()).not.toBeNull();
+    expect(lastReceived()).not.toBeNull();
   });
 
   it("accepts a valid Authorization bearer token and processes the alert", async () => {
@@ -196,7 +195,7 @@ describe("POST /alerts/ingest with nwi_ fleet-wide credential", () => {
   beforeAll(async () => {
     nw = await harness({ model: scripted, listen: false });
     ({ server } = nw);
-    INGEST_TOKEN = await generateAlertSourceToken("alertmanager");
+    INGEST_TOKEN = generateAlertSourceToken("alertmanager");
   });
 
   afterAll(async () => {
@@ -216,10 +215,10 @@ describe("POST /alerts/ingest with nwi_ fleet-wide credential", () => {
     expect(body.error).toMatch(/runner|metrics|loki/i);
     // The webhook DID deliver: the stamp lands before the evidence gate, so the
     // page shows "receiving" even while investigation is blocked.
-    expect(await lastReceived()).not.toBeNull();
+    expect(lastReceived()).not.toBeNull();
 
     // Prometheus alone is a sufficient evidence source - the agentless path.
-    await connectTestMetrics();
+    connectTestMetrics();
     const promOnly = await server.inject({
       method: "POST",
       url: "/api/alerts/ingest",
@@ -228,10 +227,10 @@ describe("POST /alerts/ingest with nwi_ fleet-wide credential", () => {
     });
     expect(promOnly.statusCode).toBe(200);
     expect((JSON.parse(promOnly.body) as { stored: number }).stored).toBe(1);
-    await deleteMetricsSource();
+    deleteMetricsSource();
 
     // Loki alone is likewise sufficient - a logs-first, no-metrics fleet.
-    await saveLokiIntegration({
+    saveLokiIntegration({
       baseUrl: "http://loki.internal:3100",
       orgId: null,
       authorization: null,
@@ -244,7 +243,7 @@ describe("POST /alerts/ingest with nwi_ fleet-wide credential", () => {
     });
     expect(lokiOnly.statusCode).toBe(200);
     expect((JSON.parse(lokiOnly.body) as { stored: number }).stored).toBe(1);
-    await deleteLokiIntegration();
+    deleteLokiIntegration();
   });
 
   it("returns 400 for an unrecognized payload body so a misconfigured sender learns its body was not understood", async () => {
@@ -260,12 +259,12 @@ describe("POST /alerts/ingest with nwi_ fleet-wide credential", () => {
   });
 
   describe("with no language model configured", () => {
-    afterEach(async () => {
-      await configureTestLLM();
+    afterEach(() => {
+      configureTestLLM();
     });
 
     it("refuses the delivery with 503 and names what is missing, so Alertmanager retries rather than dropping the alert", async () => {
-      await clearTestLLM();
+      clearTestLLM();
 
       const res = await server.inject({
         method: "POST",

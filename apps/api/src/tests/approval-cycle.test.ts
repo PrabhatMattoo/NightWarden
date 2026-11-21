@@ -94,10 +94,10 @@ describe("durable approval interrupts", () => {
     );
 
     // Run must have exited (dispatcher slot freed)
-    expect(await isRunning(sessionId)).toBe(false);
+    expect(isRunning(sessionId)).toBe(false);
 
     // Interrupt row must be in the DB
-    expect(await hasPendingHumanInput(sessionId)).toBe(true);
+    expect(hasPendingHumanInput(sessionId)).toBe(true);
 
     // Runner must NOT have executed the write yet
     const countBefore = restartCommands.length;
@@ -170,7 +170,7 @@ describe("durable approval interrupts", () => {
       },
     );
     expect(ctxRes.status).toBe(400);
-    expect(await hasPendingHumanInput(sessionId)).toBe(true);
+    expect(hasPendingHumanInput(sessionId)).toBe(true);
 
     close();
 
@@ -182,7 +182,7 @@ describe("durable approval interrupts", () => {
       },
       body: JSON.stringify({ decision: "reject" }),
     });
-    await waitFor(async () => !(await hasPendingHumanInput(sessionId)));
+    await waitFor(() => !hasPendingHumanInput(sessionId));
   });
 
   it("second resolution of same interrupt returns 409", async () => {
@@ -327,7 +327,7 @@ describe("durable approval interrupts", () => {
       expect(restartCommands).toHaveLength(0);
     }
 
-    expect(await hasPendingHumanInput(sessionId)).toBe(false);
+    expect(hasPendingHumanInput(sessionId)).toBe(false);
     close();
   });
 
@@ -436,10 +436,10 @@ describe("durable approval interrupts", () => {
       ),
     );
     // Assert: run has exited (simulates what a restart would see — no in-memory state)
-    expect(await isRunning(sessionId)).toBe(false);
+    expect(isRunning(sessionId)).toBe(false);
 
     // Assert: interrupt row is in DB (survives a restart because it's persisted)
-    expect(await hasPendingHumanInput(sessionId)).toBe(true);
+    expect(hasPendingHumanInput(sessionId)).toBe(true);
 
     // Resolve via REST — works purely from DB state (as it would after restart)
     const approveRes = await fetch(
@@ -579,7 +579,7 @@ describe("durable approval interrupts", () => {
         ),
       { timeout: 5_000 },
     );
-    expect(await hasPendingHumanInput(sessionId)).toBe(true);
+    expect(hasPendingHumanInput(sessionId)).toBe(true);
 
     // Jump a day with nothing in flight: any reaper timer would fire here.
     vi.useFakeTimers({ shouldAdvanceTime: false });
@@ -587,7 +587,7 @@ describe("durable approval interrupts", () => {
     vi.useRealTimers();
 
     // Nothing reaped the interrupt row.
-    expect(await hasPendingHumanInput(sessionId)).toBe(true);
+    expect(hasPendingHumanInput(sessionId)).toBe(true);
 
     const approveRes = await fetch(
       `http://127.0.0.1:${port}/api/sessions/${sessionId}/respond`,
@@ -699,11 +699,11 @@ describe("durable approval interrupts", () => {
     });
 
     // Interrupt row is gone from DB after resolution
-    expect(await hasPendingHumanInput(sessionId)).toBe(false);
+    expect(hasPendingHumanInput(sessionId)).toBe(false);
 
     /* Written by the resolve in the transaction that cleared the gate, and never
        again by the resumed run, so a crash between them loses nor doubles it. */
-    const answers = (await getTranscriptRows(sessionId)).flatMap((row) =>
+    const answers = getTranscriptRows(sessionId).flatMap((row) =>
       row.parts.flatMap((part) =>
         part.type === "tool_approval" && part.toolCallId === "tu-apr-1"
           ? [part]
@@ -715,7 +715,7 @@ describe("durable approval interrupts", () => {
 
     // A report must exist for the route to answer, but the actions beside it
     // are independent of what it says.
-    await seedCompleteReport(sessionId);
+    seedCompleteReport(sessionId);
     const reportRes = await fetch(
       `http://127.0.0.1:${port}/api/sessions/${sessionId}/report`,
       { headers: { Cookie: `${SESSION}` } },
@@ -807,7 +807,7 @@ describe("durable approval interrupts", () => {
           e.type === "RUN_FINISHED" && e.payload["sessionId"] === sessionId,
       ),
     );
-    expect(await hasPendingHumanInput(sessionId)).toBe(false);
+    expect(hasPendingHumanInput(sessionId)).toBe(false);
     // The refusal reaches the model as the call's answer, with the person's reason in it.
     const resumed = messagesSentTo(scripted, scripted.requests.length - 1);
     const answer = resumed

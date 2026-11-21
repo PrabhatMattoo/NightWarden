@@ -54,8 +54,8 @@ function slugify(text: string): string {
 
 // Pure in the session row, so a resume recomputes the identical branch and
 // openPullRequest finds its PR instead of opening a second one.
-async function branchNameFor(sessionId: string): Promise<string> {
-  const alert = (await getSession(sessionId))?.alerts[0]?.alert ?? null;
+function branchNameFor(sessionId: string): string {
+  const alert = getSession(sessionId)?.alerts[0]?.alert ?? null;
   const slug = alert === null ? "chat" : slugify(alert.alertType);
   return `nightwarden/fix-${slug}-${sessionId.slice(0, 8)}`;
 }
@@ -66,10 +66,11 @@ const PATH_UNLOCKING_TOOLS: ReadonlySet<string> = new Set(["Read", "Write"]);
 
 // The read state is the transcript's own: a path is seen once a clean Read or
 // Write result is on the record, and pending while its call has not answered.
-async function readStateFor(
-  sessionId: string,
-): Promise<{ seen: string[]; pending: string[] }> {
-  const rows = await getTranscriptRows(sessionId);
+function readStateFor(sessionId: string): {
+  seen: string[];
+  pending: string[];
+} {
+  const rows = getTranscriptRows(sessionId);
   const isError = new Map<string, boolean>();
   for (const row of rows) {
     for (const part of row.parts) {
@@ -101,18 +102,16 @@ async function readStateFor(
   return { seen, pending };
 }
 
-async function workspaceOptionsFor(
-  sessionId: string,
-): Promise<WorkspaceOptions | null> {
-  const integration = await getGitHubIntegration();
+function workspaceOptionsFor(sessionId: string): WorkspaceOptions | null {
+  const integration = getGitHubIntegration();
   if (integration === null) return null;
-  const config = await loadConfig();
+  const config = loadConfig();
   const { repoOwner, repoName } = integration;
   return {
     cloneUrl: `https://github.com/${repoOwner}/${repoName}.git`,
-    branch: await branchNameFor(sessionId),
+    branch: branchNameFor(sessionId),
     authHeader: async () => {
-      const row = await getGitHubIntegration();
+      const row = getGitHubIntegration();
       if (row === null) {
         return Promise.reject(
           new SandboxUnavailableError("GitHub integration was disconnected"),
@@ -127,7 +126,7 @@ async function workspaceOptionsFor(
     network: config.sandboxNetwork,
     allowlistHosts: config.sandboxAllowlistHosts,
     proxyConfigDir: proxyDir(),
-    readState: async () => await readStateFor(sessionId),
+    readState: async () => readStateFor(sessionId),
     onStatus: (stage) => publishSandboxStatus({ sessionId, stage }),
     commitAuthor: COMMIT_AUTHOR,
     pullRequests: {
@@ -141,7 +140,7 @@ async function workspaceOptionsFor(
               repoName,
               {
                 ...req,
-                head: await branchNameFor(sessionId),
+                head: branchNameFor(sessionId),
               },
             ),
         ),
@@ -176,7 +175,7 @@ async function workspaceOptionsFor(
   async function viaStoredToken<T>(
     call: (token: string) => Promise<T>,
   ): Promise<T> {
-    const row = await getGitHubIntegration();
+    const row = getGitHubIntegration();
     if (row === null) {
       throw new SandboxUnavailableError("GitHub integration was disconnected");
     }
@@ -232,7 +231,7 @@ async function runRepoTool<T>(
   ctx: ToolExecuteContext,
   fn: (ws: Workspace) => Promise<T>,
 ): Promise<{ content: T | string; isError?: true }> {
-  const options = await workspaceOptionsFor(ctx.sessionId);
+  const options = workspaceOptionsFor(ctx.sessionId);
   if (options === null) {
     return {
       content:
@@ -251,13 +250,13 @@ async function runRepoTool<T>(
 
 // The session reference stays plain text: a link would come from PUBLIC_URL,
 // which is the operator's address and not GitHub's to reach.
-async function composePrBody(
+function composePrBody(
   sessionId: string,
   branch: string,
   modelBody: string,
   filesChanged: string[],
-): Promise<string> {
-  const session = await getSession(sessionId);
+): string {
+  const session = getSession(sessionId);
   const alert = session?.alerts[0]?.alert ?? null;
   const sections: string[] = [];
   if (modelBody.trim().length > 0) sections.push(modelBody.trim());
@@ -459,7 +458,7 @@ export const REPO_TOOLS: Tool[] = [
             { title },
             {
               composeBody: async (filesChanged) =>
-                await composePrBody(
+                composePrBody(
                   ctx.sessionId,
                   ws.branch,
                   modelBody,

@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { eq } from "drizzle-orm";
 import {
   afterAll,
   afterEach,
@@ -23,6 +24,7 @@ import { setAlertSourceReceived } from "../integrations/alert-sources.js";
 import { useTempDb } from "./temp-db.js";
 import { issueTestSession } from "./session-helper.js";
 import { getDb } from "../db.js";
+import { integrations } from "../integrations/schema.js";
 import { decrypt } from "../secrets.js";
 import { mountApi } from "./api-server.js";
 import { requestHeaders, requestUrl, urlsCalled } from "./wire-helper.js";
@@ -71,20 +73,17 @@ function stubFetch(
 
 /* The secret column holds one encrypted value whose plaintext is a map, so a
    test reads the key it wrote rather than the column. */
-async function rawSecrets(kind: string): Promise<string> {
-  const row = await getDb()
-    .selectFrom("integrations")
-    .select("secrets")
-    .where("kind", "=", kind)
-    .executeTakeFirst();
+function rawSecrets(kind: string): string {
+  const row = getDb()
+    .select({ secrets: integrations.secrets })
+    .from(integrations)
+    .where(eq(integrations.kind, kind))
+    .get();
   return row?.secrets ?? "";
 }
 
-async function storedSecret(
-  kind: string,
-  key: string,
-): Promise<string | undefined> {
-  const raw = await rawSecrets(kind);
+function storedSecret(kind: string, key: string): string | undefined {
+  const raw = rawSecrets(kind);
   if (raw === "") return undefined;
   return (JSON.parse(decrypt(raw)) as Record<string, string>)[key];
 }
@@ -95,7 +94,7 @@ describe("GitHub integration routes", () => {
   let SESSION: string;
 
   beforeAll(async () => {
-    cleanupDb = await useTempDb();
+    cleanupDb = useTempDb();
     SESSION = await issueTestSession();
     server = Fastify({ logger: false });
     await mountApi(server, registerIntegrationRoutes);
@@ -277,8 +276,8 @@ describe("GitHub integration routes", () => {
         expiresAt: EXPIRY_ISO,
       });
 
-      expect(await rawSecrets("github")).not.toContain(TOKEN);
-      expect(await storedSecret("github", "token")).toBe(TOKEN);
+      expect(rawSecrets("github")).not.toContain(TOKEN);
+      expect(storedSecret("github", "token")).toBe(TOKEN);
     });
 
     it("uses the stored token for the picker proxy after binding", async () => {
@@ -365,7 +364,7 @@ describe("GitHub integration routes", () => {
       const headers = requestHeaders(...mock.mock.calls[0]!);
       expect(headers.get("Authorization")).toBe(`Bearer ${TOKEN}`);
 
-      expect(await storedSecret("github", "token")).toBe(TOKEN);
+      expect(storedSecret("github", "token")).toBe(TOKEN);
     });
 
     it("surfaces repo_not_found the same way bind does, without accepting a token", async () => {
@@ -414,7 +413,7 @@ describe("metrics source routes", () => {
   let SESSION: string;
 
   beforeAll(async () => {
-    cleanupDb = await useTempDb();
+    cleanupDb = useTempDb();
     SESSION = await issueTestSession();
     server = Fastify({ logger: false });
     await mountApi(server, registerMetricsRoutes);
@@ -426,9 +425,9 @@ describe("metrics source routes", () => {
     cleanupDb();
   });
 
-  afterEach(async () => {
+  afterEach(() => {
     vi.unstubAllGlobals();
-    await getDb().deleteFrom("integrations").execute();
+    getDb().delete(integrations).run();
   });
 
   function authed(opts: {
@@ -517,8 +516,8 @@ describe("metrics source routes", () => {
 
     const expected = `Basic ${Buffer.from("123456:glc-token", "utf8").toString("base64")}`;
     expect(sawAuth).toBe(expected);
-    expect(await storedSecret("mimir", "query")).toBe(expected);
-    expect(await rawSecrets("mimir")).not.toContain("glc-token");
+    expect(storedSecret("mimir", "query")).toBe(expected);
+    expect(rawSecrets("mimir")).not.toContain("glc-token");
   });
 
   // AMP signs every request instead of carrying a header, so the probe itself
@@ -550,8 +549,8 @@ describe("metrics source routes", () => {
     expect(seen?.headers.get("authorization")).toMatch(
       /^AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE\/\d{8}\/us-east-1\/aps\/aws4_request/,
     );
-    expect(await storedSecret("amp", "query")).toContain("AKIDEXAMPLE");
-    expect(await rawSecrets("amp")).not.toContain("wJalrXUtnFEMI");
+    expect(storedSecret("amp", "query")).toContain("AKIDEXAMPLE");
+    expect(rawSecrets("amp")).not.toContain("wJalrXUtnFEMI");
   });
 
   /* A legitimate configuration, not an error - and the one the frontend has to
@@ -665,7 +664,7 @@ describe("metrics source routes", () => {
   });
 
   it("refuses a stored config that fails its schema instead of reading it as valid", async () => {
-    await putIntegration({
+    putIntegration({
       kind: "thanos",
       name: "Thanos",
       config: { query: { url: "http://thanos:10902" } },
@@ -685,7 +684,7 @@ describe("Alertmanager integration routes", () => {
   let SESSION: string;
 
   beforeAll(async () => {
-    cleanupDb = await useTempDb();
+    cleanupDb = useTempDb();
     SESSION = await issueTestSession();
     server = Fastify({ logger: false });
     await mountApi(server, registerIntegrationRoutes);
@@ -757,13 +756,13 @@ describe("Alertmanager integration routes", () => {
     const { token } = JSON.parse(res.body) as { token: string };
     expect(token).toMatch(/^nwi_[A-Za-z0-9_-]{43}$/);
 
-    const row = (await getDb()
-      .selectFrom("integrations")
-      .select("token_hash")
-      .where("kind", "=", "alertmanager")
-      .executeTakeFirst())!;
-    expect(row.token_hash).toBe(sha256hex(token));
-    expect(row.token_hash).not.toContain("nwi_");
+    const row = getDb()
+      .select({ tokenHash: integrations.tokenHash })
+      .from(integrations)
+      .where(eq(integrations.kind, "alertmanager"))
+      .get()!;
+    expect(row.tokenHash).toBe(sha256hex(token));
+    expect(row.tokenHash).not.toContain("nwi_");
 
     // Shown once and never again: nothing stores a readable copy, so
     // no route can answer with one.
@@ -786,7 +785,7 @@ describe("Alertmanager integration routes", () => {
       url: "/api/integrations/alerting/alertmanager/credential",
     });
     const { token: oldToken } = JSON.parse(first.body) as { token: string };
-    await setAlertSourceReceived("alertmanager", "2026-07-18T03:12:00.000Z");
+    setAlertSourceReceived("alertmanager", "2026-07-18T03:12:00.000Z");
 
     const before = await authed({
       method: "GET",
@@ -804,14 +803,17 @@ describe("Alertmanager integration routes", () => {
     const { token: newToken } = JSON.parse(second.body) as { token: string };
     expect(newToken).not.toBe(oldToken);
 
-    const row = (await getDb()
-      .selectFrom("integrations")
-      .select(["token_hash", "last_used_at"])
-      .where("kind", "=", "alertmanager")
-      .executeTakeFirst())!;
-    expect(row.token_hash).toBe(sha256hex(newToken));
-    expect(row.token_hash).not.toBe(sha256hex(oldToken));
-    expect(row.last_used_at).toBeNull();
+    const row = getDb()
+      .select({
+        tokenHash: integrations.tokenHash,
+        lastUsedAt: integrations.lastUsedAt,
+      })
+      .from(integrations)
+      .where(eq(integrations.kind, "alertmanager"))
+      .get()!;
+    expect(row.tokenHash).toBe(sha256hex(newToken));
+    expect(row.tokenHash).not.toBe(sha256hex(oldToken));
+    expect(row.lastUsedAt).toBeNull();
   });
 });
 
@@ -823,7 +825,7 @@ describe("Loki integration routes", () => {
   const LOKI_LABELS = { status: "success", data: ["app", "namespace"] };
 
   beforeAll(async () => {
-    cleanupDb = await useTempDb();
+    cleanupDb = useTempDb();
     SESSION = await issueTestSession();
     server = Fastify({ logger: false });
     await mountApi(server, registerIntegrationRoutes);
@@ -836,9 +838,9 @@ describe("Loki integration routes", () => {
     vi.unstubAllEnvs();
   });
 
-  afterEach(async () => {
+  afterEach(() => {
     vi.unstubAllGlobals();
-    await deleteLokiIntegration();
+    deleteLokiIntegration();
   });
 
   function authed(opts: {
@@ -894,16 +896,14 @@ describe("Loki integration routes", () => {
     // The probe URL must not carry the credential.
     expect(urlsCalled(mock)[0]).not.toContain("secret-123");
 
-    const row = (await getDb()
-      .selectFrom("integrations")
-      .select("config")
-      .where("kind", "=", "loki")
-      .executeTakeFirst())!;
-    expect(await storedSecret("loki", "authorization")).toBe(
-      "Bearer secret-123",
-    );
-    expect(await rawSecrets("loki")).not.toContain("secret-123");
-    expect(JSON.parse(row.config)).toEqual({
+    const row = getDb()
+      .select({ config: integrations.config })
+      .from(integrations)
+      .where(eq(integrations.kind, "loki"))
+      .get()!;
+    expect(storedSecret("loki", "authorization")).toBe("Bearer secret-123");
+    expect(rawSecrets("loki")).not.toContain("secret-123");
+    expect(row.config).toEqual({
       baseUrl: "http://loki.internal:3100/",
       orgId: "team-a",
     });
@@ -1025,7 +1025,7 @@ describe("Loki integration routes", () => {
   });
 
   it("refuses a stored config that fails its schema, naming the kind and the field", async () => {
-    await putIntegration({
+    putIntegration({
       kind: "loki",
       name: "Grafana Loki",
       config: { baseUrl: 3100, orgId: null },
@@ -1033,7 +1033,7 @@ describe("Loki integration routes", () => {
 
     const res = await authed({ method: "GET", url: "/api/integrations/loki" });
     expect(res.statusCode).toBe(500);
-    await expect(getLokiIntegration()).rejects.toThrow(/loki.*baseUrl/);
+    expect(() => getLokiIntegration()).toThrow(/loki.*baseUrl/);
   });
 });
 
@@ -1043,7 +1043,7 @@ describe("Sentry integration routes", () => {
   let SESSION: string;
 
   beforeAll(async () => {
-    cleanupDb = await useTempDb();
+    cleanupDb = useTempDb();
     SESSION = await issueTestSession();
     server = Fastify({ logger: false });
     await mountApi(server, registerIntegrationRoutes);
@@ -1056,9 +1056,9 @@ describe("Sentry integration routes", () => {
     vi.unstubAllEnvs();
   });
 
-  afterEach(async () => {
+  afterEach(() => {
     vi.unstubAllGlobals();
-    await deleteSentryIntegration();
+    deleteSentryIntegration();
   });
 
   const URL_ = "/api/integrations/sentry";
@@ -1122,14 +1122,14 @@ describe("Sentry integration routes", () => {
     ]);
     expect(urlsCalled(mock)[0]).not.toContain("sntrys_secret");
 
-    expect(await storedSecret("sentry", "token")).toBe("sntrys_secret");
-    expect(await rawSecrets("sentry")).not.toContain("sntrys_secret");
-    const row = (await getDb()
-      .selectFrom("integrations")
-      .select("config")
-      .where("kind", "=", "sentry")
-      .executeTakeFirst())!;
-    expect(JSON.parse(row.config)).toEqual({
+    expect(storedSecret("sentry", "token")).toBe("sntrys_secret");
+    expect(rawSecrets("sentry")).not.toContain("sntrys_secret");
+    const row = getDb()
+      .select({ config: integrations.config })
+      .from(integrations)
+      .where(eq(integrations.kind, "sentry"))
+      .get()!;
+    expect(row.config).toEqual({
       baseUrl: "https://sentry.internal/",
       orgSlug: "acme",
     });

@@ -51,7 +51,7 @@ export async function registerInstallRoutes(
         });
       }
 
-      const record = await findRunnerByToken(token);
+      const record = findRunnerByToken(token);
       if (!record) {
         return reply.code(404).send({ error: "token not found" });
       }

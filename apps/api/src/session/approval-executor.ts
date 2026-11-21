@@ -28,7 +28,7 @@ export async function executeApprovedTool(
     }
 
     const { content, isError } = await executeTool(toolEntry, toolInput, {
-      toolCallCeilingMs: (await loadConfig()).toolCallCeilingMs,
+      toolCallCeilingMs: loadConfig().toolCallCeilingMs,
       sessionId,
       toolCallId,
     });

@@ -42,13 +42,13 @@ function resolveImport(from: string, spec: string): string {
 // the modules together is its whole job, while infrastructure is stood on.
 const INFRASTRUCTURE = [
   "db.ts",
-  "database.ts",
   "logger.ts",
   "secrets.ts",
   "paths.ts",
   "public-url.ts",
   "frontend.ts",
   "route-schemas.ts",
+  "schema-helpers.ts",
 ];
 
 describe("layering", () => {
@@ -116,7 +116,7 @@ describe("layering", () => {
 });
 
 /* Every query lives in a store file, so the database has one way in per module.
-   Better Auth is handed the same handle to reach its own tables, by name. */
+   Better Auth is handed the same handle through its Drizzle adapter. */
 describe("durable state", () => {
   const BETTER_AUTH = "auth/instance.ts";
 
@@ -126,7 +126,7 @@ describe("durable state", () => {
       const obtained = [...text.matchAll(/getDb\(/g)].length;
       if (path === BETTER_AUTH) {
         expect(text, `${path} hands Better Auth its handle`).toMatch(
-          /database: \{ db: getDb\(\)/,
+          /database: drizzleAdapter\(getDb\(\)/,
         );
         expect(obtained, `${path} obtains a Db beyond Better Auth's`).toBe(1);
         continue;

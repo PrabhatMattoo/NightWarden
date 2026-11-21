@@ -1,3 +1,4 @@
+import { and, count, desc, eq, inArray, sql } from "drizzle-orm";
 import type {
   InvestigationRecord,
   InvestigationStatus,
@@ -5,11 +6,11 @@ import type {
   SessionKind,
   SessionMeta,
 } from "@nightwarden/shared";
-import { sql } from "kysely";
 import { getDb } from "../db.js";
-import { assembleRecord } from "./record-store.js";
 import { alertsFor, alertsForMany } from "./alerts-store.js";
-import { isHumanInputKind, type PendingHumanInput } from "./gate-store.js";
+import type { PendingHumanInput } from "./gate-store.js";
+import { assembleRecord } from "./record-store.js";
+import { sessions, sessionTranscript } from "./schema.js";
 
 // The alerts are the durable source of severity-dependent behavior on resume, so
 // a run that no longer carries them in its job can recover them from here.
@@ -21,43 +22,34 @@ type StoredSession = SessionMeta & {
 
 // Create the session row once. Idempotent: a resume re-enters the loop with the
 // same id, and the first title wins - later runs never clobber it.
-export async function createSession(
-  meta: SessionMeta,
-  investigation = false,
-): Promise<void> {
-  await getDb()
-    .insertInto("sessions")
+export function createSession(meta: SessionMeta, investigation = false): void {
+  getDb()
+    .insert(sessions)
     .values({
-      session_id: meta.sessionId,
+      sessionId: meta.sessionId,
       title: meta.title,
-      investigation: investigation ? 1 : 0,
-      created_at: meta.createdAt,
-      last_activity_at: meta.createdAt,
+      investigation,
+      createdAt: meta.createdAt,
+      lastActivityAt: meta.createdAt,
     })
-    .onConflict((oc) => oc.column("session_id").doNothing())
-    .execute();
+    .onConflictDoNothing({ target: sessions.sessionId })
+    .run();
 }
 
 // Overwrites unconditionally: the refined title deliberately replaces the
 // temporary first-message title once the run has generated it.
-export async function updateSessionTitle(
-  sessionId: string,
-  title: string,
-): Promise<void> {
-  await getDb()
-    .updateTable("sessions")
+export function updateSessionTitle(sessionId: string, title: string): void {
+  getDb()
+    .update(sessions)
     .set({ title })
-    .where("session_id", "=", sessionId)
-    .execute();
+    .where(eq(sessions.sessionId, sessionId))
+    .run();
 }
 
 // Takes the record columns and the gate with them, and cascades to the transcript.
 // Nothing about a session outlives it.
-export async function deleteSession(sessionId: string): Promise<void> {
-  await getDb()
-    .deleteFrom("sessions")
-    .where("session_id", "=", sessionId)
-    .execute();
+export function deleteSession(sessionId: string): void {
+  getDb().delete(sessions).where(eq(sessions.sessionId, sessionId)).run();
 }
 
 // Raw material for the sessions queue. The status is read rather than computed:
@@ -87,52 +79,6 @@ interface SessionListFactsPage {
   nextOffset: number | null;
 }
 
-interface SessionListRawRow {
-  sessionId: string;
-  title: string;
-  createdAt: string;
-  lastActivityAt: string;
-  investigation: number;
-  status: InvestigationStatus;
-  candidates: string;
-  findings: string;
-  report: string | null;
-  recordUpdatedAt: string | null;
-  lastContent: string | null;
-  heldReason: string | null;
-  awaitingHumanInput: number;
-  pendingKind: string | null;
-}
-
-function toFacts(
-  r: SessionListRawRow,
-  alerts: SessionAlert[],
-): SessionListFacts {
-  return {
-    sessionId: r.sessionId,
-    title: r.title,
-    createdAt: r.createdAt,
-    lastActivityAt: r.lastActivityAt,
-    alerts,
-    investigation: r.investigation === 1,
-    status: r.status,
-    record:
-      assembleRecord({
-        candidates: r.candidates,
-        findings: r.findings,
-        report: r.report,
-        updatedAt: r.recordUpdatedAt,
-      }) ?? null,
-    lastContent: r.lastContent,
-    heldReason: r.heldReason,
-    awaitingHumanInput: r.awaitingHumanInput === 1,
-    pendingKind:
-      r.pendingKind !== null && isHumanInputKind(r.pendingKind)
-        ? r.pendingKind
-        : null,
-  };
-}
-
 // What a page is narrowed to; an absent field narrows nothing.
 interface SessionListFilter {
   statuses?: readonly InvestigationStatus[];
@@ -146,108 +92,123 @@ function containsPattern(text: string): string {
 
 // Ordering is the store's, not the frontend's: a waiting session leads the whole
 // list, and the id tiebreak stops a row swapping pages between fetches.
-export async function listSessionFacts(
+export function listSessionFacts(
   limit: number,
   offset: number,
   kind: SessionKind,
   filter: SessionListFilter = {},
-): Promise<SessionListFactsPage> {
+): SessionListFactsPage {
   const { statuses, titleContains } = filter;
-  const rows = await getDb()
-    .selectFrom("sessions as s")
-    .select((eb) => [
-      "s.session_id as sessionId",
-      "s.title",
-      "s.created_at as createdAt",
-      "s.investigation",
-      "s.status",
-      "s.candidates",
-      "s.findings",
-      "s.report",
-      "s.record_updated_at as recordUpdatedAt",
-      eb
-        .selectFrom("session_transcript as m")
-        .whereRef("m.session_id", "=", "s.session_id")
-        .select("m.content")
-        .orderBy("m.seq", "desc")
-        .limit(1)
-        .as("lastContent"),
-      "s.held_reason as heldReason",
-      "s.last_activity_at as lastActivityAt",
-      sql<number>`(s.awaiting_tool_use_id IS NOT NULL)`.as(
-        "awaitingHumanInput",
+  const db = getDb();
+  const rows = db
+    .select({
+      sessionId: sessions.sessionId,
+      title: sessions.title,
+      createdAt: sessions.createdAt,
+      investigation: sessions.investigation,
+      status: sessions.status,
+      candidates: sessions.candidates,
+      findings: sessions.findings,
+      report: sessions.report,
+      recordUpdatedAt: sessions.recordUpdatedAt,
+      lastContent: sql<string | null>`${db
+        .select({ content: sessionTranscript.content })
+        .from(sessionTranscript)
+        .where(eq(sessionTranscript.sessionId, sessions.sessionId))
+        .orderBy(desc(sessionTranscript.seq))
+        .limit(1)}`,
+      heldReason: sessions.heldReason,
+      lastActivityAt: sessions.lastActivityAt,
+      awaitingHumanInput:
+        sql<boolean>`(${sessions.awaitingToolUseId} IS NOT NULL)`.mapWith(
+          Boolean,
+        ),
+      pendingKind: sessions.awaitingKind,
+    })
+    .from(sessions)
+    .where(
+      and(
+        eq(sessions.investigation, kind === "investigation"),
+        statuses === undefined
+          ? undefined
+          : inArray(sessions.status, [...statuses]),
+        titleContains === undefined
+          ? undefined
+          : sql`${sessions.title} LIKE ${containsPattern(titleContains)} ESCAPE '\\'`,
       ),
-      "s.awaiting_kind as pendingKind",
-    ])
-    .where("s.investigation", "=", kind === "investigation" ? 1 : 0)
-    .$call((qb) =>
-      statuses === undefined ? qb : qb.where("s.status", "in", [...statuses]),
     )
-    .$call((qb) =>
-      titleContains === undefined
-        ? qb
-        : qb.where(
-            sql<boolean>`s.title LIKE ${containsPattern(titleContains)} ESCAPE '\\'`,
-          ),
+    .orderBy(
+      sql`(${sessions.awaitingToolUseId} IS NOT NULL) DESC`,
+      sql`${sessions.lastActivityAt} DESC`,
+      sessions.sessionId,
     )
-    .orderBy(sql`(s.awaiting_tool_use_id IS NOT NULL)`, "desc")
-    .orderBy("s.last_activity_at", "desc")
-    .orderBy("s.session_id", "asc")
     // One extra row answers "is there a next page?" without a second count.
     .limit(limit + 1)
     .offset(offset)
-    .execute();
+    .all();
   const page = rows.slice(0, limit);
-  const alerts = await alertsForMany(page.map((r) => r.sessionId));
+  const alerts = alertsForMany(page.map((r) => r.sessionId));
   return {
-    facts: page.map((r) => toFacts(r, alerts.get(r.sessionId) ?? [])),
+    facts: page.map((r) => ({
+      sessionId: r.sessionId,
+      title: r.title,
+      createdAt: r.createdAt,
+      lastActivityAt: r.lastActivityAt,
+      alerts: alerts.get(r.sessionId) ?? [],
+      investigation: r.investigation,
+      status: r.status,
+      record:
+        assembleRecord({
+          candidates: r.candidates,
+          findings: r.findings,
+          report: r.report,
+          updatedAt: r.recordUpdatedAt,
+        }) ?? null,
+      lastContent: r.lastContent,
+      heldReason: r.heldReason,
+      awaitingHumanInput: r.awaitingHumanInput,
+      pendingKind: r.pendingKind,
+    })),
     nextOffset: rows.length > limit ? offset + page.length : null,
   };
 }
 
 // A claim about the whole set, which no page of rows can answer. It is a
 // count, so it is counted rather than loaded and measured.
-export async function countInvestigations(): Promise<number> {
-  const row = await getDb()
-    .selectFrom("sessions")
-    .select((eb) => eb.fn.countAll<number>().as("total"))
-    .where("investigation", "=", 1)
-    .executeTakeFirst();
-  return row?.total ?? 0;
+export function countInvestigations(): number {
+  return (
+    getDb()
+      .select({ total: count() })
+      .from(sessions)
+      .where(eq(sessions.investigation, true))
+      .get()?.total ?? 0
+  );
 }
 
 // Whether the row is there, for callers that only need it to exist. Kept apart
 // from getSession so an existence check never pays for the alerts.
-export async function sessionExists(sessionId: string): Promise<boolean> {
-  const row = await getDb()
-    .selectFrom("sessions")
-    .select("session_id")
-    .where("session_id", "=", sessionId)
-    .executeTakeFirst();
-  return row !== undefined;
+export function sessionExists(sessionId: string): boolean {
+  return (
+    getDb()
+      .select({ sessionId: sessions.sessionId })
+      .from(sessions)
+      .where(eq(sessions.sessionId, sessionId))
+      .get() !== undefined
+  );
 }
 
-export async function getSession(
-  sessionId: string,
-): Promise<StoredSession | undefined> {
-  const row = await getDb()
-    .selectFrom("sessions")
-    .select([
-      "session_id as sessionId",
-      "title",
-      "investigation",
-      "created_at as createdAt",
-      "last_activity_at as lastActivityAt",
-    ])
-    .where("session_id", "=", sessionId)
-    .executeTakeFirst();
+export function getSession(sessionId: string): StoredSession | undefined {
+  const row = getDb()
+    .select({
+      sessionId: sessions.sessionId,
+      title: sessions.title,
+      investigation: sessions.investigation,
+      createdAt: sessions.createdAt,
+      lastActivityAt: sessions.lastActivityAt,
+    })
+    .from(sessions)
+    .where(eq(sessions.sessionId, sessionId))
+    .get();
   if (!row) return undefined;
-  return {
-    sessionId: row.sessionId,
-    title: row.title,
-    createdAt: row.createdAt,
-    lastActivityAt: row.lastActivityAt,
-    investigation: row.investigation === 1,
-    alerts: await alertsFor(sessionId),
-  };
+  return { ...row, alerts: alertsFor(sessionId) };
 }

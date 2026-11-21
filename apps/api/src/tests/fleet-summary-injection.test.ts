@@ -52,8 +52,8 @@ function makeAlert(service: string): NormalizedAlert {
 async function openingTurn(): Promise<string> {
   const sessionId = randomUUID();
   const before = scripted.requests.length;
-  await dispatchAlertSession(dispatcher, sessionId, [makeAlert("nginx")]);
-  await waitFor(async () => !(await isRunning(sessionId)));
+  dispatchAlertSession(dispatcher, sessionId, [makeAlert("nginx")]);
+  await waitFor(() => !isRunning(sessionId));
   return messagesSentTo(scripted, before)[0]?.texts.join("\n") ?? "";
 }
 
@@ -61,8 +61,8 @@ describe("fleet summary injection", () => {
   let cleanupDb: () => void;
   const runners: HarnessRunner[] = [];
 
-  beforeAll(async () => {
-    cleanupDb = await useTempDb();
+  beforeAll(() => {
+    cleanupDb = useTempDb();
   });
 
   afterAll(() => cleanupDb());
@@ -78,7 +78,7 @@ describe("fleet summary injection", () => {
     ] as const) {
       runners.push(
         fakeRunner({
-          id: (await createRunner("docker", server)).id,
+          id: createRunner("docker", server).id,
           name: server,
           manifest: dockerManifest(server, [...services]),
         }),

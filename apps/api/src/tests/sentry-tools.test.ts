@@ -110,12 +110,10 @@ describe("Sentry tools through the tool dispatch", () => {
   let mock: SentryMock;
   let sessionSeq = 0;
 
-  async function toolContext(
-    alert: NormalizedAlert | null,
-  ): Promise<ToolDispatchContext> {
+  function toolContext(alert: NormalizedAlert | null): ToolDispatchContext {
     sessionSeq++;
     const sessionId = `sentry-tools-${sessionSeq}`;
-    await seedAlertSession(
+    seedAlertSession(
       { sessionId, title: "test", createdAt: new Date().toISOString() },
       alert ? [{ ...alert, sourceAlertId: sessionId }] : [],
     );
@@ -126,16 +124,16 @@ describe("Sentry tools through the tool dispatch", () => {
     };
   }
 
-  async function connect(): Promise<void> {
-    await saveSentryIntegration({
+  function connect(): void {
+    saveSentryIntegration({
       baseUrl: "https://sentry.internal/",
       orgSlug: "acme",
       token: "sntrys_secret",
     });
   }
 
-  beforeEach(async () => {
-    cleanupDb = await useTempDb();
+  beforeEach(() => {
+    cleanupDb = useTempDb();
     mock = makeMock();
     installSentryMock(mock);
     search = findTool("SearchSentryIssues")!;
@@ -151,7 +149,7 @@ describe("Sentry tools through the tool dispatch", () => {
   });
 
   it("returns a corrective error without any request when not configured", async () => {
-    const result = await executeTool(search, {}, await toolContext(ALERT));
+    const result = await executeTool(search, {}, toolContext(ALERT));
     expect(result.isError).toBe(true);
     expect(result.content).toContain("not configured");
     expect(mock.requests).toHaveLength(0);
@@ -182,7 +180,7 @@ describe("Sentry tools through the tool dispatch", () => {
         await executeTool(
           search,
           { projects: ["api", "web"], environments: ["production"] },
-          await toolContext(ALERT),
+          toolContext(ALERT),
         );
 
         const req = mock.requests[0]!;
@@ -202,14 +200,10 @@ describe("Sentry tools through the tool dispatch", () => {
       });
 
       it("always sends query, so Sentry's is:unresolved default never hides a resolved issue", async () => {
-        await executeTool(search, {}, await toolContext(ALERT));
+        await executeTool(search, {}, toolContext(ALERT));
         expect(mock.requests[0]!.params.get("query")).toBe("");
 
-        await executeTool(
-          search,
-          { query: "level:error" },
-          await toolContext(ALERT),
-        );
+        await executeTool(search, { query: "level:error" }, toolContext(ALERT));
         expect(mock.requests[1]!.params.get("query")).toBe("level:error");
       });
 
@@ -232,7 +226,7 @@ describe("Sentry tools through the tool dispatch", () => {
             project: { slug: "api", name: "API" },
           },
         ];
-        const result = await executeTool(search, {}, await toolContext(ALERT));
+        const result = await executeTool(search, {}, toolContext(ALERT));
         const body = parsedContent<SentryIssuesResult>(result);
 
         const issue = body.issues[0]!;
@@ -243,7 +237,7 @@ describe("Sentry tools through the tool dispatch", () => {
       });
 
       it("names what it searched, and reads an empty page as an expected miss", async () => {
-        const result = await executeTool(search, {}, await toolContext(ALERT));
+        const result = await executeTool(search, {}, toolContext(ALERT));
         const body = parsedContent<SentryIssuesResult>(result);
 
         expect(result.isError).toBeUndefined();
@@ -256,22 +250,14 @@ describe("Sentry tools through the tool dispatch", () => {
         mock.issues = [{ id: "1" }];
         mock.link =
           '<https://sentry.internal/x?cursor=0:100:0>; rel="next"; results="true"; cursor="0:100:0"';
-        const withMore = await executeTool(
-          search,
-          {},
-          await toolContext(ALERT),
-        );
+        const withMore = await executeTool(search, {}, toolContext(ALERT));
         expect(parsedContent<SentryIssuesResult>(withMore).nextCursor).toBe(
           "0:100:0",
         );
 
         mock.link =
           '<https://sentry.internal/x?cursor=0:100:0>; rel="next"; results="false"; cursor="0:100:0"';
-        const lastPage = await executeTool(
-          search,
-          {},
-          await toolContext(ALERT),
-        );
+        const lastPage = await executeTool(search, {}, toolContext(ALERT));
         expect(
           parsedContent<SentryIssuesResult>(lastPage).nextCursor,
         ).toBeNull();
@@ -294,7 +280,7 @@ describe("Sentry tools through the tool dispatch", () => {
         const result = await executeTool(
           event,
           { issueId: "77" },
-          await toolContext(ALERT),
+          toolContext(ALERT),
         );
         const body = parsedContent<SentryEventResult>(result);
 
@@ -336,7 +322,7 @@ describe("Sentry tools through the tool dispatch", () => {
         const result = await executeTool(
           event,
           { issueId: "77" },
-          await toolContext(ALERT),
+          toolContext(ALERT),
         );
         const body = parsedContent<SentryEventResult>(result);
 
@@ -363,7 +349,7 @@ describe("Sentry tools through the tool dispatch", () => {
         const result = await executeTool(
           event,
           { issueId: "77" },
-          await toolContext(ALERT),
+          toolContext(ALERT),
         );
         const body = parsedContent<SentryEventResult>(result);
 
@@ -385,7 +371,7 @@ describe("Sentry tools through the tool dispatch", () => {
         const result = await executeTool(
           tagValues,
           { issueId: "77", key: "server_name" },
-          await toolContext(ALERT),
+          toolContext(ALERT),
         );
         const body = parsedContent<{ note: string; values: unknown[] }>(result);
 
@@ -422,11 +408,7 @@ describe("Sentry tools through the tool dispatch", () => {
           },
           { version: "api@0.9.0" },
         ];
-        const result = await executeTool(
-          releases,
-          {},
-          await toolContext(ALERT),
-        );
+        const result = await executeTool(releases, {}, toolContext(ALERT));
         const body = parsedContent<SentryReleasesResult>(result);
 
         expect(mock.requests[0]!.path).toBe(
@@ -462,7 +444,7 @@ describe("Sentry tools through the tool dispatch", () => {
         const result = await executeTool(
           commits,
           { version: "api@1.4.2" },
-          await toolContext(ALERT),
+          toolContext(ALERT),
         );
         const body = parsedContent<{
           commits: Array<{ suspectCommitType: string; repository: string }>;
@@ -479,7 +461,7 @@ describe("Sentry tools through the tool dispatch", () => {
         const result = await executeTool(
           commits,
           { version: "api@1.4.2" },
-          await toolContext(ALERT),
+          toolContext(ALERT),
         );
         const body = parsedContent<{ note: string }>(result);
 
@@ -490,7 +472,7 @@ describe("Sentry tools through the tool dispatch", () => {
 
     it("reports a missing scope as a permission failure the user fixes on the token", async () => {
       mock.status = 403;
-      const result = await executeTool(releases, {}, await toolContext(ALERT));
+      const result = await executeTool(releases, {}, toolContext(ALERT));
 
       expect(result.isError).toBe(true);
       expect(result.content).toContain("project:read");
@@ -500,12 +482,12 @@ describe("Sentry tools through the tool dispatch", () => {
   /* The mock returns the list the client already read, so it agrees with it by
      construction. An error body served with 200 is what neither would catch. */
   it("refuses a page that is not a list rather than reporting no issues", async () => {
-    await connect();
+    connect();
     mock.body = {
       detail: "You do not have permission to perform this action.",
     };
 
-    const result = await executeTool(search, {}, await toolContext(ALERT));
+    const result = await executeTool(search, {}, toolContext(ALERT));
 
     expect(result.isError).toBe(true);
     expect(result.content).toContain("other than a list of rows");

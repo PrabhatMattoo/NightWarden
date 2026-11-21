@@ -37,7 +37,7 @@ describe("DELETE /sessions/:id", () => {
       body: messageBody("Quick question."),
     });
     const { sessionId } = (await chatRes.json()) as { sessionId: string };
-    await waitFor(async () => !(await isRunning(sessionId)));
+    await waitFor(() => !isRunning(sessionId));
 
     const delRes = await fetch(
       `http://127.0.0.1:${port}/api/sessions/${sessionId}`,
@@ -47,7 +47,7 @@ describe("DELETE /sessions/:id", () => {
       },
     );
     expect(delRes.status).toBe(204);
-    expect(await getSession(sessionId)).toBeUndefined();
+    expect(getSession(sessionId)).toBeUndefined();
   });
 
   it("leaves no report behind: the report route 404s once the session is gone", async () => {
@@ -60,8 +60,8 @@ describe("DELETE /sessions/:id", () => {
       body: messageBody("What happened here?"),
     });
     const { sessionId } = (await chatRes.json()) as { sessionId: string };
-    await waitFor(async () => !(await isRunning(sessionId)));
-    await seedCompleteReport(sessionId);
+    await waitFor(() => !isRunning(sessionId));
+    seedCompleteReport(sessionId);
 
     const before = await fetch(
       `http://127.0.0.1:${port}/api/sessions/${sessionId}/report`,
@@ -94,7 +94,7 @@ describe("DELETE /sessions/:id", () => {
       body: messageBody("Long running."),
     });
     const { sessionId } = (await chatRes.json()) as { sessionId: string };
-    await waitFor(async () => await isRunning(sessionId));
+    await waitFor(() => isRunning(sessionId));
 
     const delRes = await fetch(
       `http://127.0.0.1:${port}/api/sessions/${sessionId}`,
@@ -104,10 +104,10 @@ describe("DELETE /sessions/:id", () => {
       },
     );
     expect(delRes.status).toBe(409);
-    expect(await getSession(sessionId)).toBeDefined();
+    expect(getSession(sessionId)).toBeDefined();
 
     scripted.park();
     gateController.releaseAll();
-    await waitFor(async () => !(await isRunning(sessionId)));
+    await waitFor(() => !isRunning(sessionId));
   });
 });

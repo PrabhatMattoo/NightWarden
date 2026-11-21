@@ -44,13 +44,13 @@ describe("candidates, the frontier and falsification", () => {
   let cleanupDb: () => void;
   let runner: HarnessRunner;
 
-  beforeAll(async () => {
-    cleanupDb = await useTempDb();
+  beforeAll(() => {
+    cleanupDb = useTempDb();
   });
   afterAll(() => cleanupDb());
-  beforeEach(async () => {
+  beforeEach(() => {
     runner = fakeRunner({
-      id: (await createRunner("docker", "cand-host")).id,
+      id: createRunner("docker", "cand-host").id,
       name: "cand-host",
       manifest: manifest("cand-host"),
     });
@@ -166,7 +166,7 @@ describe("candidates, the frontier and falsification", () => {
   }
 
   async function start(id: string): Promise<void> {
-    await seedAlertSession(buildSessionMeta(id, null, undefined), [alert(id)]);
+    seedAlertSession(buildSessionMeta(id, null, undefined), [alert(id)]);
     since = scripted.requests.length;
     await runSession({ sessionId: id, alerts: [alert(id)] }, scripted.modelFor);
   }
@@ -185,7 +185,7 @@ describe("candidates, the frontier and falsification", () => {
     const id = randomUUID();
     await start(id);
 
-    const record = (await getRecord(id))!;
+    const record = getRecord(id)!;
     expect(record.candidates.map((c) => c.id)).toEqual(["c1", "c2"]);
     expect(record.findings.map((f) => f.candidate)).toEqual(["c1", "c2"]);
     expect(openCandidateIds(record)).toEqual([]);
@@ -255,7 +255,7 @@ describe("candidates, the frontier and falsification", () => {
     /* The gap reaches the model where it asked: the refusal is the close call's
        own answer, naming the candidate still open, and the run carries on. */
     const refusals: string[] = [];
-    for (const item of await buildTranscript(id)) {
+    for (const item of buildTranscript(id)) {
       if (item.kind !== "tool_call") continue;
       if (item.toolName !== "CloseInvestigation") continue;
       if (item.state.phase !== "complete") continue;
@@ -267,7 +267,7 @@ describe("candidates, the frontier and falsification", () => {
     );
     expect(named).toHaveLength(1);
     expect(named[0]).toContain("c3");
-    expect((await getRecord(id))!.report).not.toBeNull();
+    expect(getRecord(id)!.report).not.toBeNull();
   });
 
   /* The order the reader needs: the write-up is filed, and only then is the
@@ -298,7 +298,7 @@ describe("candidates, the frontier and falsification", () => {
       m.includes("Your report is written"),
     );
     expect(reminders).toHaveLength(1);
-    expect((await getRecord(id))!.report).not.toBeNull();
+    expect(getRecord(id)!.report).not.toBeNull();
   });
 
   it("draws the board live and keeps a row for each finding it records", async () => {
@@ -315,7 +315,7 @@ describe("candidates, the frontier and falsification", () => {
     const id = randomUUID();
     await start(id);
 
-    const items = await buildTranscript(id);
+    const items = buildTranscript(id);
     const board = items.find((i) => i.kind === "candidate_card");
     if (board === undefined || board.kind !== "candidate_card") {
       throw new Error("no candidate board in the transcript");
@@ -373,7 +373,7 @@ describe("candidates, the frontier and falsification", () => {
     const id = randomUUID();
     await start(id);
 
-    const record = (await getRecord(id))!;
+    const record = getRecord(id)!;
     // Three findings, two candidates, and c1 speaks once with its newest verdict.
     expect(record.findings).toHaveLength(3);
     expect(openCandidateIds(record)).toEqual([]);
@@ -402,7 +402,7 @@ describe("candidates, the frontier and falsification", () => {
     const id = randomUUID();
     await start(id);
 
-    const record = (await getRecord(id))!;
+    const record = getRecord(id)!;
     expect(openCandidateIds(record)).toEqual(["c2"]);
     // The write-up would claim coverage of c2 that the run never performed.
     expect(record.report).toBeNull();

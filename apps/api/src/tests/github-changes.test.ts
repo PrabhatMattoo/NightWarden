@@ -121,12 +121,10 @@ describe("ListRecentGitChanges through the tool dispatch", () => {
   let tool: Tool;
   let sessionSeq = 0;
 
-  async function toolContext(
-    alert: NormalizedAlert | null,
-  ): Promise<ToolDispatchContext> {
+  function toolContext(alert: NormalizedAlert | null): ToolDispatchContext {
     sessionSeq++;
     const sessionId = `gh-changes-${sessionSeq}`;
-    await seedAlertSession(
+    seedAlertSession(
       { sessionId, title: "test", createdAt: new Date().toISOString() },
       alert ? [alert] : [],
     );
@@ -137,8 +135,8 @@ describe("ListRecentGitChanges through the tool dispatch", () => {
     };
   }
 
-  async function connectGitHub(): Promise<void> {
-    await saveGitHubIntegration({
+  function connectGitHub(): void {
+    saveGitHubIntegration({
       token: "ghp_test_token",
       repoOwner: "acme",
       repoName: "shop",
@@ -146,8 +144,8 @@ describe("ListRecentGitChanges through the tool dispatch", () => {
     });
   }
 
-  beforeEach(async () => {
-    cleanupDb = await useTempDb();
+  beforeEach(() => {
+    cleanupDb = useTempDb();
     const found = findTool("ListRecentGitChanges");
     if (found === undefined)
       throw new Error("ListRecentGitChanges not registered");
@@ -160,7 +158,7 @@ describe("ListRecentGitChanges through the tool dispatch", () => {
   });
 
   it("anchors the window on the alert's firedAt and reports the merged PR with link and files", async () => {
-    await connectGitHub();
+    connectGitHub();
     const mock = makeMock();
     mock.pulls = [
       mergedPr(42, "2026-07-16T11:30:00Z"),
@@ -173,7 +171,7 @@ describe("ListRecentGitChanges through the tool dispatch", () => {
     mock.filesByPr = { 42: ["src/redis.ts", "src/config.ts"] };
     installFetchMock(mock);
 
-    const dispatched = await executeTool(tool, {}, await toolContext(ALERT));
+    const dispatched = await executeTool(tool, {}, toolContext(ALERT));
 
     expect(dispatched.isError).toBeUndefined();
     const result = parsedContent<ListRecentGitChangesResult>(dispatched);
@@ -198,7 +196,7 @@ describe("ListRecentGitChanges through the tool dispatch", () => {
   /* A week-long window on a busy repo returns hundreds of commits, and pull
      requests carry file lists on top; the same budget bounds both. */
   it("drops whole changes past the budget and says which ones it left out", async () => {
-    await connectGitHub();
+    connectGitHub();
     const mock = makeMock();
     mock.commits = Array.from({ length: 400 }, (_, i) =>
       commit(
@@ -209,7 +207,7 @@ describe("ListRecentGitChanges through the tool dispatch", () => {
     );
     installFetchMock(mock);
 
-    const dispatched = await executeTool(tool, {}, await toolContext(ALERT));
+    const dispatched = await executeTool(tool, {}, toolContext(ALERT));
 
     const result = parsedContent<ListRecentGitChangesResult>(dispatched);
     expect(result.commits.length).toBeLessThan(400);
@@ -225,12 +223,12 @@ describe("ListRecentGitChanges through the tool dispatch", () => {
   });
 
   it("a chat session with no alert anchors the window to now", async () => {
-    await connectGitHub();
+    connectGitHub();
     const mock = makeMock();
     installFetchMock(mock);
 
     const before = Date.now();
-    const dispatched = await executeTool(tool, {}, await toolContext(null));
+    const dispatched = await executeTool(tool, {}, toolContext(null));
     const after = Date.now();
 
     const result = parsedContent<ListRecentGitChangesResult>(dispatched);
@@ -242,14 +240,14 @@ describe("ListRecentGitChanges through the tool dispatch", () => {
   /* Refused rather than quietly shortened: a window silently cut to a seventh
      of what was asked for reads back as a week that held nothing. */
   it("refuses a windowHours beyond 7 days and names the field", async () => {
-    await connectGitHub();
+    connectGitHub();
     const mock = makeMock();
     installFetchMock(mock);
 
     const result = await executeTool(
       tool,
       { windowHours: 10_000 },
-      await toolContext(ALERT),
+      toolContext(ALERT),
     );
 
     expect(result.content).toMatch(/windowHours/);
@@ -258,11 +256,11 @@ describe("ListRecentGitChanges through the tool dispatch", () => {
   });
 
   it("looks back 7 days when asked for exactly the maximum", async () => {
-    await connectGitHub();
+    connectGitHub();
     const mock = makeMock();
     installFetchMock(mock);
 
-    await executeTool(tool, { windowHours: 168 }, await toolContext(ALERT));
+    await executeTool(tool, { windowHours: 168 }, toolContext(ALERT));
 
     const commitsUrl = mock.requests.find((u) => u.includes("/commits?"));
     const since = new URL(commitsUrl!).searchParams.get("since");
@@ -270,7 +268,7 @@ describe("ListRecentGitChanges through the tool dispatch", () => {
   });
 
   it("excludes merge commits and squash-merge commits from the direct-commit list", async () => {
-    await connectGitHub();
+    connectGitHub();
     const mock = makeMock();
     mock.pulls = [mergedPr(42, "2026-07-16T11:30:00Z")];
     mock.commits = [
@@ -282,14 +280,14 @@ describe("ListRecentGitChanges through the tool dispatch", () => {
     ];
     installFetchMock(mock);
 
-    const dispatched = await executeTool(tool, {}, await toolContext(ALERT));
+    const dispatched = await executeTool(tool, {}, toolContext(ALERT));
 
     const result = parsedContent<ListRecentGitChangesResult>(dispatched);
     expect(result.commits.map((c) => c.sha)).toEqual(["plain-1"]);
   });
 
   it("fetches files for at most 15 PRs and marks the rest filesOmitted", async () => {
-    await connectGitHub();
+    connectGitHub();
     const mock = makeMock();
     mock.pulls = Array.from({ length: 16 }, (_, i) =>
       mergedPr(i + 1, "2026-07-16T11:30:00Z"),
@@ -297,7 +295,7 @@ describe("ListRecentGitChanges through the tool dispatch", () => {
     for (let n = 1; n <= 16; n++) mock.filesByPr[n] = [`file-${n}.ts`];
     installFetchMock(mock);
 
-    const dispatched = await executeTool(tool, {}, await toolContext(ALERT));
+    const dispatched = await executeTool(tool, {}, toolContext(ALERT));
 
     const result = parsedContent<ListRecentGitChangesResult>(dispatched);
     expect(result.pullRequests).toHaveLength(16);
@@ -309,13 +307,13 @@ describe("ListRecentGitChanges through the tool dispatch", () => {
   });
 
   it("degrades to commits-only with a note when the token cannot list pull requests", async () => {
-    await connectGitHub();
+    connectGitHub();
     const mock = makeMock();
     mock.pullsStatus = 403;
     mock.commits = [commit("c1", "fix: something", "2026-07-16T11:31:00Z")];
     installFetchMock(mock);
 
-    const dispatched = await executeTool(tool, {}, await toolContext(ALERT));
+    const dispatched = await executeTool(tool, {}, toolContext(ALERT));
 
     expect(dispatched.isError).toBeUndefined();
     const result = parsedContent<ListRecentGitChangesResult>(dispatched);
@@ -325,12 +323,12 @@ describe("ListRecentGitChanges through the tool dispatch", () => {
   });
 
   it("treats an empty repository (409 on commits) as no commits, not a failure", async () => {
-    await connectGitHub();
+    connectGitHub();
     const mock = makeMock();
     mock.commitsStatus = 409;
     installFetchMock(mock);
 
-    const dispatched = await executeTool(tool, {}, await toolContext(ALERT));
+    const dispatched = await executeTool(tool, {}, toolContext(ALERT));
 
     expect(dispatched.isError).toBeUndefined();
     const result = parsedContent<ListRecentGitChangesResult>(dispatched);
@@ -338,12 +336,12 @@ describe("ListRecentGitChanges through the tool dispatch", () => {
   });
 
   it("a GitHub failure returns a corrective error result, never a thrown error", async () => {
-    await connectGitHub();
+    connectGitHub();
     const mock = makeMock();
     mock.repoStatus = 500;
     installFetchMock(mock);
 
-    const dispatched = await executeTool(tool, {}, await toolContext(ALERT));
+    const dispatched = await executeTool(tool, {}, toolContext(ALERT));
 
     expect(dispatched.isError).toBe(true);
     expect(dispatched.content).toContain(
@@ -355,7 +353,7 @@ describe("ListRecentGitChanges through the tool dispatch", () => {
     const mock = makeMock();
     installFetchMock(mock);
 
-    const dispatched = await executeTool(tool, {}, await toolContext(ALERT));
+    const dispatched = await executeTool(tool, {}, toolContext(ALERT));
 
     expect(dispatched.isError).toBe(true);
     expect(dispatched.content).toContain("not configured");
@@ -365,7 +363,7 @@ describe("ListRecentGitChanges through the tool dispatch", () => {
   /* The rows above are written to match what the client reads, so both sides
      agree by construction. A renamed field is what neither would catch. */
   it("refuses a drifted commit row rather than reporting no changes", async () => {
-    await connectGitHub();
+    connectGitHub();
     const mock = makeMock();
     // `sha` renamed, which the field-by-field reading answered with "".
     mock.commits = [
@@ -380,7 +378,7 @@ describe("ListRecentGitChanges through the tool dispatch", () => {
     ];
     installFetchMock(mock);
 
-    const result = await executeTool(tool, {}, await toolContext(ALERT));
+    const result = await executeTool(tool, {}, toolContext(ALERT));
 
     expect(result.isError).toBe(true);
     expect(result.content).toContain("shape this cannot read");

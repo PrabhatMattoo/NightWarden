@@ -30,10 +30,10 @@ export async function withStoredCredential<T>(
     result = await call();
   } catch (err) {
     if (isCredentialRejection(err) && err instanceof Error) {
-      await markRejected(integrationId, err.message, new Date().toISOString());
+      markRejected(integrationId, err.message, new Date().toISOString());
     }
     throw err;
   }
-  await clearRejected(integrationId);
+  clearRejected(integrationId);
   return result;
 }

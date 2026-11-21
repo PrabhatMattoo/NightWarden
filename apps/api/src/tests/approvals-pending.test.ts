@@ -60,10 +60,8 @@ describe("a suspended session serves its pending row with its transcript", async
     vi.unstubAllEnvs();
   });
 
-  async function connectRunner(
-    label: string,
-  ): Promise<{ conn: HarnessRunner }> {
-    const id = (await createRunner("docker", label)).id;
+  function connectRunner(label: string): { conn: HarnessRunner } {
+    const id = createRunner("docker", label).id;
     return { conn: fakeRunner({ id, name: label }) };
   }
 
@@ -114,7 +112,7 @@ describe("a suspended session serves its pending row with its transcript", async
   }
 
   it("projects the suspended tool call as a card awaiting a human", async () => {
-    const { conn } = await connectRunner("qa");
+    const { conn } = connectRunner("qa");
     await startGatedChat("test");
 
     const sessionId = await waitForAwaitingSession();
@@ -137,7 +135,7 @@ describe("a suspended session serves its pending row with its transcript", async
   });
 
   it("still shows the decision, and what the tool returned, after the wait ends", async () => {
-    const { conn } = await connectRunner("after-decision");
+    const { conn } = connectRunner("after-decision");
     await startGatedChat("decision survives");
 
     const sessionId = await waitForAwaitingSession();
@@ -169,7 +167,7 @@ describe("a suspended session serves its pending row with its transcript", async
   });
 
   it("flags the waiting session user-wide, whichever runner produced it", async () => {
-    const { conn } = await connectRunner("scope-c");
+    const { conn } = connectRunner("scope-c");
     await startGatedChat("scope test");
 
     // No token parameter anywhere: the user sees every waiting session.
@@ -181,7 +179,7 @@ describe("a suspended session serves its pending row with its transcript", async
   });
 
   it("clears pending and the awaiting flag once resolved", async () => {
-    const { conn } = await connectRunner("empty-after");
+    const { conn } = connectRunner("empty-after");
     await startGatedChat("empty after resolve");
 
     const sessionId = await waitForAwaitingSession();

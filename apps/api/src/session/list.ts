@@ -79,13 +79,13 @@ function deriveStatusLine(
   }
 }
 
-export async function listSessionPage(
+export function listSessionPage(
   limit: number,
   offset: number,
   kind: SessionKind,
   filter: { status?: StatusFilter; q?: string } = {},
-): Promise<SessionListPage> {
-  const { facts, nextOffset } = await listSessionFacts(limit, offset, kind, {
+): SessionListPage {
+  const { facts, nextOffset } = listSessionFacts(limit, offset, kind, {
     ...(filter.status !== undefined && {
       statuses: FILTER_STATUSES[filter.status],
     }),
@@ -110,6 +110,6 @@ export async function listSessionPage(
       };
     }),
     nextOffset,
-    investigationTotal: await countInvestigations(),
+    investigationTotal: countInvestigations(),
   };
 }

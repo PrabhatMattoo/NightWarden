@@ -147,7 +147,7 @@ describe("state inversion: persistence and reads are API-local", () => {
     await waitFor(() => hasAssistantMessage(events, sessionId));
     close();
 
-    const stored = await getSession(String(sessionId));
+    const stored = getSession(String(sessionId));
     // No originating alert is the chat-vs-alert distinction now (trigger is gone).
     expect(stored?.alerts).toEqual([]);
 
@@ -175,7 +175,7 @@ describe("state inversion: persistence and reads are API-local", () => {
     const { events, close } = await connectFrontendEvents(port, SESSION);
 
     const sessionId = randomUUID();
-    await dispatchAlertSession(nw.dispatcher, sessionId, [
+    dispatchAlertSession(nw.dispatcher, sessionId, [
       {
         sourceAlertId: `si-${randomUUID()}`,
         labels: {},
@@ -188,9 +188,9 @@ describe("state inversion: persistence and reads are API-local", () => {
     ]);
     // The row carries the flag from the moment it exists - checked here, before
     // the run has produced a report to infer anything from.
-    const created = await waitFor(async () => await getSession(sessionId));
+    const created = await waitFor(() => getSession(sessionId));
     expect(created.investigation).toBe(true);
-    expect(await getRecord(sessionId)).toBeUndefined();
+    expect(getRecord(sessionId)).toBeUndefined();
 
     await waitFor(() => hasAssistantMessage(events, sessionId));
     close();
@@ -255,8 +255,8 @@ describe("state inversion: persistence and reads are API-local", () => {
 describe("state inversion: opening alert context stays alert-scoped", () => {
   let cleanupDb: () => void;
 
-  beforeAll(async () => {
-    cleanupDb = await useTempDb();
+  beforeAll(() => {
+    cleanupDb = useTempDb();
   });
 
   afterAll(() => {

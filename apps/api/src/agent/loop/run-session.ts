@@ -99,7 +99,7 @@ export async function runSession(
 ): Promise<RunOutcome> {
   const { sessionId, signal } = input;
 
-  const stored = await getSession(sessionId);
+  const stored = getSession(sessionId);
   // A resume carries none, so the session's own record answers instead.
   const allAlerts =
     input.alerts ?? (stored?.alerts ?? []).map((entry) => entry.alert);
@@ -128,7 +128,7 @@ export async function runSession(
   // llm is the active provider's block flattened for the SDK; config carries the
   // loop and sandbox budgets, which are provider-independent.
   const { config: llm, apiKey } = readiness;
-  const config = await loadConfig();
+  const config = loadConfig();
   const model = modelFor(llm, apiKey);
 
   const chat = async (
@@ -152,11 +152,11 @@ export async function runSession(
 
   // The rows the model is handed, dead exchanges unwound, so the stage and the
   // allowances derive from what it sees rather than from turns it never gets.
-  const priorRows = await seedRows(sessionId);
+  const priorRows = seedRows(sessionId);
   const seeded = input.seed ?? [];
   const state = new RunState(
     sessionId,
-    await getNextSeq(sessionId),
+    getNextSeq(sessionId),
     highestEvidenceNumber(priorRows) + 1,
     seeded,
     priorRows,
@@ -183,7 +183,7 @@ export async function runSession(
     } catch (err) {
       if (!signal?.aborted) throw err;
     }
-    await state.flush();
+    state.flush();
     if (signal?.aborted) {
       log.info("run stopped by user during the closing turn");
       return "stopped";
@@ -213,10 +213,10 @@ export async function runSession(
   );
 
   const fleetView = getFleetView();
-  const integration = await getGitHubIntegration();
+  const integration = getGitHubIntegration();
   // Assembled once, before the prompt that describes it, so the prose and the
   // tools it describes are derived from one value and cannot disagree.
-  state.offered = await currentToolset(opensInvestigation);
+  state.offered = currentToolset(opensInvestigation);
   const promptOptions: PromptOptions = {
     budgetMinutes: Math.max(1, Math.round(config.checkInAfterMs / 60_000)),
     repo:
@@ -256,7 +256,7 @@ export async function runSession(
     // After the reason, so the model reads why before it is told what reopening means.
     if (input.reopen === true)
       state.sendSystemReminder("reopen", REOPEN_MESSAGE);
-    await state.flush();
+    state.flush();
   } else {
     // An alert has no human to type the first turn, so NightWarden writes it and
     // marks it as its own. A person's own first message is theirs.
@@ -269,7 +269,7 @@ export async function runSession(
         input.clientMessageId,
       );
     }
-    await state.flush();
+    state.flush();
     // Brand-new session only: refine the title in the background. Chat uses the
     // message; an alert, a compact summary.
     const titleSource = input.userMessage ?? buildAlertTitleSource(allAlerts);
@@ -325,7 +325,7 @@ export async function runSession(
     completedResults: [],
     claimedAt: null,
   };
-  await state.flush(continueInterrupt);
+  state.flush(continueInterrupt);
   publishTranscriptItem({
     sessionId,
     item: continueCard(continueId, { phase: "awaiting_human" }),

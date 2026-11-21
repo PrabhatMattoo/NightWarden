@@ -58,10 +58,8 @@ import type { RunContext, TurnResult } from "./run-state.js";
 
 // What the fleet and the connected integrations currently allow. Read together,
 // because the prompt describing them is built from the same call.
-export async function currentToolset(
-  investigation: boolean,
-): Promise<OfferedToolset> {
-  const kinds = await connectedKinds();
+export function currentToolset(investigation: boolean): OfferedToolset {
+  const kinds = connectedKinds();
   return effectiveToolset(
     connectedPlatforms(),
     {
@@ -103,11 +101,11 @@ type Gate = { tool: ToolUse; kind: "approval" | "clarification" };
 
 // Durably suspend on a gated call: persist the assistant turn and the interrupt
 // row in one transaction, then tell the frontend a human is needed.
-async function suspendOnGate(
+function suspendOnGate(
   ctx: RunContext,
   gated: Gate,
   toolResults: ToolResult[],
-): Promise<void> {
+): void {
   const { sessionId, log } = ctx;
   const isAskGate = gated.kind === "clarification";
   const interrupt: PendingHumanInput = {
@@ -117,7 +115,7 @@ async function suspendOnGate(
     completedResults: toolResults,
     claimedAt: null,
   };
-  await ctx.state.flush(interrupt);
+  ctx.state.flush(interrupt);
   const clarInput = isAskGate
     ? (gated.tool.input as {
         question: string;
@@ -275,14 +273,14 @@ function publishReportCard(
 
 /* Everything the write-up turn is told, assembled from the record and the
    transcript it is about to describe. */
-async function writeUpRequest(ctx: RunContext): Promise<string> {
-  const record = await getRecord(ctx.sessionId);
-  const gated = gatedCalls(await toolCallsIn(ctx.sessionId));
+function writeUpRequest(ctx: RunContext): string {
+  const record = getRecord(ctx.sessionId);
+  const gated = gatedCalls(toolCallsIn(ctx.sessionId));
   /* Only a run that acted must recommend: ruling things out is a complete
      ending, but releasing a write and going quiet leaves the user nothing. */
   const unrecovered =
     approvedWriteCount(gated) > 0 &&
-    (await recoveryState(ctx.sessionId)) === "unconfirmed";
+    recoveryState(ctx.sessionId) === "unconfirmed";
   return reportRequest(
     record?.findings ?? [],
     gated,
@@ -301,18 +299,18 @@ export async function runOneTurn(ctx: RunContext): Promise<TurnResult> {
 
   // Re-read per turn, but never silently: a change the model is not told about
   // looks to it like the rules moved, and the prompt is never revised.
-  const nowOffered = await currentToolset(ctx.opensInvestigation);
+  const nowOffered = currentToolset(ctx.opensInvestigation);
   const change = toolsetChange(state.offered, nowOffered);
   if (change !== null) {
     log.info({ turn, change }, "offered toolset changed mid-run");
     state.offered = nowOffered;
     state.sendSystemReminder("toolset_change", change);
-    await state.flush();
+    state.flush();
   }
 
   // Read once before any tool runs: the challenge and the stage both decide from
   // this snapshot, which no tool has moved yet.
-  const recordBefore = await getRecord(sessionId);
+  const recordBefore = getRecord(sessionId);
   /* The challenge precedes the stage it opens, so a close lands inside it. The
      position takes the challenge as it is written, so the stage below sees it. */
   const progress = state.position;
@@ -326,13 +324,13 @@ export async function runOneTurn(ctx: RunContext): Promise<TurnResult> {
     const ask = reportAsk(progress);
     if (ask === null) {
       log.warn({ turn }, "write-up not written within its attempts");
-      await appendErrorMessage(sessionId, REPORT_GIVEN_UP);
+      appendErrorMessage(sessionId, REPORT_GIVEN_UP);
       publishReportCard(sessionId, "failed");
       return { kind: "outcome", outcome: "completed" };
     }
     publishReportCard(sessionId, "building");
     if (ask === "request") {
-      state.sendSystemReminder("report_request", await writeUpRequest(ctx));
+      state.sendSystemReminder("report_request", writeUpRequest(ctx));
     } else {
       state.sendSystemReminder("report_retry", REPORT_RETRY_MESSAGE);
     }
@@ -341,7 +339,7 @@ export async function runOneTurn(ctx: RunContext): Promise<TurnResult> {
       return { kind: "outcome", outcome: "completed" };
     state.sendSystemReminder("closing", closingMessage(recordBefore));
   }
-  await state.flush();
+  state.flush();
   const forThisStage = toolsForStage(stage, state.offered);
   const toolSchemas = offeredSchemas(forThisStage);
 
@@ -358,14 +356,14 @@ export async function runOneTurn(ctx: RunContext): Promise<TurnResult> {
   } catch (err) {
     if (ctx.signal?.aborted) {
       log.info({ turn }, "run stopped by user");
-      await state.flush();
+      state.flush();
       return { kind: "outcome", outcome: "stopped" };
     }
     // The budget cut the turn short. That is the check-in, not a failure, so it
     // leaves the loop rather than killing the run.
     if (ctx.outOfTime.aborted) {
       log.info({ turn }, "time budget reached mid-turn");
-      await state.flush();
+      state.flush();
       return { kind: "budget" };
     }
     throw err;
@@ -373,7 +371,7 @@ export async function runOneTurn(ctx: RunContext): Promise<TurnResult> {
   if (ctx.signal?.aborted) {
     log.info({ turn }, "run stopped by user");
     state.stageStopped(response.toolUses, []);
-    await state.flush();
+    state.flush();
     return { kind: "outcome", outcome: "stopped" };
   }
   log.info(
@@ -385,7 +383,7 @@ export async function runOneTurn(ctx: RunContext): Promise<TurnResult> {
     },
     "LLM responded",
   );
-  await state.flush();
+  state.flush();
 
   // A lost write-up says so in its own terms; the ending is written to the
   // transcript, since without an error row a nothing turn derives to completed.
@@ -405,7 +403,7 @@ export async function runOneTurn(ctx: RunContext): Promise<TurnResult> {
       { turn, model: llm.model, stopReason: response.stopReason },
       "turn ended without an answer",
     );
-    await appendErrorMessage(sessionId, ending);
+    appendErrorMessage(sessionId, ending);
     return { kind: "outcome", outcome: "completed" };
   }
 
@@ -437,7 +435,7 @@ export async function runOneTurn(ctx: RunContext): Promise<TurnResult> {
           recordBefore === undefined ? [] : openCandidateRows(recordBefore),
         ),
       );
-      await state.flush();
+      state.flush();
       return { kind: "continue" };
     }
     log.warn(
@@ -472,13 +470,13 @@ export async function runOneTurn(ctx: RunContext): Promise<TurnResult> {
   if (ctx.signal?.aborted) {
     log.info({ turn }, "run stopped by user before the gate");
     state.stageStopped(response.toolUses, toolResults);
-    await state.flush();
+    state.flush();
     return { kind: "outcome", outcome: "stopped" };
   }
 
   if (gated !== null) {
     // Alerts joining a parked run stay on their rows until it resumes.
-    await suspendOnGate(ctx, gated, toolResults);
+    suspendOnGate(ctx, gated, toolResults);
     return { kind: "outcome", outcome: "suspended" };
   }
 
@@ -489,13 +487,13 @@ export async function runOneTurn(ctx: RunContext): Promise<TurnResult> {
       { turn, refused: [...progress.spent.unavailableAsks.keys()] },
       "run asked only for unavailable tools; ending it",
     );
-    await state.flush();
-    await appendErrorMessage(sessionId, barren);
+    state.flush();
+    appendErrorMessage(sessionId, barren);
     return { kind: "outcome", outcome: "completed" };
   }
   // Read once after the tools ran: the frontier, the card, and the record debt
   // all reflect what this turn just settled.
-  const recordAfter = await getRecord(sessionId);
+  const recordAfter = getRecord(sessionId);
   emitFrontierIfChanged(ctx, recordBefore, recordAfter);
 
   /* The write-up landed, so the card that was spinning now names what it opens.
@@ -530,7 +528,7 @@ export async function runOneTurn(ctx: RunContext): Promise<TurnResult> {
     if (refusal?.kind === "record_gaps") {
       if (refusalsSpent(progress, refusal.gaps)) {
         log.warn({ turn }, "close refused past its allowance; standing down");
-        await state.flush();
+        state.flush();
         return { kind: "stand_down" };
       }
       log.info({ turn, gaps: refusal.gaps }, "close refused: record short");
@@ -543,7 +541,7 @@ export async function runOneTurn(ctx: RunContext): Promise<TurnResult> {
     state.sendSystemReminder("record_check", ask);
   }
   // Joined alerts reach the model at the tool boundary, the earliest it can act on one.
-  const joined = await pendingAlerts(sessionId);
+  const joined = pendingAlerts(sessionId);
   if (joined.length > 0) {
     state.sendSystemReminder(
       "injected_alerts",
@@ -555,8 +553,8 @@ export async function runOneTurn(ctx: RunContext): Promise<TurnResult> {
   if (sandboxNote !== null) {
     state.sendSystemReminder("sandbox_ready", sandboxNote);
   }
-  await state.flush();
+  state.flush();
   // After the flush, so a crash in between repeats the note rather than losing it.
-  await markAlertsDelivered(joined.map((j) => j.id));
+  markAlertsDelivered(joined.map((j) => j.id));
   return { kind: "continue" };
 }

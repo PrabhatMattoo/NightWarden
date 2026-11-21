@@ -1,11 +1,11 @@
 import { randomUUID } from "node:crypto";
-import type { Selectable } from "kysely";
+import { and, asc, eq, isNotNull } from "drizzle-orm";
 import { z } from "zod";
 import type { CredentialRejection } from "@nightwarden/shared";
 import { getDb } from "../db.js";
-import type { DB } from "../database.js";
 import { readable } from "../route-schemas.js";
 import { decrypt, encrypt } from "../secrets.js";
+import { integrations } from "./schema.js";
 
 /* One table holds every configured connection. This file owns the row shape;
    each kind's own accessors read the config it wrote. */
@@ -23,42 +23,14 @@ export interface IntegrationRow {
   createdAt: string;
 }
 
-type RawRow = Selectable<DB["integrations"]>;
+type RawRow = typeof integrations.$inferSelect;
 
-const COLUMNS = [
-  "id",
-  "kind",
-  "name",
-  "config",
-  "secrets",
-  "token_hash",
-  "last_used_at",
-  "rejected_at",
-  "rejection",
-  "created_at",
-] as const;
-
-// A row written by an older shape reads as empty rather than crashing every
-// caller that touches the table.
-function parseJson<T>(
-  text: string | null,
-  schema: z.ZodType<Record<string, T>>,
-): Record<string, T> {
-  if (text === null) return {};
-  try {
-    return schema.parse(JSON.parse(text));
-  } catch {
-    return {};
-  }
-}
-
-const configJsonSchema = z.record(z.string(), z.unknown());
 const secretsJsonSchema = z.record(z.string(), z.string());
 
 function decryptSecrets(encrypted: string | null): Record<string, string> {
   return encrypted === null
     ? {}
-    : parseJson(decrypt(encrypted), secretsJsonSchema);
+    : secretsJsonSchema.parse(JSON.parse(decrypt(encrypted)));
 }
 
 function toRow(raw: RawRow): IntegrationRow {
@@ -66,15 +38,15 @@ function toRow(raw: RawRow): IntegrationRow {
     id: raw.id,
     kind: raw.kind,
     name: raw.name,
-    config: parseJson(raw.config, configJsonSchema),
+    config: raw.config,
     secrets: decryptSecrets(raw.secrets),
-    tokenHash: raw.token_hash,
-    lastUsedAt: raw.last_used_at,
+    tokenHash: raw.tokenHash,
+    lastUsedAt: raw.lastUsedAt,
     rejection:
-      raw.rejected_at === null
+      raw.rejectedAt === null
         ? null
-        : { reason: raw.rejection ?? "", at: raw.rejected_at },
-    createdAt: raw.created_at,
+        : { reason: raw.rejection ?? "", at: raw.rejectedAt },
+    createdAt: raw.createdAt,
   };
 }
 
@@ -93,44 +65,39 @@ export function parseStoredConfig<T>(
   return parsed.data;
 }
 
-async function integrationsOfKind(kind: string): Promise<IntegrationRow[]> {
-  const rows = await getDb()
-    .selectFrom("integrations")
-    .select(COLUMNS)
-    .where("kind", "=", kind)
-    .orderBy("created_at", "asc")
-    .orderBy("id", "asc")
-    .execute();
-  return rows.map(toRow);
+function integrationsOfKind(kind: string): IntegrationRow[] {
+  return getDb()
+    .select()
+    .from(integrations)
+    .where(eq(integrations.kind, kind))
+    .orderBy(asc(integrations.createdAt), asc(integrations.id))
+    .all()
+    .map(toRow);
 }
 
 // For a kind only one of can exist, which the route enforces.
-export async function integrationOfKind(
-  kind: string,
-): Promise<IntegrationRow | null> {
-  return (await integrationsOfKind(kind))[0] ?? null;
+export function integrationOfKind(kind: string): IntegrationRow | null {
+  return integrationsOfKind(kind)[0] ?? null;
 }
 
 // Which kinds are connected, without decrypting any of them: the loop asks this
 // every turn to notice an integration arriving or going away mid-run.
-export async function connectedKinds(): Promise<Set<string>> {
-  const rows = await getDb()
-    .selectFrom("integrations")
-    .select("kind")
-    .distinct()
-    .execute();
+export function connectedKinds(): Set<string> {
+  const rows = getDb()
+    .selectDistinct({ kind: integrations.kind })
+    .from(integrations)
+    .all();
   return new Set(rows.map((r) => r.kind));
 }
 
 // Every row, for the unauthenticated token match and for name derivation.
-export async function allIntegrations(): Promise<IntegrationRow[]> {
-  const rows = await getDb()
-    .selectFrom("integrations")
-    .select(COLUMNS)
-    .orderBy("created_at", "asc")
-    .orderBy("id", "asc")
-    .execute();
-  return rows.map(toRow);
+export function allIntegrations(): IntegrationRow[] {
+  return getDb()
+    .select()
+    .from(integrations)
+    .orderBy(asc(integrations.createdAt), asc(integrations.id))
+    .all()
+    .map(toRow);
 }
 
 interface IntegrationInput {
@@ -144,73 +111,67 @@ interface IntegrationInput {
 
 /* Saving means this configuration just proved itself, so a recorded refusal
    clears; created_at survives a reconfiguration. */
-export async function putIntegration(
+export function putIntegration(
   input: IntegrationInput,
   id: string = randomUUID(),
-): Promise<string> {
+): string {
   const now = new Date().toISOString();
   const secrets = input.secrets ?? {};
   const values = {
     kind: input.kind,
     name: input.name,
-    config: JSON.stringify(input.config),
+    config: input.config,
     secrets:
       Object.keys(secrets).length === 0
         ? null
         : encrypt(JSON.stringify(secrets)),
-    token_hash: input.tokenHash ?? null,
-    last_used_at: input.lastUsedAt ?? null,
-    rejected_at: null,
+    tokenHash: input.tokenHash ?? null,
+    lastUsedAt: input.lastUsedAt ?? null,
+    rejectedAt: null,
     rejection: null,
   };
-  await getDb()
-    .insertInto("integrations")
-    .values({ id, ...values, created_at: now })
-    .onConflict((oc) => oc.column("id").doUpdateSet(values))
-    .execute();
+  getDb()
+    .insert(integrations)
+    .values({ id, ...values, createdAt: now })
+    .onConflictDoUpdate({ target: integrations.id, set: values })
+    .run();
   return id;
 }
 
-export async function deleteIntegrationById(id: string): Promise<boolean> {
-  const res = await getDb()
-    .deleteFrom("integrations")
-    .where("id", "=", id)
-    .executeTakeFirst();
-  return Number(res.numDeletedRows) > 0;
+export function deleteIntegrationById(id: string): boolean {
+  return (
+    getDb().delete(integrations).where(eq(integrations.id, id)).run().changes >
+    0
+  );
 }
 
-export async function deleteIntegrationsOfKind(kind: string): Promise<void> {
-  await getDb().deleteFrom("integrations").where("kind", "=", kind).execute();
+export function deleteIntegrationsOfKind(kind: string): void {
+  getDb().delete(integrations).where(eq(integrations.kind, kind)).run();
 }
 
-export async function markRejected(
-  id: string,
-  reason: string,
-  at: string,
-): Promise<void> {
-  await getDb()
-    .updateTable("integrations")
-    .set({ rejected_at: at, rejection: reason })
-    .where("id", "=", id)
-    .execute();
+export function markRejected(id: string, reason: string, at: string): void {
+  getDb()
+    .update(integrations)
+    .set({ rejectedAt: at, rejection: reason })
+    .where(eq(integrations.id, id))
+    .run();
 }
 
 // Conditional, so a healthy call, which is nearly every call, writes nothing.
-export async function clearRejected(id: string): Promise<void> {
-  await getDb()
-    .updateTable("integrations")
-    .set({ rejected_at: null, rejection: null })
-    .where("id", "=", id)
-    .where("rejected_at", "is not", null)
-    .execute();
+export function clearRejected(id: string): void {
+  getDb()
+    .update(integrations)
+    .set({ rejectedAt: null, rejection: null })
+    .where(and(eq(integrations.id, id), isNotNull(integrations.rejectedAt)))
+    .run();
 }
 
-export async function touchIntegration(id: string, at: string): Promise<void> {
-  await getDb()
-    .updateTable("integrations")
-    .set({ last_used_at: at })
-    .where("id", "=", id)
-    .execute();
+export function touchIntegration(id: string, at: string): void {
+  getDb()
+    .update(integrations)
+    .set({ lastUsedAt: at })
+    .where(eq(integrations.id, id))
+    .run();
 }
 
 const GITHUB = "github";
@@ -232,8 +193,8 @@ interface GitHubIntegration {
   createdAt: string;
 }
 
-export async function getGitHubIntegration(): Promise<GitHubIntegration | null> {
-  const row = await integrationOfKind(GITHUB);
+export function getGitHubIntegration(): GitHubIntegration | null {
+  const row = integrationOfKind(GITHUB);
   // GitHub always has a token: a row without one is malformed, treat as absent.
   const token = row?.secrets["token"];
   if (!row || token === undefined) return null;
@@ -249,14 +210,14 @@ export async function getGitHubIntegration(): Promise<GitHubIntegration | null> 
   };
 }
 
-export async function saveGitHubIntegration(input: {
+export function saveGitHubIntegration(input: {
   token: string;
   repoOwner: string;
   repoName: string;
   tokenExpiresAt: string | null;
-}): Promise<void> {
-  const existing = await integrationOfKind(GITHUB);
-  await putIntegration(
+}): void {
+  const existing = integrationOfKind(GITHUB);
+  putIntegration(
     {
       kind: GITHUB,
       name: "GitHub",
@@ -272,13 +233,13 @@ export async function saveGitHubIntegration(input: {
 }
 
 // Credential is untouched, only the binding moves; the caller has proved the token live.
-export async function updateGitHubIntegrationRepo(
+export function updateGitHubIntegrationRepo(
   repoOwner: string,
   repoName: string,
-): Promise<void> {
-  const existing = await getGitHubIntegration();
+): void {
+  const existing = getGitHubIntegration();
   if (!existing) return;
-  await saveGitHubIntegration({
+  saveGitHubIntegration({
     token: existing.token,
     repoOwner,
     repoName,
@@ -286,8 +247,8 @@ export async function updateGitHubIntegrationRepo(
   });
 }
 
-export async function deleteGitHubIntegration(): Promise<void> {
-  await deleteIntegrationsOfKind(GITHUB);
+export function deleteGitHubIntegration(): void {
+  deleteIntegrationsOfKind(GITHUB);
 }
 
 const LOKI = "loki";
@@ -308,8 +269,8 @@ interface LokiIntegration {
   createdAt: string;
 }
 
-export async function getLokiIntegration(): Promise<LokiIntegration | null> {
-  const row = await integrationOfKind(LOKI);
+export function getLokiIntegration(): LokiIntegration | null {
+  const row = integrationOfKind(LOKI);
   if (!row) return null;
   const config = parseStoredConfig(row, lokiConfigSchema);
   return {
@@ -322,13 +283,13 @@ export async function getLokiIntegration(): Promise<LokiIntegration | null> {
   };
 }
 
-export async function saveLokiIntegration(input: {
+export function saveLokiIntegration(input: {
   baseUrl: string;
   orgId: string | null;
   authorization: string | null;
-}): Promise<void> {
-  const existing = await integrationOfKind(LOKI);
-  await putIntegration(
+}): void {
+  const existing = integrationOfKind(LOKI);
+  putIntegration(
     {
       kind: LOKI,
       name: "Grafana Loki",
@@ -344,8 +305,8 @@ export async function saveLokiIntegration(input: {
   );
 }
 
-export async function deleteLokiIntegration(): Promise<void> {
-  await deleteIntegrationsOfKind(LOKI);
+export function deleteLokiIntegration(): void {
+  deleteIntegrationsOfKind(LOKI);
 }
 
 const SENTRY = "sentry";
@@ -367,8 +328,8 @@ interface SentryIntegration {
   createdAt: string;
 }
 
-export async function getSentryIntegration(): Promise<SentryIntegration | null> {
-  const row = await integrationOfKind(SENTRY);
+export function getSentryIntegration(): SentryIntegration | null {
+  const row = integrationOfKind(SENTRY);
   // Sentry always has a token: a row without one is malformed, treat as absent.
   const token = row?.secrets["token"];
   if (!row || token === undefined) return null;
@@ -383,13 +344,13 @@ export async function getSentryIntegration(): Promise<SentryIntegration | null> 
   };
 }
 
-export async function saveSentryIntegration(input: {
+export function saveSentryIntegration(input: {
   baseUrl: string;
   orgSlug: string;
   token: string;
-}): Promise<void> {
-  const existing = await integrationOfKind(SENTRY);
-  await putIntegration(
+}): void {
+  const existing = integrationOfKind(SENTRY);
+  putIntegration(
     {
       kind: SENTRY,
       name: "Sentry",
@@ -403,6 +364,6 @@ export async function saveSentryIntegration(input: {
   );
 }
 
-export async function deleteSentryIntegration(): Promise<void> {
-  await deleteIntegrationsOfKind(SENTRY);
+export function deleteSentryIntegration(): void {
+  deleteIntegrationsOfKind(SENTRY);
 }

@@ -15,16 +15,16 @@ interface Routed {
 
 // One webhook is one group, routed whole: regrouping on our own clock would
 // replace the user's group_by with a guess.
-export async function routeDelivery(
+export function routeDelivery(
   dispatcher: Dispatcher,
   groupKey: string,
   firing: NormalizedAlert[],
   // Required, not defaulted: a caller that forgets it silently tells every
   // investigation the group arrived whole and unexplained.
   delivery: DeliveryContext,
-): Promise<Routed> {
-  const { maxInvestigationsPerHour } = await loadConfig();
-  const admission = await admitDelivery(
+): Routed {
+  const { maxInvestigationsPerHour } = loadConfig();
+  const admission = admitDelivery(
     buildSessionMeta(randomUUID(), firing[0] ?? null, undefined),
     groupKey,
     firing,

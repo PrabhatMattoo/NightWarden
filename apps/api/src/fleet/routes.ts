@@ -39,7 +39,7 @@ export async function registerRunnerRoutes(
       }
 
       const records: RunnerRecord[] = [];
-      for (const t of await listRunnersMeta()) {
+      for (const t of listRunnersMeta()) {
         const runners = byRunner.get(t.id);
         if (!runners || runners.length === 0) {
           records.push({
@@ -85,7 +85,7 @@ export async function registerRunnerRoutes(
     async (request, reply) => {
       const { platform, serverName } = request.body;
       try {
-        const created = await createRunner(platform, serverName);
+        const created = createRunner(platform, serverName);
         return await reply.code(201).send({
           id: created.id,
           token: created.plaintext,
@@ -111,7 +111,7 @@ export async function registerRunnerRoutes(
       },
     },
     async (request, reply) => {
-      if (!(await deleteRunner(request.params.id))) {
+      if (!deleteRunner(request.params.id)) {
         return reply.code(404).send({ error: "runner not found" });
       }
       closeRunnerConnections(request.params.id);

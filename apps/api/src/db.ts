@@ -1,89 +1,17 @@
-import { mkdirSync, readdirSync, readFileSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
-import Database from "better-sqlite3";
-import { Kysely, SqliteDialect } from "kysely";
-import { z } from "zod";
-import type { DB } from "./database.js";
+import { fileURLToPath } from "node:url";
+import Database, { type RunResult } from "better-sqlite3";
+import { drizzle } from "drizzle-orm/better-sqlite3";
+import { migrate } from "drizzle-orm/better-sqlite3/migrator";
+import type { BaseSQLiteDatabase } from "drizzle-orm/sqlite-core";
 import { dbPath } from "./paths.js";
 
-export type Db = Kysely<DB>;
+// The database and a transaction share this type, so a helper takes either.
+export type Db = BaseSQLiteDatabase<"sync", RunResult>;
 
 // Beside this file in src and in dist alike, since the build copies the folder.
-const MIGRATIONS_DIR = new URL("./migrations/", import.meta.url);
-
-interface Migration {
-  version: number;
-  name: string;
-  sql: string;
-}
-
-function readMigrations(dir: URL): Migration[] {
-  return readdirSync(dir)
-    .filter((file) => file.endsWith(".sql"))
-    .sort()
-    .map((file) => {
-      const match = /^(\d+)_(.+)\.sql$/.exec(file);
-      if (!match?.[1] || !match[2]) {
-        throw new Error(`migration ${file} is not named <version>_<name>.sql`);
-      }
-      return {
-        version: Number(match[1]),
-        name: match[2],
-        sql: readFileSync(new URL(file, dir), "utf8"),
-      };
-    });
-}
-
-/* Applied against the raw handle so a migration is one synchronous transaction.
-   SQLite has transactional DDL, so a failure leaves nothing half-applied. */
-export function applyMigrations(
-  handle: Database.Database,
-  dir: URL = MIGRATIONS_DIR,
-): void {
-  handle.exec(`
-    CREATE TABLE IF NOT EXISTS schema_migrations (
-      version    INTEGER  NOT NULL PRIMARY KEY,
-      name       TEXT     NOT NULL,
-      applied_at TEXT     NOT NULL
-    );
-  `);
-  const applied = new Set(
-    z
-      .array(z.number())
-      .parse(
-        handle.prepare(`SELECT version FROM schema_migrations`).pluck().all(),
-      ),
-  );
-
-  let previous = 0;
-  for (const migration of readMigrations(dir)) {
-    if (migration.version <= previous) {
-      throw new Error(
-        `migrations must ascend and each version appear once: ${migration.version} follows ${previous}`,
-      );
-    }
-    previous = migration.version;
-    if (applied.has(migration.version)) continue;
-
-    handle.exec("BEGIN IMMEDIATE");
-    try {
-      handle.exec(migration.sql);
-      handle
-        .prepare(
-          `INSERT INTO schema_migrations (version, name, applied_at)
-           VALUES (?, ?, ?)`,
-        )
-        .run(migration.version, migration.name, new Date().toISOString());
-      handle.exec("COMMIT");
-    } catch (err) {
-      handle.exec("ROLLBACK");
-      const reason = err instanceof Error ? err.message : String(err);
-      throw new Error(
-        `migration ${migration.version} (${migration.name}) failed: ${reason}`,
-      );
-    }
-  }
-}
+const MIGRATIONS_DIR = fileURLToPath(new URL("./migrations/", import.meta.url));
 
 let _handle: Database.Database | undefined;
 let _db: Db | undefined;
@@ -98,11 +26,10 @@ export function getDb(): Db {
     handle.pragma("journal_mode = WAL");
     // Off by default in SQLite, so ON DELETE CASCADE fires only once it is on.
     handle.pragma("foreign_keys = ON");
-    applyMigrations(handle);
+    const db = drizzle(handle);
+    migrate(db, { migrationsFolder: MIGRATIONS_DIR });
     _handle = handle;
-    _db = new Kysely<DB>({
-      dialect: new SqliteDialect({ database: handle }),
-    });
+    _db = db;
   }
   return _db;
 }

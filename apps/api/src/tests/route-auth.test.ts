@@ -86,7 +86,7 @@ describe("the route surface", () => {
   }> = [];
 
   beforeAll(async () => {
-    cleanupDb = await useTempDb();
+    cleanupDb = useTempDb();
     server = Fastify({ logger: false });
     server.addHook("onRoute", (route) => {
       const methods = Array.isArray(route.method)

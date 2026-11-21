@@ -37,7 +37,7 @@ export async function registerWsRoutes(
         return;
       }
 
-      const tokenRecord = await findRunnerByToken(plaintext);
+      const tokenRecord = findRunnerByToken(plaintext);
       if (!tokenRecord) {
         socket.close(4003, "Invalid or revoked token");
         return;
@@ -47,7 +47,7 @@ export async function registerWsRoutes(
 
       // Issuing reclaims a name only from a row that never connected, and a
       // runner whose platform API is down authenticates but never manifests.
-      await touchLastUsed(runnerId);
+      touchLastUsed(runnerId);
 
       const conn = registerRunner({
         runnerId,
@@ -117,7 +117,7 @@ export async function registerWsRoutes(
             );
             return;
           }
-          await touchLastUsed(runnerId);
+          touchLastUsed(runnerId);
           setRunnerManifest(runnerId, msg.payload);
           fastify.log.info(
             { runnerId: runnerId.slice(0, 8) },

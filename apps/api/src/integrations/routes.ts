@@ -85,8 +85,8 @@ const RebindBodySchema = z.object({
   repo: z.string().regex(/^[^/\s]+\/[^/\s]+$/),
 });
 
-async function statusPayload(): Promise<GitHubIntegrationStatus> {
-  const row = await getGitHubIntegration();
+function statusPayload(): GitHubIntegrationStatus {
+  const row = getGitHubIntegration();
   if (!row) {
     return {
       configured: false,
@@ -139,8 +139,8 @@ async function sendRepoError(
   return await sendGitHubError(reply, err);
 }
 
-async function lokiStatusPayload(): Promise<LokiIntegrationStatus> {
-  const row = await getLokiIntegration();
+function lokiStatusPayload(): LokiIntegrationStatus {
+  const row = getLokiIntegration();
   if (!row) {
     return {
       configured: false,
@@ -171,8 +171,8 @@ async function sendLokiError(
   throw err;
 }
 
-async function sentryStatusPayload(): Promise<SentryIntegrationStatus> {
-  const row = await getSentryIntegration();
+function sentryStatusPayload(): SentryIntegrationStatus {
+  const row = getSentryIntegration();
   if (!row) {
     return {
       configured: false,
@@ -227,7 +227,7 @@ export async function registerIntegrationRoutes(
       config: { permission: { integration: ["read"] } },
       schema: answersGitHub,
     },
-    async () => await statusPayload(),
+    async () => statusPayload(),
   );
 
   // Sandbox prerequisites, checked when the user clicks Connect: fail
@@ -255,7 +255,7 @@ export async function registerIntegrationRoutes(
       },
     },
     async (request, reply) => {
-      const stored = await getGitHubIntegration();
+      const stored = getGitHubIntegration();
       const page = request.body.page ?? 1;
       const token = request.body.token;
       const list = async (t: string) => await listRepos(t, probeSignal(), page);
@@ -305,14 +305,14 @@ export async function registerIntegrationRoutes(
           owner,
           name,
         );
-        await saveGitHubIntegration({
+        saveGitHubIntegration({
           token,
           repoOwner: owner,
           repoName: name,
           tokenExpiresAt: validated.expiresAt,
         });
         logger.info({ repo }, "github integration configured");
-        return await reply.code(201).send(await statusPayload());
+        return await reply.code(201).send(statusPayload());
       } catch (err) {
         return await sendRepoError(reply, err, owner);
       }
@@ -328,7 +328,7 @@ export async function registerIntegrationRoutes(
       schema: { body: RebindBodySchema, ...answersGitHub },
     },
     async (request, reply) => {
-      const stored = await getGitHubIntegration();
+      const stored = getGitHubIntegration();
       if (!stored) {
         return reply.code(400).send({ error: "GitHub is not connected" });
       }
@@ -340,12 +340,12 @@ export async function registerIntegrationRoutes(
           async () =>
             await validateRepoAccess(stored.token, probeSignal(), owner, name),
         );
-        await updateGitHubIntegrationRepo(owner, name);
+        updateGitHubIntegrationRepo(owner, name);
         logger.info(
           { repo: request.body.repo },
           "github integration repository changed",
         );
-        return await reply.code(200).send(await statusPayload());
+        return await reply.code(200).send(statusPayload());
       } catch (err) {
         return await sendRepoError(reply, err, owner);
       }
@@ -360,7 +360,7 @@ export async function registerIntegrationRoutes(
       schema: answersGitHub,
     },
     async (_request, reply) => {
-      const stored = await getGitHubIntegration();
+      const stored = getGitHubIntegration();
       if (!stored) {
         return reply.code(400).send({ error: "GitHub is not connected" });
       }
@@ -375,7 +375,7 @@ export async function registerIntegrationRoutes(
               stored.repoName,
             ),
         );
-        return await statusPayload();
+        return statusPayload();
       } catch (err) {
         return await sendGitHubError(reply, err);
       }
@@ -392,7 +392,7 @@ export async function registerIntegrationRoutes(
     },
     async (_request, reply) => {
       await teardownAll("disconnected");
-      await deleteGitHubIntegration();
+      deleteGitHubIntegration();
       logger.info("github integration disconnected");
       return reply.code(204).send();
     },
@@ -406,7 +406,7 @@ export async function registerIntegrationRoutes(
   app.get(
     "/integrations/loki",
     { config: { permission: { integration: ["read"] } }, schema: answersLoki },
-    async () => await lokiStatusPayload(),
+    async () => lokiStatusPayload(),
   );
 
   // Probed before saving, because it exercises auth and the tenant header: a
@@ -424,13 +424,13 @@ export async function registerIntegrationRoutes(
       const { url, authHeader, orgId } = request.body;
       try {
         await probeLoki(url, authHeader ?? null, orgId ?? null, probeSignal());
-        await saveLokiIntegration({
+        saveLokiIntegration({
           baseUrl: url,
           orgId: orgId ?? null,
           authorization: authHeader ?? null,
         });
         logger.info({ url }, "loki integration configured");
-        return await reply.code(201).send(await lokiStatusPayload());
+        return await reply.code(201).send(lokiStatusPayload());
       } catch (err) {
         return await sendLokiError(reply, err);
       }
@@ -444,7 +444,7 @@ export async function registerIntegrationRoutes(
       schema: answersLoki,
     },
     async (_request, reply) => {
-      const stored = await getLokiIntegration();
+      const stored = getLokiIntegration();
       if (!stored) {
         return reply.code(400).send({ error: "Loki is not connected" });
       }
@@ -459,7 +459,7 @@ export async function registerIntegrationRoutes(
               probeSignal(),
             ),
         );
-        return await lokiStatusPayload();
+        return lokiStatusPayload();
       } catch (err) {
         return await sendLokiError(reply, err);
       }
@@ -473,7 +473,7 @@ export async function registerIntegrationRoutes(
       schema: refusalsOnly,
     },
     async (_request, reply) => {
-      await deleteLokiIntegration();
+      deleteLokiIntegration();
       logger.info("loki integration disconnected");
       return reply.code(204).send();
     },
@@ -490,7 +490,7 @@ export async function registerIntegrationRoutes(
       config: { permission: { integration: ["read"] } },
       schema: answersSentry,
     },
-    async () => await sentryStatusPayload(),
+    async () => sentryStatusPayload(),
   );
 
   // Probed on both scopes before saving: a token carrying only event:read would
@@ -508,9 +508,9 @@ export async function registerIntegrationRoutes(
       const { url, orgSlug, token } = request.body;
       try {
         await probeSentry({ baseUrl: url, orgSlug, token }, probeSignal());
-        await saveSentryIntegration({ baseUrl: url, orgSlug, token });
+        saveSentryIntegration({ baseUrl: url, orgSlug, token });
         logger.info({ url, orgSlug }, "sentry integration configured");
-        return await reply.code(201).send(await sentryStatusPayload());
+        return await reply.code(201).send(sentryStatusPayload());
       } catch (err) {
         return await sendSentryError(reply, err);
       }
@@ -524,7 +524,7 @@ export async function registerIntegrationRoutes(
       schema: answersSentry,
     },
     async (_request, reply) => {
-      const stored = await getSentryIntegration();
+      const stored = getSentryIntegration();
       if (!stored) {
         return reply.code(400).send({ error: "Sentry is not connected" });
       }
@@ -533,7 +533,7 @@ export async function registerIntegrationRoutes(
           stored.id,
           async () => await probeSentry(stored, probeSignal()),
         );
-        return await sentryStatusPayload();
+        return sentryStatusPayload();
       } catch (err) {
         return await sendSentryError(reply, err);
       }
@@ -547,7 +547,7 @@ export async function registerIntegrationRoutes(
       schema: refusalsOnly,
     },
     async (_request, reply) => {
-      await deleteSentryIntegration();
+      deleteSentryIntegration();
       logger.info("sentry integration disconnected");
       return reply.code(204).send();
     },
@@ -578,7 +578,7 @@ export async function registerIntegrationRoutes(
       },
     },
     async (request): Promise<AlertSourceStatus> => {
-      const source = await getAlertSource(senderOf(request.params));
+      const source = getAlertSource(senderOf(request.params));
       return {
         configured: source !== null,
         ingestUrl: `${publicUrl(request)}/api/alerts/ingest`,
@@ -598,7 +598,7 @@ export async function registerIntegrationRoutes(
     },
     async (request, reply) =>
       reply.code(201).send({
-        token: await generateAlertSourceToken(senderOf(request.params)),
+        token: generateAlertSourceToken(senderOf(request.params)),
       }),
   );
 
@@ -608,7 +608,7 @@ export async function registerIntegrationRoutes(
     "/integrations/alerting/:kind",
     { ...manageSender, schema: { params, ...refusalsOnly } },
     async (request, reply) => {
-      await deleteAlertSource(senderOf(request.params));
+      deleteAlertSource(senderOf(request.params));
       logger.info({ kind: request.params.kind }, "alert source disconnected");
       return reply.code(204).send();
     },

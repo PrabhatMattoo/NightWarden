@@ -173,10 +173,10 @@ async function run(
 
 // A read the model has already seen: the call and its clean result on the
 // transcript, which is what unlocks an edit.
-async function seedSeenRead(sessionId: string, path: string): Promise<void> {
-  const seq = await getNextSeq(sessionId);
+function seedSeenRead(sessionId: string, path: string): void {
+  const seq = getNextSeq(sessionId);
   const callId = `seen-${sessionId}-${seq}`;
-  await appendTranscriptRows([
+  appendTranscriptRows([
     {
       sessionId,
       seq,
@@ -205,20 +205,20 @@ async function seedSeenRead(sessionId: string, path: string): Promise<void> {
 
 let cleanupDb: () => void;
 
-beforeAll(async () => {
-  cleanupDb = await useTempDb();
+beforeAll(() => {
+  cleanupDb = useTempDb();
   // Network detachment is exercised in sandbox-workspace tests; keep these
   // tool tests on the open path so the mock needs no network machinery.
-  await updateConfig({ sandboxNetwork: "open" });
+  updateConfig({ sandboxNetwork: "open" });
   installGitMock();
   installDockerMock();
-  await saveGitHubIntegration({
+  saveGitHubIntegration({
     token: "github_pat_fixture",
     repoOwner: "acme",
     repoName: "api",
     tokenExpiresAt: null,
   });
-  await createSession({
+  createSession({
     sessionId: SESSION_ID,
     title: "t",
     createdAt: new Date().toISOString(),
@@ -248,13 +248,13 @@ describe("offering gate", () => {
 
 describe("repo tools through registry dispatch", () => {
   it("returns a corrective error when the integration is missing", async () => {
-    await deleteGitHubIntegration();
+    deleteGitHubIntegration();
     try {
       const result = await run("Read", { path: "src/app.ts" });
       expect(result.isError).toBe(true);
       expect(result.content).toContain("Integrations page");
     } finally {
-      await saveGitHubIntegration({
+      saveGitHubIntegration({
         token: "github_pat_fixture",
         repoOwner: "acme",
         repoName: "api",
@@ -268,7 +268,7 @@ describe("repo tools through registry dispatch", () => {
     expect(read.isError).toBeUndefined();
     expect(read.content).toContain("1\tconst a = 1;");
 
-    await seedSeenRead(SESSION_ID, "src/app.ts");
+    seedSeenRead(SESSION_ID, "src/app.ts");
     const edit = await run("Edit", {
       path: "src/app.ts",
       old_string: "const a = 1;",
@@ -325,13 +325,13 @@ describe("repo tools through registry dispatch", () => {
       },
       { toolUses: [], text: "Done." },
     ]);
-    await seedChatSession(sessionId, "fix the repo");
+    seedChatSession(sessionId, "fix the repo");
     await runSession(
       { sessionId, userMessage: "fix the repo" },
       scripted.modelFor,
     );
 
-    const parts = (await getTranscriptRows(sessionId)).flatMap((r) => r.parts);
+    const parts = getTranscriptRows(sessionId).flatMap((r) => r.parts);
     const edit = parts.find(
       (p): p is Extract<MessagePart, { type: "tool_result" }> =>
         p.type === "tool_result" && p.toolCallId === "e1",
@@ -344,13 +344,13 @@ describe("repo tools through registry dispatch", () => {
     // This session's workspace has never existed, so the seen read can only
     // come from the transcript result below - which is the point.
     const resumed = "aaaabbbb-0000-4000-8000-0000000000ff";
-    await createSession({
+    createSession({
       sessionId: resumed,
       title: "t",
       createdAt: new Date().toISOString(),
     });
-    const seq = await getNextSeq(resumed);
-    await appendTranscriptRows([
+    const seq = getNextSeq(resumed);
+    appendTranscriptRows([
       {
         sessionId: resumed,
         seq,
@@ -392,7 +392,7 @@ describe("repo tools through registry dispatch", () => {
   });
 
   it("fails loudly on a non-unique old_string and honours replace_all", async () => {
-    await seedSeenRead(SESSION_ID, "src/app.ts");
+    seedSeenRead(SESSION_ID, "src/app.ts");
     const ambiguous = await run("Edit", {
       path: "src/app.ts",
       old_string: '"OLD"',
@@ -474,14 +474,14 @@ describe("repo tools through registry dispatch", () => {
       },
       { toolUses: [], text: "Done." },
     ]);
-    await seedChatSession(sessionId, "look at the repo");
+    seedChatSession(sessionId, "look at the repo");
     const before = scripted.requests.length;
     await runSession(
       { sessionId, userMessage: "look at the repo" },
       scripted.modelFor,
     );
 
-    const rows = await getTranscriptRows(sessionId);
+    const rows = getTranscriptRows(sessionId);
     expect(rows.filter((r) => r.reminder === "sandbox_ready")).toHaveLength(1);
     const sentAfterFirstRead = messagesSentTo(scripted, before + 1)
       .flatMap((m) => m.texts)
@@ -541,7 +541,7 @@ describe("repo work and the time budget", () => {
   ): Promise<void> {
     const gates = createGateController();
     scripted.park(gates.gate);
-    await updateConfig({ checkInAfterMs: 300 });
+    updateConfig({ checkInAfterMs: 300 });
     scripted.script([
       {
         toolUses: [
@@ -552,7 +552,7 @@ describe("repo work and the time budget", () => {
       { toolUses: [], text: "Done." },
     ]);
 
-    await seedChatSession(sessionId, "fix the repo");
+    seedChatSession(sessionId, "fix the repo");
     const run = runSession(
       { sessionId, userMessage: "fix the repo" },
       scripted.modelFor,
@@ -571,6 +571,6 @@ describe("repo work and the time budget", () => {
 
     await runPastTheBudget(sessionId, "Read");
 
-    expect(await hasPendingHumanInput(sessionId)).toBe(true);
+    expect(hasPendingHumanInput(sessionId)).toBe(true);
   });
 });

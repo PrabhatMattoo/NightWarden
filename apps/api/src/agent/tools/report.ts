@@ -152,7 +152,7 @@ export const REPORT_TOOLS: Tool[] = [
     policy: "auto",
     citable: false,
     execute: async (input, ctx): Promise<ToolExecuteResult> =>
-      toResult(await openCandidates(ctx.sessionId, input)),
+      toResult(openCandidates(ctx.sessionId, input)),
   }),
   apiTool({
     name: "CloseInvestigation",
@@ -165,7 +165,7 @@ export const REPORT_TOOLS: Tool[] = [
     /* The gate the ending already answers to, asked here instead of at silence:
        a gap is the model's to close, so the refusal names it and the run goes on. */
     execute: async (_input, ctx): Promise<ToolExecuteResult> => {
-      const gaps = await recordGaps(ctx.sessionId);
+      const gaps = recordGaps(ctx.sessionId);
       return gaps.length === 0
         ? { content: "Accepted. Every candidate you opened carries a finding." }
         : {
@@ -187,7 +187,7 @@ export const REPORT_TOOLS: Tool[] = [
     policy: "auto",
     citable: false,
     execute: async (input, ctx): Promise<ToolExecuteResult> =>
-      toResult(await recordFinding(ctx.sessionId, input)),
+      toResult(recordFinding(ctx.sessionId, input)),
   }),
 ];
 
@@ -205,7 +205,7 @@ export const COMPOSE_REPORT_TOOL: Tool = apiTool({
     const { headline, affected, summary, timeline, impact, recommendation } =
       input;
     return toResult(
-      await composeReport(ctx.sessionId, {
+      composeReport(ctx.sessionId, {
         headline,
         affected,
         summary,

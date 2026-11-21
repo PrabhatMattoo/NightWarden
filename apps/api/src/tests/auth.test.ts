@@ -1,9 +1,11 @@
+import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { FastifyInstance } from "fastify";
 import type { AuthStatusResponse } from "@nightwarden/shared";
 import { useTempDb } from "./temp-db.js";
 import { getAuth, resetAuth } from "../auth/instance.js";
 import { getDb } from "../db.js";
+import { user } from "../auth/schema.js";
 import { buildServer as buildApiServer } from "../server.js";
 
 const OWNER = {
@@ -64,7 +66,7 @@ describe("the first account", () => {
   let cleanupDb: () => void;
 
   beforeAll(async () => {
-    cleanupDb = await useTempDb();
+    cleanupDb = useTempDb();
     server = await buildServer();
   });
 
@@ -108,11 +110,11 @@ describe("the first account", () => {
         name: "Colleague",
       },
     });
-    const colleague = await getDb()
-      .selectFrom("user")
-      .select("role")
-      .where("email", "=", "colleague@example.com")
-      .executeTakeFirst();
+    const colleague = getDb()
+      .select({ role: user.role })
+      .from(user)
+      .where(eq(user.email, "colleague@example.com"))
+      .get();
     expect(colleague?.role).toBe("member");
   });
 
@@ -138,7 +140,7 @@ describe("GET /auth-status", () => {
   let cleanupDb: () => void;
 
   beforeAll(async () => {
-    cleanupDb = await useTempDb();
+    cleanupDb = useTempDb();
     server = await buildServer();
   });
 
@@ -258,7 +260,7 @@ describe("trusted origins", () => {
   }
 
   beforeAll(async () => {
-    cleanupDb = await useTempDb();
+    cleanupDb = useTempDb();
     vi.stubEnv("NIGHTWARDEN_PUBLIC_URL", PUBLIC_URL);
     vi.stubEnv(
       "NIGHTWARDEN_TRUSTED_ORIGINS",
@@ -299,7 +301,7 @@ describe("the authorization gate", () => {
   let cookie: string;
 
   beforeAll(async () => {
-    cleanupDb = await useTempDb();
+    cleanupDb = useTempDb();
     server = await buildServer();
     cookie = cookieFrom(await signUp(server, OWNER));
   });

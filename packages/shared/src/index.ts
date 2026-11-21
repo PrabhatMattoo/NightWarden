@@ -118,7 +118,14 @@ export type {
   SessionKind,
   StatusFilter,
 } from "./sessions.js";
-export { FILTER_STATUSES, STATUS_FILTERS } from "./sessions.js";
+export {
+  AWAITING_KINDS,
+  FAILURE_KINDS,
+  FILTER_STATUSES,
+  INVESTIGATION_STATUSES,
+  REMINDER_KINDS,
+  STATUS_FILTERS,
+} from "./sessions.js";
 export type {
   TextPart,
   ReasoningPart,

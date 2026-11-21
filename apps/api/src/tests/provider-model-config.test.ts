@@ -128,11 +128,11 @@ describe("provider/model config seam", () => {
   }
 
   async function describedModels(): Promise<CatalogModel[]> {
-    const { provider } = await loadConfig();
+    const { provider } = loadConfig();
     const catalog = await fetchCatalog(
       provider ?? "anthropic",
       undefined,
-      (await loadApiKey(provider ?? "anthropic")) ?? "",
+      loadApiKey(provider ?? "anthropic") ?? "",
     );
     if (!catalog.ok) throw new Error(`catalog failed: ${catalog.error}`);
     return catalog.models;
@@ -149,13 +149,13 @@ describe("provider/model config seam", () => {
   }
 
   // Switches the active block, so a case reads the catalogue as that provider.
-  async function useProvider(name: "openai" | "openrouter"): Promise<void> {
-    await updateProvider(name, { model: "a-model", apiKey: "a-key" });
-    await updateConfig({ provider: name });
+  function useProvider(name: "openai" | "openrouter"): void {
+    updateProvider(name, { model: "a-model", apiKey: "a-key" });
+    updateConfig({ provider: name });
   }
 
-  const useOpenAI = (): Promise<void> => useProvider("openai");
-  const useOpenRouter = (): Promise<void> => useProvider("openrouter");
+  const useOpenAI = (): void => useProvider("openai");
+  const useOpenRouter = (): void => useProvider("openrouter");
 
   // Listing the catalog is also how a block is verified, so these cover both.
 
@@ -228,7 +228,7 @@ describe("provider/model config seam", () => {
   it("POST /config/models: falls back to the saved key when none is typed", async () => {
     // Written here rather than relying on the fixture: the stored key is
     // encrypted with whichever NIGHTWARDEN_SECRET_KEY was live when it was written.
-    await updateProvider("anthropic", { apiKey: "saved-key" });
+    updateProvider("anthropic", { apiKey: "saved-key" });
     let sawAuth = "";
     vi.stubGlobal(
       "fetch",
@@ -252,7 +252,7 @@ describe("provider/model config seam", () => {
   /* The same rejection means two things, and only the key that was sent tells
      them apart. Paired with the bad-key case above, which sends one. */
   it("POST /config/models: reads a rejection carrying no key as needing one", async () => {
-    await clearTestLLM();
+    clearTestLLM();
     stubFetch(() => mockResponse(401, {}));
     try {
       const res = await nw.server.inject({
@@ -264,12 +264,12 @@ describe("provider/model config seam", () => {
 
       expect(JSON.parse(res.body)).toEqual({ ok: false, error: "needs_key" });
     } finally {
-      await configureTestLLM();
+      configureTestLLM();
     }
   });
 
   it("POST /config/models: OpenRouter lists models with no key, because it publishes them", async () => {
-    await clearTestLLM();
+    clearTestLLM();
     stubFetch(() => mockResponse(200, { data: [{ id: "openai/gpt-5" }] }));
     try {
       const res = await nw.server.inject({
@@ -281,7 +281,7 @@ describe("provider/model config seam", () => {
 
       expect(JSON.parse(res.body)).toMatchObject({ ok: true });
     } finally {
-      await configureTestLLM();
+      configureTestLLM();
     }
   });
 
@@ -347,8 +347,8 @@ describe("provider/model config seam", () => {
   });
 
   describe("saving a model", () => {
-    afterEach(async () => {
-      await configureTestLLM();
+    afterEach(() => {
+      configureTestLLM();
     });
 
     async function patchModel(
@@ -417,8 +417,8 @@ describe("provider/model config seam", () => {
   describe("model capabilities", () => {
     // Anthropic is the baseline useTempDb installs; a case that switches away
     // must not leak that choice into the next one.
-    afterEach(async () => {
-      await configureTestLLM();
+    afterEach(() => {
+      configureTestLLM();
     });
 
     it("reads the ladder and both limits from the snapshot", async () => {
@@ -504,7 +504,7 @@ describe("provider/model config seam", () => {
     });
 
     it("OpenAI: offers compaction on a reasoning model and on no other", async () => {
-      await useOpenAI();
+      useOpenAI();
       stubCatalog([listed("gpt-5.6"), listed("gpt-4o")], {
         "gpt-5.6": published(),
         "gpt-4o": published({ reasoning: false, reasoning_options: [] }),
@@ -519,7 +519,7 @@ describe("provider/model config seam", () => {
     // The gateway drops messages from the middle rather than summarising, which
     // in an agentic transcript is where every tool result lives.
     it("OpenRouter: never claims compaction", async () => {
-      await useOpenRouter();
+      useOpenRouter();
       stubCatalog([listed("anthropic/claude-opus-5")], {
         "anthropic/claude-opus-5": published(),
       });
@@ -637,12 +637,12 @@ describe("provider/model config seam", () => {
   });
 
   describe("an install nobody has configured", () => {
-    beforeEach(async () => {
-      await clearTestLLM();
+    beforeEach(() => {
+      clearTestLLM();
     });
 
-    afterEach(async () => {
-      await configureTestLLM();
+    afterEach(() => {
+      configureTestLLM();
     });
 
     it("GET /config reports no provider and no model rather than guessing one, while keeping the operational defaults", async () => {

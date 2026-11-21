@@ -33,9 +33,9 @@ export function toProviderMessage(row: TranscriptRow): ProviderMessage {
 
 // An error row and the dead exchange it terminates drop back to the last clean
 // assistant turn, so the stage derives from what the model is actually handed.
-export async function seedRows(sessionId: string): Promise<TranscriptRow[]> {
+export function seedRows(sessionId: string): TranscriptRow[] {
   const rows: TranscriptRow[] = [];
-  for (const message of await getTranscriptRows(sessionId)) {
+  for (const message of getTranscriptRows(sessionId)) {
     if (message.kind !== "error") {
       rows.push(message);
       continue;
@@ -51,6 +51,6 @@ export async function seedRows(sessionId: string): Promise<TranscriptRow[]> {
   return throughLastAnsweredExchange(rows);
 }
 
-export async function buildSeed(sessionId: string): Promise<ProviderMessage[]> {
-  return (await seedRows(sessionId)).map(toProviderMessage);
+export function buildSeed(sessionId: string): ProviderMessage[] {
+  return seedRows(sessionId).map(toProviderMessage);
 }

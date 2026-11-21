@@ -174,7 +174,7 @@ export const GITHUB_TOOLS: Tool[] = [
     renderAs: "change",
     timeoutMs: 60_000,
     execute: async (input, ctx): Promise<ToolExecuteResult> => {
-      const integration = await getGitHubIntegration();
+      const integration = getGitHubIntegration();
       if (integration === null) {
         return {
           content:
@@ -185,7 +185,7 @@ export const GITHUB_TOOLS: Tool[] = [
       const { repoOwner, repoName } = integration;
 
       // The window ends at the alert: a change merged after it fired cannot have caused it.
-      const windowEnd = await alertAnchorFor(ctx.sessionId);
+      const windowEnd = alertAnchorFor(ctx.sessionId);
       const windowStart = new Date(
         windowEnd.getTime() - input.windowHours * 3_600_000,
       );

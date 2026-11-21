@@ -66,11 +66,11 @@ async function withValidLevel(
 ): Promise<ProviderPatch> {
   if (patch.model === undefined || patch.model === null) return patch;
 
-  const config = await loadConfig();
+  const config = loadConfig();
   const models = await catalogFor(
     provider,
     patch.baseUrl ?? config.providers[provider].baseUrl,
-    (await loadApiKey(provider)) ?? "",
+    loadApiKey(provider) ?? "",
   );
   const chosen = models.find((m) => m.id === patch.model);
   if (chosen === undefined) return patch;
@@ -99,7 +99,7 @@ export async function registerConfigRoutes(
   app.get(
     "/config",
     { config: { permission: { settings: ["read"] } }, schema: answersConfig },
-    async () => await loadConfig(),
+    async () => loadConfig(),
   );
 
   app.patch(
@@ -115,9 +115,9 @@ export async function registerConfigRoutes(
       for (const name of PROVIDER_OPTIONS.map((p) => p.name)) {
         const block = providers?.[name];
         if (block !== undefined)
-          await updateProvider(name, await withValidLevel(name, block));
+          updateProvider(name, await withValidLevel(name, block));
       }
-      const updated = await updateConfig(global);
+      const updated = updateConfig(global);
       logger.info(
         { keys: Object.keys(global), providers: Object.keys(providers ?? {}) },
         "agent config updated",
@@ -140,7 +140,7 @@ export async function registerConfigRoutes(
     async (request): Promise<ModelCatalog> => {
       const { provider, baseUrl, apiKey } = request.body;
 
-      const config = await loadConfig();
+      const config = loadConfig();
       const target = provider ?? config.provider;
       // Nothing to list until a provider is chosen.
       if (target === null || target === undefined) {
@@ -149,7 +149,7 @@ export async function registerConfigRoutes(
       const stored = config.providers[target];
       // A typed key wins, otherwise the saved one, so changing a model or an
       // endpoint needs no re-pasting.
-      const effectiveKey = apiKey ?? (await loadApiKey(target)) ?? "";
+      const effectiveKey = apiKey ?? loadApiKey(target) ?? "";
 
       const catalog = await fetchCatalog(
         target,
@@ -179,13 +179,13 @@ export async function registerConfigRoutes(
     },
     async (request): Promise<ModelCheck> => {
       const { provider, model, apiKey } = request.body;
-      const stored = (await loadConfig()).providers[provider];
+      const stored = loadConfig().providers[provider];
       const baseUrl = baseUrlFor(
         provider,
         request.body.baseUrl ?? stored.baseUrl,
       );
       if (baseUrl === null) return { ok: false, reason: "needs_url" };
-      const key = apiKey ?? (await loadApiKey(provider)) ?? "";
+      const key = apiKey ?? loadApiKey(provider) ?? "";
       const check = await checkModelCallsTool(
         modelFor({ provider, model, baseUrl }, key),
       );
@@ -208,7 +208,7 @@ export async function registerConfigRoutes(
     },
     async (request) => {
       const { provider, apiKey } = request.body;
-      await updateProvider(provider, { apiKey });
+      updateProvider(provider, { apiKey });
       return { provider, apiKeyMasked: maskKey(apiKey) };
     },
   );

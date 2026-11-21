@@ -54,7 +54,7 @@ export async function registerAuthRoutes(
       },
     },
     async (request): Promise<AuthStatusResponse> => {
-      if (!(await ownerExists())) return { ownerExists: false };
+      if (!ownerExists()) return { ownerExists: false };
       const user = await currentUser(request);
       if (!user) return { ownerExists: true, authenticated: false };
       return {

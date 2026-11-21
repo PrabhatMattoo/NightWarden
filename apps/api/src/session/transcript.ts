@@ -78,14 +78,14 @@ function priorRunsOf(
 
 // Read from the report column, since the write-up is not a turn. A session
 // parked on a human has not reached that turn, so it gets no card.
-async function reportCard(sessionId: string): Promise<TranscriptItem | null> {
-  const session = await getSession(sessionId);
+function reportCard(sessionId: string): TranscriptItem | null {
+  const session = getSession(sessionId);
   if (session === undefined || !session.investigation) return null;
-  const report = (await getRecord(sessionId))?.report ?? null;
+  const report = getRecord(sessionId)?.report ?? null;
   if (report != null) {
     // A run in flight writes this again over the same column, so without the
     // building state a follow-up reads as finished the moment it starts.
-    const phase = (await isRunning(sessionId)) ? "building" : "ready";
+    const phase = isRunning(sessionId) ? "building" : "ready";
     return {
       kind: "report_card",
       id: "report",
@@ -93,11 +93,10 @@ async function reportCard(sessionId: string): Promise<TranscriptItem | null> {
       headline: report.headline,
     };
   }
-  if ((await isRunning(sessionId)) || (await hasPendingHumanInput(sessionId)))
-    return null;
+  if (isRunning(sessionId) || hasPendingHumanInput(sessionId)) return null;
   /* Owed only once the record is complete, which is also what unlocks the report
      turn. Between two runs of one investigation a candidate is still open. */
-  const record = await getRecord(sessionId);
+  const record = getRecord(sessionId);
   if (record === undefined || record.findings.length === 0) return null;
   if (openCandidateIds(record).length > 0) return null;
   return { kind: "report_card", id: "report", state: { phase: "failed" } };
@@ -164,17 +163,15 @@ const MAX_BOARD_NOTE_CHARS = 140;
 
 // Everything the frontend needs about a call is decided here, so the browser
 // never reconciles two sources against each other.
-export async function buildTranscript(
-  sessionId: string,
-): Promise<TranscriptItem[]> {
-  const messages: TranscriptRow[] = await getTranscriptRows(sessionId);
+export function buildTranscript(sessionId: string): TranscriptItem[] {
+  const messages: TranscriptRow[] = getTranscriptRows(sessionId);
   // The board is docked rather than drawn in the stream, so one item carries the
   // live state wherever the reader is scrolled.
-  const record = await getRecord(sessionId);
+  const record = getRecord(sessionId);
   let candidateCardDrawn = false;
   // Which call is waiting, and of what kind. What that call was comes from the
   // transcript rows below, which hold it already.
-  const pending = (await getPendingHumanInputBySessionId(sessionId)) ?? null;
+  const pending = getPendingHumanInputBySessionId(sessionId) ?? null;
 
   // Not reconstructed from the tool's name: that cannot tell a call a person
   // released from one the harness refused without drawing a card.
@@ -205,7 +202,7 @@ export async function buildTranscript(
     }
   }
 
-  const alerts = (await getSession(sessionId))?.alerts ?? [];
+  const alerts = getSession(sessionId)?.alerts ?? [];
   // Separated by the row rather than by compared clocks: whether an alert opened
   // the session or interrupted it is known at the moment it is written.
   const arrivals = alerts.filter((entry) => entry.injected);
@@ -391,7 +388,7 @@ export async function buildTranscript(
   }
 
   // Last, because writing up is the last thing a run does.
-  const report = await reportCard(sessionId);
+  const report = reportCard(sessionId);
   if (report !== null) items.push(report);
 
   return items;

@@ -23,10 +23,8 @@ function isAlertSourceRow(row: IntegrationRow): boolean {
   return isAlertSourceKind(row.kind);
 }
 
-export async function getAlertSource(
-  kind: AlertSourceKind,
-): Promise<AlertSourceRow | null> {
-  const row = await integrationOfKind(kind);
+export function getAlertSource(kind: AlertSourceKind): AlertSourceRow | null {
+  const row = integrationOfKind(kind);
   if (row === null) return null;
   return {
     kind: row.kind,
@@ -37,12 +35,10 @@ export async function getAlertSource(
 
 /* Rotation resets the delivery stamp: deliveries made with the previous
    credential prove nothing about the new one, so status regresses to waiting. */
-export async function generateAlertSourceToken(
-  kind: AlertSourceKind,
-): Promise<string> {
+export function generateAlertSourceToken(kind: AlertSourceKind): string {
   const plaintext = issueToken("nwi");
-  const existing = await integrationOfKind(kind);
-  await putIntegration(
+  const existing = integrationOfKind(kind);
+  putIntegration(
     {
       kind,
       name:
@@ -58,24 +54,19 @@ export async function generateAlertSourceToken(
   return plaintext;
 }
 
-export async function setAlertSourceReceived(
-  kind: string,
-  receivedAt: string,
-): Promise<void> {
-  const row = await integrationOfKind(kind);
-  if (row !== null) await touchIntegration(row.id, receivedAt);
+export function setAlertSourceReceived(kind: string, receivedAt: string): void {
+  const row = integrationOfKind(kind);
+  if (row !== null) touchIntegration(row.id, receivedAt);
 }
 
-export async function deleteAlertSource(kind: AlertSourceKind): Promise<void> {
-  await deleteIntegrationsOfKind(kind);
+export function deleteAlertSource(kind: AlertSourceKind): void {
+  deleteIntegrationsOfKind(kind);
 }
 
 /* Compared in constant time against every sender rather than looked up by
    index, because an indexed lookup on a secret leaks timing. */
-export async function findAlertSourceKindByToken(
-  plaintext: string,
-): Promise<string | null> {
-  for (const row of await allIntegrations()) {
+export function findAlertSourceKindByToken(plaintext: string): string | null {
+  for (const row of allIntegrations()) {
     if (!isAlertSourceRow(row) || row.tokenHash === null) continue;
     if (tokenMatches(plaintext, row.tokenHash)) return row.kind;
   }

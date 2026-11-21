@@ -171,7 +171,7 @@ describe("policy-gate: gating is driven by tool policy", () => {
       ),
     ).toBe(false);
 
-    expect(await hasPendingHumanInput(sessionId)).toBe(false);
+    expect(hasPendingHumanInput(sessionId)).toBe(false);
 
     close();
   });
@@ -222,7 +222,7 @@ describe("policy-gate: gating is driven by tool policy", () => {
 
     // Runner must NOT have executed the write yet
     expect(executedCommands).not.toContain("RestartDockerService");
-    expect(await hasPendingHumanInput(sessionId)).toBe(true);
+    expect(hasPendingHumanInput(sessionId)).toBe(true);
 
     close();
 
@@ -234,7 +234,7 @@ describe("policy-gate: gating is driven by tool policy", () => {
       },
       body: JSON.stringify({ decision: "reject" }),
     });
-    await waitFor(async () => !(await hasPendingHumanInput(sessionId)));
+    await waitFor(() => !hasPendingHumanInput(sessionId));
   });
 
   it("ask tool suspends with clarification card: HUMAN_INPUT_REQUIRED kind=clarification, question+options forwarded", async () => {
@@ -280,7 +280,7 @@ describe("policy-gate: gating is driven by tool policy", () => {
       "What is the most likely root cause?",
     );
     expect(interrupt.payload["options"]).toEqual(CLARIFICATION_OPTIONS);
-    expect(await hasPendingHumanInput(sessionId)).toBe(true);
+    expect(hasPendingHumanInput(sessionId)).toBe(true);
 
     close();
 
@@ -292,7 +292,7 @@ describe("policy-gate: gating is driven by tool policy", () => {
       },
       body: JSON.stringify({ text: "cleanup" }),
     });
-    await waitFor(async () => !(await hasPendingHumanInput(sessionId)));
+    await waitFor(() => !hasPendingHumanInput(sessionId));
   });
 
   it("combined: read executes, ask suspends, after answer write suspends, after approval run completes", async () => {
@@ -414,8 +414,8 @@ describe("policy-gate: gating is driven by tool policy", () => {
       executedCommands.filter((c) => c === "RestartDockerService"),
     ).toHaveLength(1);
 
-    await waitFor(async () => !(await hasPendingHumanInput(sessionId)));
-    expect(await hasPendingHumanInput(sessionId)).toBe(false);
+    await waitFor(() => !hasPendingHumanInput(sessionId));
+    expect(hasPendingHumanInput(sessionId)).toBe(false);
 
     close();
   });

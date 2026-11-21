@@ -38,8 +38,8 @@ describe("toolset assembly by fleet capabilities", () => {
     /* The prompt assertions below read the connected metrics sources, so without
        this the suite opens the real ~/.nightwarden database. */
     let cleanupDb: () => void;
-    beforeAll(async () => {
-      cleanupDb = await useTempDb();
+    beforeAll(() => {
+      cleanupDb = useTempDb();
     });
     afterAll(() => cleanupDb());
 
@@ -334,7 +334,7 @@ describe("toolset assembly by fleet capabilities", () => {
 
       // And across runs: a follow-up on the same chat is still a chat.
       setScript([{ text: "Nothing has changed.", toolUses: [] }]);
-      await waitFor(async () => !(await isRunning(sessionId)));
+      await waitFor(() => !isRunning(sessionId));
 
       const resumed = scripted.requests.length;
       const followUp = await fetch(
@@ -349,7 +349,7 @@ describe("toolset assembly by fleet capabilities", () => {
         },
       );
       expect(followUp.status).toBe(202);
-      await waitFor(async () => !(await isRunning(sessionId)));
+      await waitFor(() => !isRunning(sessionId));
 
       expect(toolsSentTo(scripted, resumed)).toContain("ReadToolResult");
       expect(toolsSentTo(scripted, resumed)).not.toContain("RecordFinding");
@@ -360,8 +360,8 @@ describe("toolset assembly by fleet capabilities", () => {
      Told nothing, the model reads that as the rules having moved. */
   describe("a toolset that changes mid-run", () => {
     let cleanupDb: () => void;
-    beforeAll(async () => {
-      cleanupDb = await useTempDb();
+    beforeAll(() => {
+      cleanupDb = useTempDb();
     });
     afterAll(() => cleanupDb());
 
@@ -371,7 +371,7 @@ describe("toolset assembly by fleet capabilities", () => {
       let inFlight = 0;
       scripted.park(async () => {
         if (inFlight++ > 0) return;
-        await saveLokiIntegration({
+        saveLokiIntegration({
           baseUrl: "http://loki.internal:3100",
           orgId: null,
           authorization: null,
@@ -389,7 +389,7 @@ describe("toolset assembly by fleet capabilities", () => {
       ]);
 
       const sessionId = randomUUID();
-      await seedChatSession(sessionId, "what is running?");
+      seedChatSession(sessionId, "what is running?");
       await runSession(
         { sessionId, userMessage: "what is running?" },
         scripted.modelFor,
@@ -405,7 +405,7 @@ describe("toolset assembly by fleet capabilities", () => {
       // And the tool is actually on the next request, not only announced.
       expect(toolsSentTo(scripted, first + 1)).toContain("QueryLogs");
 
-      await deleteLokiIntegration();
+      deleteLokiIntegration();
     });
   });
 });

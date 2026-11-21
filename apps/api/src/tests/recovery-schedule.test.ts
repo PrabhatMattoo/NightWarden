@@ -11,8 +11,8 @@ import { useTempDb } from "./temp-db.js";
 describe("how often an open condition is asked about", () => {
   let cleanupDb: () => void;
 
-  beforeAll(async () => {
-    cleanupDb = await useTempDb();
+  beforeAll(() => {
+    cleanupDb = useTempDb();
   });
 
   afterAll(() => cleanupDb());
@@ -20,11 +20,8 @@ describe("how often an open condition is asked about", () => {
   const MINUTE = 60_000;
 
   // One session watching one uncleared alert, aged by choosing when it opened.
-  async function watching(
-    sourceAlertId: string,
-    openedAt: number,
-  ): Promise<void> {
-    await seedAlertSession(
+  function watching(sourceAlertId: string, openedAt: number): void {
+    seedAlertSession(
       {
         sessionId: randomUUID(),
         title: "t",
@@ -49,7 +46,7 @@ describe("how often an open condition is asked about", () => {
 
   it("asks about once a minute while the incident is fresh", async () => {
     const opened = Date.now();
-    await watching("cadence-fresh", opened);
+    watching("cadence-fresh", opened);
 
     expect(await asksAt(opened)).toBe(1);
     expect(await asksAt(opened + 30_000)).toBe(0);

@@ -12,14 +12,14 @@ type LLMReadiness =
 type LLMRequirement = "provider" | "model" | "API key" | "base URL";
 
 export async function checkLLMReadiness(): Promise<LLMReadiness> {
-  const config = await loadConfig();
+  const config = loadConfig();
   const provider = config.provider;
   if (provider === null) {
     return { ready: false, missing: ["provider", "model", "API key"] };
   }
 
   const settings = config.providers[provider];
-  const apiKey = (await loadApiKey(provider)) ?? "";
+  const apiKey = loadApiKey(provider) ?? "";
   const model = settings.model;
   // An open server needs no key; a provider with no default address needs one.
   const noKey = optionFor(provider).requiresKey && apiKey === "";

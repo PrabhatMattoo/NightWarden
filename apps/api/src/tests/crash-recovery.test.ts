@@ -1,6 +1,7 @@
 import { fakeModel } from "./fake-model.js";
 import { randomUUID } from "node:crypto";
 import { seedAlertSession } from "./session-helper.js";
+import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { NormalizedAlert, TranscriptRow } from "@nightwarden/shared";
 import { dispatcherFor } from "../server.js";
@@ -10,6 +11,7 @@ const scripted = fakeModel();
 const dispatcher = dispatcherFor(scripted.modelFor);
 
 import { getDb } from "../db.js";
+import { sessions } from "../session/schema.js";
 import {
   claimRun,
   deriveStatus,
@@ -38,9 +40,9 @@ const alert: NormalizedAlert = {
   values: {},
 };
 
-async function alertSession(): Promise<string> {
+function alertSession(): string {
   const sessionId = randomUUID();
-  await seedAlertSession(
+  seedAlertSession(
     { sessionId, title: "t", createdAt: new Date().toISOString() },
     [{ ...alert, sourceAlertId: sessionId }],
   );
@@ -63,8 +65,8 @@ function callTurn(
   };
 }
 
-async function parkOnApproval(sessionId: string): Promise<void> {
-  await appendRowsAndPark(
+function parkOnApproval(sessionId: string): void {
+  appendRowsAndPark(
     [callTurn(sessionId, 0, "tu-gated", "RestartDockerService")],
     {
       sessionId,
@@ -79,8 +81,8 @@ async function parkOnApproval(sessionId: string): Promise<void> {
 describe("recovering runs a restart interrupted", () => {
   let cleanupDb: () => void;
 
-  beforeAll(async () => {
-    cleanupDb = await useTempDb();
+  beforeAll(() => {
+    cleanupDb = useTempDb();
   });
 
   afterAll(() => {
@@ -89,18 +91,18 @@ describe("recovering runs a restart interrupted", () => {
 
   it("fails a run killed mid-turn as transient, answers its call as interrupted, and the reconciler retries it", async () => {
     scripted.script([{ text: "Done.", toolUses: [] }]);
-    const sessionId = await alertSession();
-    await appendTranscriptRows([callTurn(sessionId, 0, "tu-edit", "Edit")]);
-    await claimRun(sessionId);
+    const sessionId = alertSession();
+    appendTranscriptRows([callTurn(sessionId, 0, "tu-edit", "Edit")]);
+    claimRun(sessionId);
 
-    expect(await recoverDeadRuns()).toBe(1);
+    expect(recoverDeadRuns()).toBe(1);
 
-    expect(await deriveStatus(sessionId)).toBe("failed");
-    expect(await runFailure(sessionId)).toEqual({
+    expect(deriveStatus(sessionId)).toBe("failed");
+    expect(runFailure(sessionId)).toEqual({
       kind: "transient",
       attempts: 1,
     });
-    const answer = (await getTranscriptRows(sessionId))
+    const answer = getTranscriptRows(sessionId)
       .flatMap((row) => row.parts)
       .find((p) => p.type === "tool_result" && p.toolCallId === "tu-edit");
     expect(answer).toMatchObject({ isError: true });
@@ -111,50 +113,48 @@ describe("recovering runs a restart interrupted", () => {
 
     const pass = await reconcileRecovery(dispatcher);
     expect(pass.retried).toBe(1);
-    await waitFor(async () => !(await isRunning(sessionId)));
+    await waitFor(() => !isRunning(sessionId));
   });
 
   it("stops retrying a run once it has failed as often as Settings allows", async () => {
-    await updateConfig({ maxRetries: 1 });
-    const sessionId = await alertSession();
-    await claimRun(sessionId);
-    await recoverDeadRuns();
+    updateConfig({ maxRetries: 1 });
+    const sessionId = alertSession();
+    claimRun(sessionId);
+    recoverDeadRuns();
 
     const pass = await reconcileRecovery(dispatcher);
-    await updateConfig({ maxRetries: 3 });
+    updateConfig({ maxRetries: 3 });
 
-    expect(await runFailure(sessionId)).toMatchObject({ attempts: 1 });
+    expect(runFailure(sessionId)).toMatchObject({ attempts: 1 });
     expect(pass.retried).toBe(0);
   });
 
-  it("leaves a session waiting on a human alone: it suspended, it did not die", async () => {
-    const sessionId = await alertSession();
-    await parkOnApproval(sessionId);
+  it("leaves a session waiting on a human alone: it suspended, it did not die", () => {
+    const sessionId = alertSession();
+    parkOnApproval(sessionId);
 
-    await recoverDeadRuns();
+    recoverDeadRuns();
 
-    expect(await deriveStatus(sessionId)).toBe("action_required");
-    expect(
-      (await getTranscriptRows(sessionId)).some((m) => m.kind === "error"),
-    ).toBe(false);
+    expect(deriveStatus(sessionId)).toBe("action_required");
+    expect(getTranscriptRows(sessionId).some((m) => m.kind === "error")).toBe(
+      false,
+    );
   });
 
-  it("tells the person to check the target when an approved write ran and its result was lost", async () => {
-    const sessionId = await alertSession();
-    await parkOnApproval(sessionId);
+  it("tells the person to check the target when an approved write ran and its result was lost", () => {
+    const sessionId = alertSession();
+    parkOnApproval(sessionId);
     // Approval clears the gate before the resume claims the run; this is that gap.
-    await getDb()
-      .updateTable("sessions")
-      .set({ awaiting_tool_use_id: null, awaiting_kind: null })
-      .where("session_id", "=", sessionId)
-      .execute();
+    getDb()
+      .update(sessions)
+      .set({ awaitingToolUseId: null, awaitingKind: null })
+      .where(eq(sessions.sessionId, sessionId))
+      .run();
 
-    await recoverDeadRuns();
+    recoverDeadRuns();
 
-    expect(await deriveStatus(sessionId)).toBe("failed");
-    const note = (await getTranscriptRows(sessionId)).find(
-      (m) => m.kind === "error",
-    );
+    expect(deriveStatus(sessionId)).toBe("failed");
+    const note = getTranscriptRows(sessionId).find((m) => m.kind === "error");
     expect(note?.content).toContain(
       "check the target before approving it again",
     );
@@ -162,10 +162,10 @@ describe("recovering runs a restart interrupted", () => {
 
   // A gated call is unanswered until a human decides, so unwinding past it hands
   // the model results for a call it can no longer see it made.
-  it("keeps a gated turn once its answer is on the record", async () => {
-    const sessionId = await alertSession();
+  it("keeps a gated turn once its answer is on the record", () => {
+    const sessionId = alertSession();
     const at = new Date().toISOString();
-    await appendTranscriptRows([
+    appendTranscriptRows([
       {
         sessionId,
         seq: 0,
@@ -198,11 +198,11 @@ describe("recovering runs a restart interrupted", () => {
     ]);
 
     // Nobody has answered, so the turn is dropped: no conversation may end on it.
-    expect(await buildSeed(sessionId)).toHaveLength(1);
+    expect(buildSeed(sessionId)).toHaveLength(1);
 
     // Resolving a gate writes the whole turn's results before it clears, so the
     // seed finds the exchange answered on the transcript.
-    await appendTranscriptRows([
+    appendTranscriptRows([
       {
         sessionId,
         seq: 2,
@@ -216,7 +216,7 @@ describe("recovering runs a restart interrupted", () => {
       },
     ]);
 
-    const resumed = await buildSeed(sessionId);
+    const resumed = buildSeed(sessionId);
     expect(resumed).toHaveLength(3);
     expect(resumed[1]?.parts.map((p) => p.type)).toEqual([
       "tool_call",
@@ -225,10 +225,10 @@ describe("recovering runs a restart interrupted", () => {
   });
 
   // Only a trailing exchange is cut, so later turns survive an earlier unanswered call.
-  it("never erases the turns after an unanswered call", async () => {
-    const sessionId = await alertSession();
+  it("never erases the turns after an unanswered call", () => {
+    const sessionId = alertSession();
     const at = new Date().toISOString();
-    await appendTranscriptRows([
+    appendTranscriptRows([
       {
         sessionId,
         seq: 0,
@@ -262,6 +262,6 @@ describe("recovering runs a restart interrupted", () => {
       },
     ]);
 
-    expect(await buildSeed(sessionId)).toHaveLength(3);
+    expect(buildSeed(sessionId)).toHaveLength(3);
   });
 });

@@ -97,12 +97,10 @@ describe("metrics tools through the tool dispatch", () => {
   let mock: PromMock;
   let sessionSeq = 0;
 
-  async function toolContext(
-    ...alerts: NormalizedAlert[]
-  ): Promise<ToolDispatchContext> {
+  function toolContext(...alerts: NormalizedAlert[]): ToolDispatchContext {
     sessionSeq++;
     const sessionId = `prom-tools-${sessionSeq}`;
-    await seedAlertSession(
+    seedAlertSession(
       { sessionId, title: "test", createdAt: new Date().toISOString() },
       alerts.map((a, i) => ({ ...a, sourceAlertId: `${sessionId}-${i}` })),
     );
@@ -113,10 +111,10 @@ describe("metrics tools through the tool dispatch", () => {
     };
   }
 
-  async function connect(
+  function connect(
     over: Partial<Parameters<typeof saveMetricsSource>[0]> = {},
-  ): Promise<void> {
-    await saveMetricsSource({
+  ): void {
+    saveMetricsSource({
       kind: "prometheus",
       label: "Prometheus",
       queryUrl: "http://prom.internal:9090",
@@ -129,8 +127,8 @@ describe("metrics tools through the tool dispatch", () => {
     });
   }
 
-  beforeEach(async () => {
-    cleanupDb = await useTempDb();
+  beforeEach(() => {
+    cleanupDb = useTempDb();
     mock = makeMock();
     installPromMock(mock);
     instant = findTool("QueryMetrics")!;
@@ -146,7 +144,7 @@ describe("metrics tools through the tool dispatch", () => {
     const result = await executeTool(
       range,
       { query: "up" },
-      await toolContext(ALERT),
+      toolContext(ALERT),
     );
     expect(result.isError).toBe(true);
     expect(result.content).toContain("No metrics source is connected");
@@ -154,11 +152,11 @@ describe("metrics tools through the tool dispatch", () => {
   });
 
   it("instant query anchors at the alert when asked, at now by default, sending the header verbatim", async () => {
-    await connect();
+    connect();
     mock.result = [
       { metric: { name: "api" }, value: [1752667200, "412000000"] },
     ];
-    const ctx = await toolContext(ALERT);
+    const ctx = toolContext(ALERT);
 
     const atAlert = await executeTool(
       instant,
@@ -176,7 +174,7 @@ describe("metrics tools through the tool dispatch", () => {
   });
 
   it("signs an AMP query with SigV4 instead of sending a static header", async () => {
-    await connect({
+    connect({
       kind: "amp",
       label: "AMP",
       queryUrl:
@@ -194,7 +192,7 @@ describe("metrics tools through the tool dispatch", () => {
     const result = await executeTool(
       instant,
       { query: "up" },
-      await toolContext(ALERT),
+      toolContext(ALERT),
     );
 
     expect(result.isError).toBeUndefined();
@@ -207,7 +205,7 @@ describe("metrics tools through the tool dispatch", () => {
   describe("a source that is briefly unavailable", () => {
     // Signed, so the retry resends a Request aws4fetch built, body and all.
     it("asks again after a 503 and reads the second answer", async () => {
-      await connect({
+      connect({
         kind: "amp",
         label: "AMP",
         queryUrl:
@@ -226,7 +224,7 @@ describe("metrics tools through the tool dispatch", () => {
       const result = await executeTool(
         instant,
         { query: "up" },
-        await toolContext(ALERT),
+        toolContext(ALERT),
       );
 
       expect(result.isError).toBeUndefined();
@@ -236,7 +234,7 @@ describe("metrics tools through the tool dispatch", () => {
     });
 
     it("waits as long as a 429's Retry-After asks before asking again", async () => {
-      await connect();
+      connect();
       mock.unavailable = [
         new Response("slow down", {
           status: 429,
@@ -248,7 +246,7 @@ describe("metrics tools through the tool dispatch", () => {
       const result = await executeTool(
         instant,
         { query: "up" },
-        await toolContext(ALERT),
+        toolContext(ALERT),
       );
 
       expect(result.isError).toBeUndefined();
@@ -257,7 +255,7 @@ describe("metrics tools through the tool dispatch", () => {
     });
 
     it("tells the agent the failure is temporary once the retries are spent", async () => {
-      await connect();
+      connect();
       mock.unavailable = [502, 503, 504].map(
         (status) => new Response("down", { status }),
       );
@@ -265,7 +263,7 @@ describe("metrics tools through the tool dispatch", () => {
       const result = await executeTool(
         instant,
         { query: "up" },
-        await toolContext(ALERT),
+        toolContext(ALERT),
       );
 
       expect(result.isError).toBe(true);
@@ -275,11 +273,11 @@ describe("metrics tools through the tool dispatch", () => {
   });
 
   it("range query windows around firedAt with an auto step, echoing the window in the result", async () => {
-    await connect();
+    connect();
     const result = await executeTool(
       range,
       { query: "up" },
-      await toolContext(ALERT),
+      toolContext(ALERT),
     );
     // The query answered with its own shape, so the window is still echoed and
     // the empty series is a reading a dismissal can rest on.
@@ -297,7 +295,7 @@ describe("metrics tools through the tool dispatch", () => {
   });
 
   it("anchors a batch on the earliest of them, since that is when it began", async () => {
-    await connect();
+    connect();
     // The window elects no primary, so anchoring on whichever arrived first
     // would put the window wherever ingest ordering happened to land it.
     const earlier: NormalizedAlert = {
@@ -305,11 +303,7 @@ describe("metrics tools through the tool dispatch", () => {
       sourceAlertId: "alert-0",
       firedAt: "2026-07-16T11:30:00.000Z",
     };
-    await executeTool(
-      range,
-      { query: "up" },
-      await toolContext(ALERT, earlier),
-    );
+    await executeTool(range, { query: "up" }, toolContext(ALERT, earlier));
 
     const params = mock.requests[0]!.params;
     expect(params.get("start")).toBe("2026-07-16T08:30:00.000Z");
@@ -317,8 +311,8 @@ describe("metrics tools through the tool dispatch", () => {
   });
 
   it("chat sessions anchor on now, and the window never extends into the future", async () => {
-    await connect();
-    await executeTool(range, { query: "up" }, await toolContext());
+    connect();
+    await executeTool(range, { query: "up" }, toolContext());
 
     const params = mock.requests[0]!.params;
     const end = Date.parse(params.get("end")!);
@@ -333,11 +327,11 @@ describe("metrics tools through the tool dispatch", () => {
   /* Refused rather than quietly shortened: a window cut to a fraction of what
      was asked for reads back as a fortnight that held nothing. */
   it("refuses a lookback beyond 7 days and names the field", async () => {
-    await connect();
+    connect();
     const result = await executeTool(
       range,
       { query: "up", lookbackMinutes: 999_999 },
-      await toolContext(ALERT),
+      toolContext(ALERT),
     );
 
     expect(String(result.content)).toMatch(/lookbackMinutes/);
@@ -346,7 +340,7 @@ describe("metrics tools through the tool dispatch", () => {
   });
 
   it("caps the result at 20 series with an omitted count", async () => {
-    await connect();
+    connect();
     mock.result = Array.from({ length: 25 }, (_, i) => ({
       metric: { name: `svc-${i}` },
       values: [[1752667200, "1"]],
@@ -354,7 +348,7 @@ describe("metrics tools through the tool dispatch", () => {
     const result = await executeTool(
       range,
       { query: "up", lookbackMinutes: 10_080 },
-      await toolContext(ALERT),
+      toolContext(ALERT),
     );
 
     const params = mock.requests[0]!.params;
@@ -369,7 +363,7 @@ describe("metrics tools through the tool dispatch", () => {
   /* Twenty series is a count, not a size: at the step this tool asks for, each
      carries around two hundred points, which is several times the ceiling. */
   it("drops whole series once twenty of them exceed the size budget", async () => {
-    await connect();
+    connect();
     mock.result = Array.from({ length: 20 }, (_, i) => ({
       metric: { name: `svc-${i}` },
       values: Array.from({ length: 200 }, (_, p): [number, string] => [
@@ -380,7 +374,7 @@ describe("metrics tools through the tool dispatch", () => {
     const result = await executeTool(
       range,
       { query: "up" },
-      await toolContext(ALERT),
+      toolContext(ALERT),
     );
 
     const content = parsedContent<MetricsRangeResult>(result);
@@ -396,13 +390,13 @@ describe("metrics tools through the tool dispatch", () => {
   });
 
   it("a rejected query becomes a corrective result naming the server's error, never a throw", async () => {
-    await connect();
+    connect();
     mock.status = "error";
     mock.error = "parse error: unexpected identifier";
     const result = await executeTool(
       instant,
       { query: "up{" },
-      await toolContext(ALERT),
+      toolContext(ALERT),
     );
     expect(result.isError).toBe(true);
     expect(result.content).toContain("parse error");
@@ -430,7 +424,7 @@ describe("metrics tools through the tool dispatch", () => {
     }
 
     it("narrows metric names by substring, case-insensitively", async () => {
-      await connect();
+      connect();
       installDiscoveryMock({
         "/api/v1/label/__name__/values": [
           "container_memory_working_set_bytes",
@@ -442,7 +436,7 @@ describe("metrics tools through the tool dispatch", () => {
       const result = await executeTool(
         findTool("ListMetricNames")!,
         { contains: "MeMoRy" },
-        await toolContext(ALERT),
+        toolContext(ALERT),
       );
       const content = parsedContent<{ names: string[] }>(result);
       expect(content.names).toEqual([
@@ -454,20 +448,20 @@ describe("metrics tools through the tool dispatch", () => {
     // A miss is the useful answer here: it says the name is wrong now, rather
     // than leaving an empty chart to say it later.
     it("says nothing matched rather than answering with an empty list", async () => {
-      await connect();
+      connect();
       installDiscoveryMock({ "/api/v1/label/__name__/values": ["up"] });
 
       const result = await executeTool(
         findTool("ListMetricNames")!,
         { contains: "nonesuch" },
-        await toolContext(ALERT),
+        toolContext(ALERT),
       );
       expect(result.isError).toBeUndefined();
       expect(result.content).toContain("No metric names matched");
     });
 
     it("reads a metric's type and unit, which is how a counter is told from a gauge", async () => {
-      await connect();
+      connect();
       installDiscoveryMock({
         "/api/v1/metadata": {
           container_memory_working_set_bytes: [
@@ -479,7 +473,7 @@ describe("metrics tools through the tool dispatch", () => {
       const result = await executeTool(
         findTool("GetMetricMetadata")!,
         { metric: "container_memory_working_set_bytes" },
-        await toolContext(ALERT),
+        toolContext(ALERT),
       );
       expect(parsedContent(result)).toMatchObject({
         type: "gauge",
@@ -490,20 +484,20 @@ describe("metrics tools through the tool dispatch", () => {
     // Absence of metadata says nothing about whether the metric exists, so it
     // must not read as "no such metric".
     it("distinguishes an undeclared metric from a missing one", async () => {
-      await connect();
+      connect();
       installDiscoveryMock({ "/api/v1/metadata": {} });
 
       const result = await executeTool(
         findTool("GetMetricMetadata")!,
         { metric: "custom_thing" },
-        await toolContext(ALERT),
+        toolContext(ALERT),
       );
       expect(result.isError).toBeUndefined();
       expect(result.content).toContain("may still exist");
     });
 
     it("lists alerting rules with the expression each one tests", async () => {
-      await connect();
+      connect();
       installDiscoveryMock({
         "/api/v1/rules": {
           groups: [
@@ -530,7 +524,7 @@ describe("metrics tools through the tool dispatch", () => {
       const result = await executeTool(
         findTool("ListAlertRules")!,
         {},
-        await toolContext(ALERT),
+        toolContext(ALERT),
       );
       const content = parsedContent<{
         rules: Array<{ name: string; query: string; firingCount: number }>;
@@ -550,12 +544,12 @@ describe("metrics tools through the tool dispatch", () => {
        exists against, and three supported sources cannot answer some calls. */
     describe("what a source cannot answer, said rather than shown as absence", () => {
       it("names VictoriaMetrics' missing metadata API instead of reporting the metric as undeclared", async () => {
-        await connect({ kind: "victoriametrics", label: "vm" });
+        connect({ kind: "victoriametrics", label: "vm" });
 
         const result = await executeTool(
           findTool("GetMetricMetadata")!,
           { metric: "container_memory_working_set_bytes" },
-          await toolContext(ALERT),
+          toolContext(ALERT),
         );
 
         expect(result.content).toContain("-enableMetadata");
@@ -568,12 +562,12 @@ describe("metrics tools through the tool dispatch", () => {
       });
 
       it("says a missing rules endpoint is a gap in the connection, not an absence of rules", async () => {
-        await connect({ rulesUrl: null, rulesAuthorization: null });
+        connect({ rulesUrl: null, rulesAuthorization: null });
 
         const result = await executeTool(
           findTool("ListAlertRules")!,
           {},
-          await toolContext(ALERT),
+          toolContext(ALERT),
         );
 
         expect(result.isError).toBe(true);
@@ -594,7 +588,7 @@ describe("metrics tools through the tool dispatch", () => {
         const result = await executeTool(
           findTool(name)!,
           { metric: "x" },
-          await toolContext(ALERT),
+          toolContext(ALERT),
         );
         expect(result.isError).toBe(true);
         expect(result.content).toContain("No metrics source is connected");
@@ -606,7 +600,7 @@ describe("metrics tools through the tool dispatch", () => {
      the shapes the client already read, so they could never have caught these. */
   describe("result shapes the Prometheus API documents", () => {
     it("reads a scalar as the one value it is, not as two empty series", async () => {
-      await connect();
+      connect();
       mock.body = {
         status: "success",
         data: { resultType: "scalar", result: [1757100000, "3"] },
@@ -615,7 +609,7 @@ describe("metrics tools through the tool dispatch", () => {
       const result = await executeTool(
         instant,
         { query: "scalar(sum(up))" },
-        await toolContext(ALERT),
+        toolContext(ALERT),
       );
 
       const content = JSON.parse(result.content) as {
@@ -629,7 +623,7 @@ describe("metrics tools through the tool dispatch", () => {
     });
 
     it("names a native histogram instead of reporting it as no data", async () => {
-      await connect();
+      connect();
       mock.body = {
         status: "success",
         data: {
@@ -648,7 +642,7 @@ describe("metrics tools through the tool dispatch", () => {
       const result = await executeTool(
         range,
         { query: "http_request_duration_seconds" },
-        await toolContext(ALERT),
+        toolContext(ALERT),
       );
 
       const content = JSON.parse(result.content) as {
@@ -663,7 +657,7 @@ describe("metrics tools through the tool dispatch", () => {
     /* Prometheus answers a division by zero with the string "+Inf", which reads as far
        over the limit when the divisor is simply unset, so the result says it is no reading. */
     it("names a non-finite value rather than letting it read as a measurement", async () => {
-      await connect();
+      connect();
       mock.body = {
         status: "success",
         data: {
@@ -678,7 +672,7 @@ describe("metrics tools through the tool dispatch", () => {
       const result = await executeTool(
         instant,
         { query: "used / max" },
-        await toolContext(ALERT),
+        toolContext(ALERT),
       );
 
       const content = JSON.parse(result.content) as { note?: string };
@@ -689,7 +683,7 @@ describe("metrics tools through the tool dispatch", () => {
     });
 
     it("reports a warning beside the data, since the read may be partial", async () => {
-      await connect();
+      connect();
       mock.body = {
         status: "success",
         warnings: ["1 store failed: store-2 unreachable"],
@@ -702,7 +696,7 @@ describe("metrics tools through the tool dispatch", () => {
       const result = await executeTool(
         instant,
         { query: "up" },
-        await toolContext(ALERT),
+        toolContext(ALERT),
       );
 
       const content = JSON.parse(result.content) as { note?: string };
@@ -713,7 +707,7 @@ describe("metrics tools through the tool dispatch", () => {
     /* The pairing that hides a Thanos outage: a store is down, so nothing comes
        back, and the emptiness reads as a healthy zero unless the warning shows. */
     it("keeps the warning when the partial read returned nothing at all", async () => {
-      await connect();
+      connect();
       mock.body = {
         status: "success",
         warnings: ["1 store failed: store-2 unreachable"],
@@ -723,7 +717,7 @@ describe("metrics tools through the tool dispatch", () => {
       const result = await executeTool(
         instant,
         { query: "up" },
-        await toolContext(ALERT),
+        toolContext(ALERT),
       );
 
       const content = JSON.parse(result.content) as { note: string };
@@ -733,7 +727,7 @@ describe("metrics tools through the tool dispatch", () => {
     });
 
     it("refuses a drifted payload rather than reading it as an empty result", async () => {
-      await connect();
+      connect();
       // `result` renamed, which the field-by-field reading answered with [].
       mock.body = {
         status: "success",
@@ -743,7 +737,7 @@ describe("metrics tools through the tool dispatch", () => {
       const result = await executeTool(
         instant,
         { query: "up" },
-        await toolContext(ALERT),
+        toolContext(ALERT),
       );
 
       expect(result.isError).toBe(true);

@@ -37,13 +37,13 @@ function unansweredCallIds(rows: TranscriptRow[]): string[] {
 
 // Answered without running anything: no runner has reconnected yet, and a write
 // may already have taken effect.
-async function failRestartedRun(sessionId: string): Promise<void> {
-  const ids = unansweredCallIds(await getTranscriptRows(sessionId));
+function failRestartedRun(sessionId: string): void {
+  const ids = unansweredCallIds(getTranscriptRows(sessionId));
   if (ids.length > 0) {
-    await appendTranscriptRows([
+    appendTranscriptRows([
       {
         sessionId,
-        seq: await getNextSeq(sessionId),
+        seq: getNextSeq(sessionId),
         kind: "user",
         content: INTERRUPTED_CALL,
         parts: ids.map((toolCallId) => ({
@@ -56,32 +56,32 @@ async function failRestartedRun(sessionId: string): Promise<void> {
       },
     ]);
   }
-  await recordRunFailure(sessionId, "transient");
-  await appendErrorMessage(sessionId, RESTARTED);
+  recordRunFailure(sessionId, "transient");
+  appendErrorMessage(sessionId, RESTARTED);
 }
 
 // 'action_required' with no gate row died between approving a call and claiming
 // the resume: the write already ran and its result is gone.
-async function abandonedRuns(): Promise<string[]> {
+function abandonedRuns(): string[] {
   const abandoned: string[] = [];
-  for (const sessionId of await abandonedSessionIds()) {
-    if (!(await hasPendingHumanInput(sessionId))) abandoned.push(sessionId);
+  for (const sessionId of abandonedSessionIds()) {
+    if (!hasPendingHumanInput(sessionId)) abandoned.push(sessionId);
   }
   return abandoned;
 }
 
 /* A run still flagged running died with the process, so it fails as transient and
    the reconciler retries it once runners are back. Dispatches nothing itself. */
-export async function recoverDeadRuns(): Promise<number> {
-  const killed = await runningSessionIds();
-  const abandoned = await abandonedRuns();
+export function recoverDeadRuns(): number {
+  const killed = runningSessionIds();
+  const abandoned = abandonedRuns();
   for (const sessionId of [...killed, ...abandoned]) {
     // markDone rather than releaseRun: an abandoned suspension is not running,
     // which is exactly why releaseRun would decline to touch it.
-    await markDone(sessionId);
+    markDone(sessionId);
     try {
-      if (killed.includes(sessionId)) await failRestartedRun(sessionId);
-      else await appendErrorMessage(sessionId, ABANDONED);
+      if (killed.includes(sessionId)) failRestartedRun(sessionId);
+      else appendErrorMessage(sessionId, ABANDONED);
     } catch (err) {
       // One session's recovery must never stop the boot.
       logger.warn({ err, sessionId }, "could not record a run a restart ended");

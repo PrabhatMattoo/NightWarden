@@ -1,7 +1,9 @@
+import { ne } from "drizzle-orm";
 import { afterEach, vi } from "vitest";
 import { openDb } from "../db.js";
 import { logger } from "../logger.js";
 import { initSecrets } from "../secrets.js";
+import { sessions } from "../session/schema.js";
 import { deriveStatus } from "../session/status-store.js";
 import { createTempFolder } from "./temp-folder.js";
 
@@ -35,18 +37,18 @@ export function expectDuplicateAlert(): void {
 
 /* A stored status a fresh derivation disagrees with means a transition forgot
    to refresh. `running` is exempt, being claimed rather than derived. */
-async function assertStatusesDerivable(): Promise<void> {
+function assertStatusesDerivable(): void {
   // openDb, not getDb: a test file with no database of its own must not have
   // one created for it here.
   const db = openDb();
   if (db === undefined) return;
-  const rows = await db
-    .selectFrom("sessions")
-    .select(["session_id as sessionId", "status"])
-    .where("status", "!=", "running")
-    .execute();
+  const rows = db
+    .select({ sessionId: sessions.sessionId, status: sessions.status })
+    .from(sessions)
+    .where(ne(sessions.status, "running"))
+    .all();
   for (const row of rows) {
-    const derived = await deriveStatus(row.sessionId);
+    const derived = deriveStatus(row.sessionId);
     if (derived !== row.status) {
       throw new Error(
         `Session ${row.sessionId} is stored as "${row.status}" but derives to ` +
@@ -56,8 +58,8 @@ async function assertStatusesDerivable(): Promise<void> {
   }
 }
 
-afterEach(async () => {
-  await assertStatusesDerivable();
+afterEach(() => {
+  assertStatusesDerivable();
   const dropped = infoSpy.mock.calls.some((args) =>
     args.includes("duplicate alerts dropped"),
   );

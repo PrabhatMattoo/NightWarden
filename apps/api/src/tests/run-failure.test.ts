@@ -67,7 +67,7 @@ describe("run failure surfacing (dispatch -> transcript -> SSE)", () => {
     if (failed.type !== "RUN_FAILED") throw new Error("unreachable");
     expect(failed.payload.message.kind).toBe("error");
 
-    const messages = await getTranscriptRows(sessionId);
+    const messages = getTranscriptRows(sessionId);
     expect(messages.map((m) => [m.seq, m.kind])).toEqual([
       [0, "user"],
       [1, "error"],
@@ -116,8 +116,8 @@ describe("run failure surfacing (dispatch -> transcript -> SSE)", () => {
     );
     expect(res.status).toBe(202);
 
-    await waitFor(async () =>
-      (await getTranscriptRows(sessionId)).some((m) => m.kind === "assistant"),
+    await waitFor(() =>
+      getTranscriptRows(sessionId).some((m) => m.kind === "assistant"),
     );
 
     // The failed exchange stays in the transcript but never reached the model,
@@ -125,9 +125,7 @@ describe("run failure surfacing (dispatch -> transcript -> SSE)", () => {
     expect(
       messagesSentTo(scripted, retried).map((m) => [m.role, m.texts]),
     ).toEqual([["user", ["try again"]]]);
-    expect(
-      (await getTranscriptRows(sessionId)).map((m) => [m.seq, m.kind]),
-    ).toEqual([
+    expect(getTranscriptRows(sessionId).map((m) => [m.seq, m.kind])).toEqual([
       [0, "user"],
       [1, "error"],
       [2, "user"],
@@ -154,7 +152,7 @@ describe("run failure surfacing (dispatch -> transcript -> SSE)", () => {
     expect(retry?.type === "RUN_RETRYING" && retry.payload.summary).toContain(
       "attempt 2 of 4",
     );
-    const roles = (await getTranscriptRows(sessionId)).map((m) => m.kind);
+    const roles = getTranscriptRows(sessionId).map((m) => m.kind);
     expect(roles).toEqual(["user", "assistant"]);
   });
 
@@ -178,7 +176,7 @@ describe("run failure surfacing (dispatch -> transcript -> SSE)", () => {
         ),
       );
 
-      const ending = (await getTranscriptRows(sessionId)).find(
+      const ending = getTranscriptRows(sessionId).find(
         (m) => m.kind === "error",
       );
       expect(ending?.content).toBe(turnEnding(reason, 32_000));
