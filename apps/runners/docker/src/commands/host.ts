@@ -90,8 +90,10 @@ export async function getHostCpu(): Promise<HostCpuResult> {
     r1: CpuRow,
     r2: CpuRow,
   ): { usagePercent: number; iowaitPercent: number } => {
-    const total =
-      r2.nums.reduce((a, b) => a + b, 0) - r1.nums.reduce((a, b) => a + b, 0);
+    // The kernel already counts guest and guest_nice, the last two fields, inside user and nice.
+    const sum = (row: CpuRow): number =>
+      row.nums.slice(0, 8).reduce((a, b) => a + b, 0);
+    const total = sum(r2) - sum(r1);
     const idle = (r2.nums[3] ?? 0) - (r1.nums[3] ?? 0);
     const iowait = (r2.nums[4] ?? 0) - (r1.nums[4] ?? 0);
     // Waiting on the disk is reported as iowait, so it is not counted as busy too.

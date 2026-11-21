@@ -79,7 +79,6 @@ COPY --from=build /build/apps/runners/docker/dist ./apps/runners/docker/dist
 # Publishing an image is redistribution, which the licence requires carry it.
 COPY LICENSE NOTICE ./
 
-ENV HOST_PROC=/host/proc
 # The bundle ships a sourcemap; without this a stack trace names a line in the
 # bundle instead of the file it came from.
 ENV NODE_OPTIONS=--enable-source-maps

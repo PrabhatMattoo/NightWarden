@@ -126,6 +126,25 @@ describe("host vitals, read from what the host's own tools print", () => {
     expect(cpu.overallIowaitPercent).toBeCloseTo((20 / total) * 100, 6);
   });
 
+  it("counts a virtual machine's time once, inside user and nice", async () => {
+    // A host running virtual machines, so its guest columns are non-zero.
+    const samples = [
+      "cpu  1000 50 200 5000 10 0 5 0 300 20\n",
+      "cpu  1100 60 210 5800 10 0 5 0 360 25\n",
+    ];
+    readFileMock.mockImplementation((path: string) =>
+      Promise.resolve(
+        path.endsWith("/stat") ? samples.shift() : "0.64 0.34 0.13 1/261 1503",
+      ),
+    );
+
+    const cpu = await getHostCpu();
+
+    // Over the sample: user 100, nice 10, system 10, idle 800.
+    const total = 100 + 10 + 10 + 800;
+    expect(cpu.overallCpuPercent).toBeCloseTo(((total - 800) / total) * 100, 6);
+  });
+
   it("reads each device's rates from the columns iostat names, over the last second", async () => {
     serve({ df: DF, iostat: IOSTAT });
 
