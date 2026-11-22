@@ -26,6 +26,19 @@ const hostList = z
   .transform((text) => text.split(",").map((host) => host.trim()))
   .pipe(configPatchSchema.shape.sandboxAllowlistHosts.unwrap());
 
+const TRUSTED_PROXIES_VARIABLE = "NIGHTWARDEN_TRUSTED_PROXIES";
+
+// Entries are addresses or CIDR ranges, which Fastify reads as the proxies to believe.
+const proxyList = z
+  .string()
+  .transform((text) =>
+    text
+      .split(",")
+      .map((entry) => entry.trim())
+      .filter((entry) => entry !== ""),
+  )
+  .pipe(z.array(z.union([z.ipv4(), z.ipv6(), z.cidrv4(), z.cidrv6()])));
+
 // Each global setting beside its variable and the rules the API holds a person to.
 const GLOBAL_SETTINGS = {
   provider: {
@@ -105,6 +118,8 @@ interface EnvConfig {
   providers: Partial<Record<LLMProviderName, ProviderEnv>>;
   // The variable that set each value above, which is what the page tells a person to unset.
   locked: AgentConfig["locked"];
+  // Not a setting a person edits, so it carries no lock.
+  trustedProxies: string[];
 }
 
 function parseVariable<S extends z.ZodType<unknown, string>>(
@@ -150,11 +165,18 @@ function readEnvConfig(): EnvConfig {
     }
   }
 
+  const rawProxies = readVariable(TRUSTED_PROXIES_VARIABLE);
+  const trustedProxies =
+    rawProxies === undefined
+      ? []
+      : parseVariable(TRUSTED_PROXIES_VARIABLE, rawProxies, proxyList);
+
   return {
     // Each entry above was parsed by the schema of the field it is filed under.
     settings: settings as EnvSettings,
     providers,
     locked: { settings: lockedSettings, providers: lockedProviders },
+    trustedProxies,
   };
 }
 

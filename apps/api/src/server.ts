@@ -9,6 +9,8 @@ interface ServerOptions {
   // Where every run and model check gets its model; unset is the provider's own.
   modelFor?: ModelFor;
   logger?: FastifyServerOptions["logger"];
+  // Addresses and ranges whose X-Forwarded-For is believed; none by default.
+  trustProxy?: string[];
 }
 
 interface Server {
@@ -30,7 +32,10 @@ export async function buildServer(
   const dispatcher = dispatcherFor(options.modelFor);
   const server = Fastify({
     logger: options.logger ?? false,
-    trustProxy: true,
+    trustProxy:
+      options.trustProxy !== undefined && options.trustProxy.length > 0
+        ? options.trustProxy
+        : false,
     // Long-lived frontend SSE streams would otherwise hold close() open forever.
     forceCloseConnections: true,
   });

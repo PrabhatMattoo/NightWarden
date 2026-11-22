@@ -1,7 +1,7 @@
 import { hash, verify } from "argon2";
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
-import { APIError } from "better-auth/api";
+import { APIError, createAuthMiddleware, isAPIError } from "better-auth/api";
 import { admin } from "better-auth/plugins";
 import {
   AVATAR_MAX_LENGTH,
@@ -15,10 +15,34 @@ import { configuredPublicUrl, extraTrustedOrigins } from "../public-url.js";
 import { authSecret } from "../secrets.js";
 import { MEMBER_ROLE } from "./permissions.js";
 import { account, authSession, user, verification } from "./schema.js";
+import {
+  clearSignInFailures,
+  recordSignInFailure,
+  signInFailuresSince,
+} from "./sign-in-failure-store.js";
 
-// Five attempts a minute on the credential paths; Better Auth's own default of
-// 100 per 10s would let a password be guessed far faster.
-const SIGN_IN_LIMIT = { window: 60, max: 5 };
+// The only header Better Auth reads the client address from; the auth route sets it from Fastify.
+export const CLIENT_IP_HEADER = "x-nightwarden-client-ip";
+
+const SESSION_LIFETIME_S = 60 * 60 * 24 * 30;
+const SESSION_REFRESH_INTERVAL_S = 60 * 60 * 24;
+
+// Loose, since the per-account throttle below carries the protection.
+const SIGN_IN_FLOOD_LIMIT = { window: 60, max: 60 };
+const CHANGE_PASSWORD_LIMIT = { window: 60, max: 5 };
+
+const SIGN_IN_FAILURE_LIMIT = 5;
+const SIGN_IN_FAILURE_WINDOW_MS = 15 * 60 * 1000;
+
+const SIGN_IN_PATH = "/sign-in/email";
+
+function attemptedEmail(path: string | undefined, body: unknown) {
+  if (path !== SIGN_IN_PATH) return undefined;
+  if (typeof body !== "object" || body === null || !("email" in body)) {
+    return undefined;
+  }
+  return typeof body.email === "string" ? body.email.toLowerCase() : undefined;
+}
 
 // Built through a function so the return type keeps the options Better Auth
 // infers from this config; naming it erases them and the plugin routes with it.
@@ -39,7 +63,56 @@ function buildAuth() {
     ...(trusted.length > 0 && { trustedOrigins: trusted }),
     // Stated rather than inferred: the default turns this check off under a
     // test runner, so the suite would never exercise it.
-    advanced: { disableOriginCheck: false },
+    advanced: {
+      disableOriginCheck: false,
+      ipAddress: { ipAddressHeaders: [CLIENT_IP_HEADER] },
+    },
+    session: {
+      expiresIn: SESSION_LIFETIME_S,
+      updateAge: SESSION_REFRESH_INTERVAL_S,
+    },
+    hooks: {
+      // Refused before the password is checked, so a right password cannot get
+      // through while the count stands.
+      before: createAuthMiddleware(async (ctx) => {
+        const email = attemptedEmail(ctx.path, ctx.body);
+        if (email === undefined) return;
+        const now = Date.now();
+        const failures = signInFailuresSince(
+          email,
+          new Date(now - SIGN_IN_FAILURE_WINDOW_MS).toISOString(),
+        );
+        // Sign-in reopens once enough failures have aged out to leave four.
+        const blocking = failures[failures.length - SIGN_IN_FAILURE_LIMIT];
+        if (blocking === undefined) return;
+        const retryAfterS = Math.max(
+          1,
+          Math.ceil(
+            (Date.parse(blocking) + SIGN_IN_FAILURE_WINDOW_MS - now) / 1000,
+          ),
+        );
+        throw new APIError(
+          "TOO_MANY_REQUESTS",
+          { message: "Too many failed sign-in attempts. Try again later." },
+          { "Retry-After": String(retryAfterS) },
+        );
+      }),
+      after: createAuthMiddleware(async (ctx) => {
+        const email = attemptedEmail(ctx.path, ctx.body);
+        if (email === undefined) return;
+        const { returned } = ctx.context;
+        if (!isAPIError(returned)) {
+          clearSignInFailures(email);
+        } else if (returned.statusCode === 401) {
+          const now = Date.now();
+          recordSignInFailure(
+            email,
+            new Date(now).toISOString(),
+            new Date(now - SIGN_IN_FAILURE_WINDOW_MS).toISOString(),
+          );
+        }
+      }),
+    },
     // Nothing calls the plugin over HTTP, so none of its paths, impersonation
     // among them, answers; the server still calls them through auth.api.
     disabledPaths: Object.values(adminPlugin.endpoints).map(
@@ -83,11 +156,11 @@ function buildAuth() {
       },
     },
     rateLimit: {
-      // `enabled` is left to Better Auth, which runs the limiter in production
-      // and not in development.
+      // The default turns the limiter off outside production, so dev and tests never ran it.
+      enabled: true,
       customRules: {
-        "/sign-in/email": SIGN_IN_LIMIT,
-        "/change-password": SIGN_IN_LIMIT,
+        [SIGN_IN_PATH]: SIGN_IN_FLOOD_LIMIT,
+        "/change-password": CHANGE_PASSWORD_LIMIT,
       },
     },
     plugins: [adminPlugin],

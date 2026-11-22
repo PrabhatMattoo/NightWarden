@@ -229,4 +229,28 @@ describe("the environment at boot", () => {
 
     expect(envConfig().locked).toEqual({ settings: {}, providers: {} });
   });
+
+  it("reads the trusted proxies as addresses and ranges, none when unset", () => {
+    initEnv();
+    expect(envConfig().trustedProxies).toEqual([]);
+
+    vi.stubEnv(
+      "NIGHTWARDEN_TRUSTED_PROXIES",
+      " 10.0.0.1, 172.16.0.0/12,,fd00::1 , fd00::/8 ,",
+    );
+    initEnv();
+
+    expect(envConfig().trustedProxies).toEqual([
+      "10.0.0.1",
+      "172.16.0.0/12",
+      "fd00::1",
+      "fd00::/8",
+    ]);
+  });
+
+  it("refuses a trusted proxy that is neither an address nor a range, naming the variable", () => {
+    vi.stubEnv("NIGHTWARDEN_TRUSTED_PROXIES", "10.0.0.1,proxy.internal");
+
+    expect(() => initEnv()).toThrow("NIGHTWARDEN_TRUSTED_PROXIES");
+  });
 });

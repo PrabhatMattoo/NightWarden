@@ -90,3 +90,14 @@ export const verification = sqliteTable(
   },
   (t) => [index("verification_identifier_idx").on(t.identifier)],
 );
+
+// Wrong passwords per account, counted so a guesser is slowed from any address.
+export const signInFailure = sqliteTable(
+  "sign_in_failure",
+  {
+    id: integer("id").primaryKey(),
+    email: text("email").notNull(),
+    failedAt: text("failed_at").notNull(),
+  },
+  (t) => [index("sign_in_failure_email_failed_at_idx").on(t.email, t.failedAt)],
+);

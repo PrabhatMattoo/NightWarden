@@ -12,7 +12,8 @@ describe("GET /runners/install", () => {
   let K8S_TOKEN: string;
 
   beforeAll(async () => {
-    nw = await harness();
+    // inject dials from 127.0.0.1, the proxy whose forwarded scheme the wss:// test needs.
+    nw = await harness({ trustProxy: ["127.0.0.1"] });
     SESSION = nw.session;
     DOCKER_TOKEN = createRunner("docker", "test-server").plaintext;
     K8S_TOKEN = createRunner("kubernetes", "k8s-server").plaintext;

@@ -51,6 +51,7 @@ describe("the migrations", () => {
       "sandbox_host_override",
       "session_transcript",
       "sessions",
+      "sign_in_failure",
       "tool_result_store",
       "user",
       "verification",

@@ -78,29 +78,34 @@ export function seedChatSession(sessionId: string, message?: string): void {
   createSession(buildSessionMeta(sessionId, null, message));
 }
 
+export const TEST_OWNER = {
+  email: "owner@example.test",
+  password: "a-long-enough-password",
+  name: "Owner",
+};
+export const TEST_MEMBER = {
+  ...TEST_OWNER,
+  email: "member@example.test",
+  name: "Member",
+};
+
 /* A real signed-in session: the owner is created the way the setup route does, so
    the cookie is one Better Auth actually issued. */
 export async function issueTestSession(
   role: "admin" | "member" = "admin",
 ): Promise<string> {
   const auth = getAuth();
-  const owner = {
-    email: "owner@example.test",
-    password: "a-long-enough-password",
-    name: "Owner",
-  };
-  const member = { ...owner, email: "member@example.test", name: "Member" };
   const existing = getDb().select({ email: user.email }).from(user).all();
   const emails = new Set(existing.map((row) => row.email));
-  if (!emails.has(owner.email)) {
-    await auth.api.createUser({ body: { ...owner, role: ADMIN_ROLE } });
+  if (!emails.has(TEST_OWNER.email)) {
+    await auth.api.createUser({ body: { ...TEST_OWNER, role: ADMIN_ROLE } });
   }
   // Created the way an admin adds a colleague, so it carries the default role.
-  if (role === "member" && !emails.has(member.email)) {
-    await auth.api.createUser({ body: member });
+  if (role === "member" && !emails.has(TEST_MEMBER.email)) {
+    await auth.api.createUser({ body: TEST_MEMBER });
   }
   const response = await auth.api.signInEmail({
-    body: role === "admin" ? owner : member,
+    body: role === "admin" ? TEST_OWNER : TEST_MEMBER,
     asResponse: true,
   });
   // Returned as a Cookie request header, which is what every caller sends back.

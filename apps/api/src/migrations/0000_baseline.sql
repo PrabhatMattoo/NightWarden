@@ -160,6 +160,13 @@ CREATE TABLE `auth_session` (
 --> statement-breakpoint
 CREATE UNIQUE INDEX `auth_session_token_unique` ON `auth_session` (`token`);--> statement-breakpoint
 CREATE INDEX `auth_session_user_id_idx` ON `auth_session` (`user_id`);--> statement-breakpoint
+CREATE TABLE `sign_in_failure` (
+	`id` integer PRIMARY KEY NOT NULL,
+	`email` text NOT NULL,
+	`failed_at` text NOT NULL
+);
+--> statement-breakpoint
+CREATE INDEX `sign_in_failure_email_failed_at_idx` ON `sign_in_failure` (`email`,`failed_at`);--> statement-breakpoint
 CREATE TABLE `user` (
 	`id` text PRIMARY KEY NOT NULL,
 	`name` text NOT NULL,

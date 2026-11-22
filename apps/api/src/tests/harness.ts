@@ -86,6 +86,8 @@ export interface HarnessOptions {
   model?: FakeModel;
   // Off for a test that only needs inject(), which needs no open port.
   listen?: boolean;
+  // Addresses whose X-Forwarded-* headers the server believes.
+  trustProxy?: string[];
 }
 
 function manifestFor(
@@ -194,6 +196,9 @@ export async function harness(options: HarnessOptions = {}): Promise<Harness> {
   const model = options.model ?? fakeModel();
   const { server, dispatcher } = await buildServer({
     modelFor: model.modelFor,
+    ...(options.trustProxy !== undefined && {
+      trustProxy: options.trustProxy,
+    }),
   });
   let port = 0;
   if (options.listen === false) {

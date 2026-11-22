@@ -7,7 +7,7 @@ import {
   RECONCILE_TICK_MS,
   reconcileRecovery,
 } from "./verification/reconciler.js";
-import { initEnv } from "./config/env.js";
+import { envConfig, initEnv } from "./config/env.js";
 import { checkSecretKey } from "./config/store.js";
 import { seedIntegrationsFromEnv } from "./integrations/seed.js";
 import { recoverDeadRuns } from "./session/recover.js";
@@ -46,6 +46,7 @@ initEnv();
 const isDev = process.env["NODE_ENV"] !== "production";
 
 const { server: fastify, dispatcher } = await buildServer({
+  trustProxy: envConfig().trustedProxies,
   logger: isDev
     ? { transport: { target: "pino-pretty", options: { colorize: true } } }
     : true,

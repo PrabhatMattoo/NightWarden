@@ -9,7 +9,7 @@ import {
   setupRequestSchema,
   setupStatusSchema,
 } from "@nightwarden/shared/schemas";
-import { getAuth } from "./instance.js";
+import { CLIENT_IP_HEADER, getAuth } from "./instance.js";
 import { ownerExists } from "./owner-store.js";
 import { ADMIN_ROLE } from "./permissions.js";
 import { claimSetupToken, writeSetupToken } from "./setup-token.js";
@@ -31,10 +31,13 @@ export async function registerAuthRoutes(
         request.url,
         `${request.protocol}://${request.headers.host ?? "localhost"}`,
       );
+      // Fastify decides who the visitor is; `set` replaces any value the client sent.
+      const headers = fromNodeHeaders(request.headers);
+      headers.set(CLIENT_IP_HEADER, request.ip);
       const response = await getAuth().handler(
         new Request(url, {
           method: request.method,
-          headers: fromNodeHeaders(request.headers),
+          headers,
           ...(request.body !== undefined &&
             request.body !== null && { body: JSON.stringify(request.body) }),
         }),
