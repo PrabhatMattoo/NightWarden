@@ -11,6 +11,12 @@ import {
 } from "@nightwarden/shared";
 import { themePreferenceSchema } from "@nightwarden/shared/schemas";
 import { getDb } from "../db.js";
+import { logger } from "../logger.js";
+import {
+  passwordResetMessage,
+  RESET_LINK_LIFETIME_S,
+} from "../mail/messages.js";
+import { sendMail } from "../mail/transport.js";
 import { configuredPublicUrl, extraTrustedOrigins } from "../public-url.js";
 import { authSecret } from "../secrets.js";
 import { MEMBER_ROLE } from "./permissions.js";
@@ -123,6 +129,17 @@ function buildAuth() {
       // Accounts are created in-process: the owner by the setup route.
       disableSignUp: true,
       minPasswordLength: PASSWORD_MIN_LENGTH,
+      resetPasswordTokenExpiresIn: RESET_LINK_LIFETIME_S,
+      // Whoever held the old password may hold a session; a reset ends them all.
+      revokeSessionsOnPasswordReset: true,
+      /* Not awaited: a send takes longer for an account that exists, which would
+         tell a caller which addresses are accounts. A failure is logged, never thrown. */
+      sendResetPassword: ({ user, url }) => {
+        sendMail(passwordResetMessage(user.email, url)).catch((err: unknown) =>
+          logger.error({ err, userId: user.id }, "password reset email failed"),
+        );
+        return Promise.resolve();
+      },
       // OWASP's first recommendation, and the package's defaults already exceed
       // its floor at 64 MiB, 3 iterations and parallelism 4.
       password: {

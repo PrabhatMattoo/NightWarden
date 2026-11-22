@@ -3,12 +3,14 @@ import { fromNodeHeaders } from "better-auth/node";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
-import type { SetupStatus } from "@nightwarden/shared";
+import type { SetupStatus, SignInOptions } from "@nightwarden/shared";
 import {
   refusals,
   setupRequestSchema,
   setupStatusSchema,
+  signInOptionsSchema,
 } from "@nightwarden/shared/schemas";
+import { mailServer } from "../mail/store.js";
 import { CLIENT_IP_HEADER, getAuth } from "./instance.js";
 import { ownerExists } from "./owner-store.js";
 import { ADMIN_ROLE } from "./permissions.js";
@@ -58,6 +60,16 @@ export async function registerAuthRoutes(
       schema: { response: { 200: setupStatusSchema, ...refusals() } },
     },
     (): SetupStatus => ({ required: !ownerExists() }),
+  );
+
+  app.get(
+    "/sign-in-options",
+    {
+      // Read before sign-in, to decide what the forgotten-password page offers.
+      config: { permission: "public" },
+      schema: { response: { 200: signInOptionsSchema, ...refusals() } },
+    },
+    (): SignInOptions => ({ passwordReset: mailServer() !== null }),
   );
 
   app.post(

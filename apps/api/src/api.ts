@@ -16,6 +16,7 @@ import { registerRunnerRoutes } from "./fleet/routes.js";
 import { registerWsRoutes } from "./fleet/server.js";
 import { registerMetricsRoutes } from "./integrations/metrics/routes.js";
 import { registerIntegrationRoutes } from "./integrations/routes.js";
+import { registerMailRoutes } from "./mail/routes.js";
 import { installRouteSchemas } from "./route-schemas.js";
 import { registerFrontendEventRoutes } from "./session/events.js";
 import { registerSessionRoutes } from "./session/routes.js";
@@ -33,6 +34,7 @@ const ROUTES: Array<(api: FastifyInstance, deps: ApiDeps) => Promise<void>> = [
   registerFrontendEventRoutes,
   registerAlertRoutes,
   registerConfigRoutes,
+  registerMailRoutes,
   registerSessionRoutes,
   registerRunnerRoutes,
   registerInstallRoutes,

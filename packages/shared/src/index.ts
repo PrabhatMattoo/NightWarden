@@ -153,30 +153,41 @@ export {
 } from "./reports.js";
 export type {
   LLMProviderName,
+  MailSettingField,
   ProviderSettingField,
   SandboxNetwork,
+  SmtpSecurity,
   ResolvedLLMConfig,
   NumericSetting,
   SettingRange,
 } from "./config.js";
 export {
+  DEFAULT_SMTP_SECURITY,
   LLM_PROVIDER_NAMES,
+  MAIL_SETTING_FIELDS,
   PROVIDER_SETTING_FIELDS,
   REASONING_LEVELS,
   SANDBOX_HOST_PATTERN,
   SANDBOX_NETWORKS,
   SETTING_RANGES,
+  SMTP_SECURITIES,
 } from "./config.js";
 
 // The HTTP contract, inferred from the route schemas. Type-only, so the
 // frontend that reads them never ships zod.
 export type { paths } from "./openapi.js";
-export type { SetupRequest, SetupStatus } from "./schemas/auth.js";
+export type {
+  SetupRequest,
+  SetupStatus,
+  SignInOptions,
+} from "./schemas/auth.js";
 export type {
   AgentConfig,
   CatalogError,
   ConfigPatch,
   GlobalSettingField,
+  MailPatch,
+  MailSettings,
   SettingsPatch,
   ModelCatalog,
   ModelCheck,

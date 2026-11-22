@@ -46,6 +46,7 @@ describe("the migrations", () => {
       "auth_session",
       "config",
       "integrations",
+      "mail_server",
       "provider_config",
       "runner",
       "sandbox_host_override",

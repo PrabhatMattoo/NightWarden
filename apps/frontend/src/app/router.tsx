@@ -17,7 +17,9 @@ import type {
   RouterHistory,
 } from "@tanstack/react-router";
 import { AppLayout } from "./AppLayout.js";
+import { ForgotPasswordPage } from "../features/auth/ForgotPasswordPage.js";
 import { LoginPage } from "../features/auth/LoginPage.js";
+import { ResetPasswordPage } from "../features/auth/ResetPasswordPage.js";
 import { SetupPage } from "../features/auth/SetupPage.js";
 import { IntegrationsPage } from "../features/integrations/IntegrationsPage.js";
 import { InvestigationsPage } from "../features/investigations/InvestigationsPage.js";
@@ -39,8 +41,9 @@ import {
   authSessionQuery,
   devicesQuery,
   setupQuery,
+  signInOptionsQuery,
 } from "../features/auth/queries.js";
-import { configQuery } from "../features/settings/queries.js";
+import { configQuery, mailQuery } from "../features/settings/queries.js";
 import {
   alertSourceQuery,
   githubPreflightQuery,
@@ -165,6 +168,28 @@ const setupRoute = createRoute({
     }
   },
   component: SetupPage,
+});
+
+// Signed out by nature, so neither page checks the session.
+const forgotPasswordRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/forgot-password",
+  loader: ({ context: { queryClient } }) =>
+    need(queryClient, signInOptionsQuery()),
+  component: ForgotPasswordPage,
+});
+
+// Better Auth sends the person here with `token` on a good link and `error` on a bad one.
+const resetPasswordRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/reset-password",
+  validateSearch: (
+    search: Record<string, unknown>,
+  ): { token?: string; error?: string } => ({
+    ...(typeof search["token"] === "string" && { token: search["token"] }),
+    ...(typeof search["error"] === "string" && { error: search["error"] }),
+  }),
+  component: ResetPasswordPage,
 });
 
 // Pathless layout: nests every authenticated page so the session is checked
@@ -366,6 +391,7 @@ const settingsRoute = createRoute({
     Promise.all([
       need(queryClient, configQuery()),
       params.section === "security" && need(queryClient, devicesQuery()),
+      params.section === "mail" && need(queryClient, mailQuery()),
     ]),
   component: LAZY.SettingsPage,
 });
@@ -389,6 +415,8 @@ const sentryRoute = createRoute({
 const routeTree = rootRoute.addChildren([
   loginRoute,
   setupRoute,
+  forgotPasswordRoute,
+  resetPasswordRoute,
   appRoute.addChildren([
     indexRoute,
     agentRoute,

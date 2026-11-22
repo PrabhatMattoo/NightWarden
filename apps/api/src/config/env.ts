@@ -1,11 +1,14 @@
 import { z } from "zod";
 import {
   LLM_PROVIDER_NAMES,
+  MAIL_SETTING_FIELDS,
   PROVIDER_SETTING_FIELDS,
   SANDBOX_NETWORKS,
+  SMTP_SECURITIES,
   type AgentConfig,
   type GlobalSettingField,
   type LLMProviderName,
+  type MailSettingField,
   type NumericSetting,
   type ProviderSettingField,
 } from "@nightwarden/shared";
@@ -13,6 +16,7 @@ import {
   bounded,
   configPatchSchema,
   llmProviderNameSchema,
+  smtpPortSchema,
 } from "@nightwarden/shared/schemas";
 import { readable } from "../route-schemas.js";
 import { readSecretEnv } from "../secrets.js";
@@ -108,16 +112,63 @@ const PROVIDER_SETTINGS = {
   }
 >;
 
+// The mail server's settings, each beside its variable; the password may come from a file.
+const MAIL_SETTINGS = {
+  host: {
+    variable: "NIGHTWARDEN_SMTP_HOST",
+    read: readVariable,
+    schema: z.string(),
+  },
+  port: {
+    variable: "NIGHTWARDEN_SMTP_PORT",
+    read: readVariable,
+    schema: z.string().transform(Number).pipe(smtpPortSchema),
+  },
+  security: {
+    variable: "NIGHTWARDEN_SMTP_SECURITY",
+    read: readVariable,
+    schema: z.enum(SMTP_SECURITIES),
+  },
+  username: {
+    variable: "NIGHTWARDEN_SMTP_USERNAME",
+    read: readVariable,
+    schema: z.string(),
+  },
+  password: {
+    variable: "NIGHTWARDEN_SMTP_PASSWORD",
+    read: readSecretEnv,
+    schema: z.string(),
+  },
+  from: {
+    variable: "NIGHTWARDEN_SMTP_FROM",
+    read: readVariable,
+    schema: z.string(),
+  },
+} as const satisfies Record<
+  MailSettingField,
+  {
+    variable: string;
+    read: (name: string) => string | undefined;
+    schema: z.ZodType<unknown, string>;
+  }
+>;
+
 type EnvSettings = {
   [F in GlobalSettingField]?: z.output<(typeof GLOBAL_SETTINGS)[F]["schema"]>;
 };
 type ProviderEnv = Partial<Record<ProviderSettingField, string>>;
+type MailEnv = {
+  [F in MailSettingField]?: z.output<(typeof MAIL_SETTINGS)[F]["schema"]>;
+};
 
 interface EnvConfig {
   settings: EnvSettings;
   providers: Partial<Record<LLMProviderName, ProviderEnv>>;
+  mail: MailEnv;
   // The variable that set each value above, which is what the page tells a person to unset.
-  locked: AgentConfig["locked"];
+  locked: AgentConfig["locked"] & {
+    mail: Partial<Record<MailSettingField, string>>;
+  };
   // Not a setting a person edits, so it carries no lock.
   trustedProxies: string[];
 }
@@ -165,6 +216,16 @@ function readEnvConfig(): EnvConfig {
     }
   }
 
+  const mail: Record<string, unknown> = {};
+  const lockedMail: EnvConfig["locked"]["mail"] = {};
+  for (const field of MAIL_SETTING_FIELDS) {
+    const { variable, read, schema } = MAIL_SETTINGS[field];
+    const raw = read(variable);
+    if (raw === undefined) continue;
+    mail[field] = parseVariable(variable, raw, schema);
+    lockedMail[field] = variable;
+  }
+
   const rawProxies = readVariable(TRUSTED_PROXIES_VARIABLE);
   const trustedProxies =
     rawProxies === undefined
@@ -175,9 +236,35 @@ function readEnvConfig(): EnvConfig {
     // Each entry above was parsed by the schema of the field it is filed under.
     settings: settings as EnvSettings,
     providers,
-    locked: { settings: lockedSettings, providers: lockedProviders },
+    mail: mail as MailEnv,
+    locked: {
+      settings: lockedSettings,
+      providers: lockedProviders,
+      mail: lockedMail,
+    },
     trustedProxies,
   };
+}
+
+// A write to an environment-set setting would be saved and never read.
+export class LockedSettingError extends Error {
+  constructor(variable: string) {
+    super(
+      `${variable} sets this in the environment, so it cannot be changed here`,
+    );
+  }
+}
+
+export function refuseLocked(
+  locks: Partial<Record<string, string>> | undefined,
+  patch: object,
+): void {
+  for (const [field, value] of Object.entries(patch)) {
+    const variable = locks?.[field];
+    if (value !== undefined && variable !== undefined) {
+      throw new LockedSettingError(variable);
+    }
+  }
 }
 
 let resolved: EnvConfig | null = null;

@@ -12,9 +12,9 @@ import {
   MAX_RETRIES,
 } from "../llm/config.js";
 import { PROVIDER_OPTIONS } from "../llm/catalog.js";
-import { decrypt, encrypt, generateSecretKey, maskKey } from "../secrets.js";
+import { apiKeyHint, decrypt, encrypt, generateSecretKey } from "../secrets.js";
 import { secretKeyPath } from "../paths.js";
-import { envConfig } from "./env.js";
+import { envConfig, refuseLocked } from "./env.js";
 import { config, providerConfig, sandboxHostOverride } from "./schema.js";
 import type {
   AgentConfig,
@@ -33,15 +33,6 @@ const PROVIDER_NAMES: readonly LLMProviderName[] = PROVIDER_OPTIONS.map(
 );
 
 type ProviderRow = typeof providerConfig.$inferSelect;
-
-// A write to an environment-set setting would be saved and never read.
-export class LockedSettingError extends Error {
-  constructor(variable: string) {
-    super(
-      `${variable} sets this in the environment, so it cannot be changed here`,
-    );
-  }
-}
 
 function readConfigRow(): typeof config.$inferSelect | undefined {
   return getDb().select().from(config).where(eq(config.id, CONFIG_ID)).get();
@@ -86,7 +77,7 @@ function replaceHostOverrides(hosts: readonly string[], db: Db): void {
 }
 
 function maskStored(apiKeyEncrypted: string | null): string | null {
-  return apiKeyEncrypted ? maskKey(decrypt(apiKeyEncrypted)) : null;
+  return apiKeyEncrypted ? apiKeyHint(decrypt(apiKeyEncrypted)) : null;
 }
 
 function toSettings(provider: LLMProviderName): ProviderSettings {
@@ -97,7 +88,7 @@ function toSettings(provider: LLMProviderName): ProviderSettings {
     baseUrl: env?.baseUrl ?? row?.baseUrl ?? undefined,
     apiKeyMasked:
       env?.apiKey !== undefined
-        ? maskKey(env.apiKey)
+        ? apiKeyHint(env.apiKey)
         : maskStored(row?.apiKeyEncrypted ?? null),
     reasoningLevel: env?.reasoningLevel ?? row?.reasoningLevel ?? null,
   };
@@ -146,7 +137,7 @@ export function loadConfig(): AgentConfig {
       settings.sandboxNetwork ?? row?.sandboxNetwork ?? DEFAULT_SANDBOX_NETWORK,
     sandboxAllowlistHosts: settings.sandboxAllowlistHosts ?? effectiveHosts(),
     sandboxDefaultHosts: [...DEFAULT_SANDBOX_ALLOWLIST_HOSTS],
-    locked,
+    locked: { settings: locked.settings, providers: locked.providers },
   };
 }
 
@@ -156,18 +147,6 @@ export function loadApiKey(provider: LLMProviderName): string | undefined {
   if (fromEnv !== undefined) return fromEnv;
   const row = readProviderRow(provider);
   return row?.apiKeyEncrypted ? decrypt(row.apiKeyEncrypted) : undefined;
-}
-
-function refuseLocked(
-  locks: Partial<Record<string, string>> | undefined,
-  patch: object,
-): void {
-  for (const [field, value] of Object.entries(patch)) {
-    const variable = locks?.[field];
-    if (value !== undefined && variable !== undefined) {
-      throw new LockedSettingError(variable);
-    }
-  }
 }
 
 // Runs before any write, so a patch touching a locked field changes nothing.

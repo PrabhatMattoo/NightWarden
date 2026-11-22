@@ -2,11 +2,13 @@ import { z } from "zod";
 import { THEME_PREFERENCES } from "../auth.js";
 import {
   LLM_PROVIDER_NAMES,
+  MAIL_SETTING_FIELDS,
   PROVIDER_SETTING_FIELDS,
   type LLMProviderName,
   SANDBOX_HOST_PATTERN,
   SANDBOX_NETWORKS,
   SETTING_RANGES,
+  SMTP_SECURITIES,
   type NumericSetting,
 } from "../config.js";
 
@@ -191,3 +193,34 @@ export const providerKeySavedSchema = z.object({
   provider: llmProviderNameSchema,
   apiKeyMasked: z.string(),
 });
+
+const SMTP_PORT_RULE = "port must be a whole number from 1 to 65535";
+
+export const smtpPortSchema = z
+  .number({ error: SMTP_PORT_RULE })
+  .int(SMTP_PORT_RULE)
+  .min(1, SMTP_PORT_RULE)
+  .max(65535, SMTP_PORT_RULE);
+
+// Absent keeps what is stored; `username: null` removes the login, password with it.
+export const mailPatchSchema = z.object({
+  host: z.string().min(1).optional(),
+  port: smtpPortSchema.optional(),
+  security: z.enum(SMTP_SECURITIES).optional(),
+  username: z.string().min(1).nullable().optional(),
+  password: z.string().min(1).optional(),
+  from: z.string().min(1).optional(),
+});
+export type MailPatch = z.infer<typeof mailPatchSchema>;
+
+// Null is a value nobody set. The password is write-only: only whether one is set leaves.
+export const mailSettingsSchema = z.object({
+  host: z.string().nullable(),
+  port: z.number().nullable(),
+  security: z.enum(SMTP_SECURITIES).nullable(),
+  username: z.string().nullable(),
+  passwordSet: z.boolean(),
+  from: z.string().nullable(),
+  locked: z.partialRecord(z.enum(MAIL_SETTING_FIELDS), z.string()),
+});
+export type MailSettings = z.infer<typeof mailSettingsSchema>;

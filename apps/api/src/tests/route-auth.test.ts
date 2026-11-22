@@ -24,6 +24,10 @@ const PUBLIC: ReadonlyArray<{ route: string; why: string }> = [
     why: "answers whether the install still waits for its owner",
   },
   { route: "POST /api/setup", why: "claims its own setup token" },
+  {
+    route: "GET /api/sign-in-options",
+    why: "answers whether a forgotten password can be emailed, before anyone is signed in",
+  },
   { route: "POST /api/alerts/ingest", why: "verifies its own issued token" },
   { route: "GET /api/clients/connect", why: "a runner presents its own token" },
 ];
@@ -40,6 +44,8 @@ const ADMIN_ONLY = [
   "POST /api/config/models",
   "POST /api/config/model-check",
   "PATCH /api/config/key",
+  "GET /api/config/mail",
+  "PUT /api/config/mail",
   "DELETE /api/sessions/:id",
   "POST /api/integrations/github/preflight",
   "POST /api/integrations/github/repos",

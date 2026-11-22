@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
 
 import { authCall, authClient } from "@/shared/api/authClient";
-import { Button } from "@/shared/ui/button";
+import { Button, buttonVariants } from "@/shared/ui/button";
 import { FieldError } from "@/shared/ui/field";
 import { AuthField, AuthFrame, FormHeading } from "@/features/auth/AuthForm";
 import { useEnterApp } from "@/features/auth/useEnterApp";
@@ -39,6 +40,12 @@ export function LoginPage(): React.JSX.Element {
           value={password}
           onChange={setPassword}
         />
+        <Link
+          to="/forgot-password"
+          className={buttonVariants({ variant: "link" })}
+        >
+          Forgot password?
+        </Link>
         <div className="flex flex-col gap-2">
           {signIn.error && <FieldError>{signIn.error.message}</FieldError>}
           <Button type="submit" className="w-full" disabled={signIn.isPending}>

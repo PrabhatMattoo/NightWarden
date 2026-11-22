@@ -12,6 +12,7 @@ import {
   Ellipsis,
   Gauge,
   LogOut,
+  Mail,
   Plug,
   Settings,
   Shield,
@@ -74,11 +75,12 @@ const SETTINGS_GROUPS = [
     ],
   },
   {
-    label: "Agent",
+    label: "Organization",
     items: [
       { section: "provider", label: "Provider", icon: Cpu },
       { section: "limits", label: "Limits", icon: Gauge },
       { section: "sandbox", label: "Sandbox", icon: Box },
+      { section: "mail", label: "Mail", icon: Mail },
     ],
   },
 ] as const;

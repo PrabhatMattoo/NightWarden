@@ -11,3 +11,7 @@ export const setupRequestSchema = z.object({
   password: z.string().min(PASSWORD_MIN_LENGTH),
 });
 export type SetupRequest = z.infer<typeof setupRequestSchema>;
+
+// Read before sign-in, so the page can say whether a forgotten password can be emailed.
+export const signInOptionsSchema = z.object({ passwordReset: z.boolean() });
+export type SignInOptions = z.infer<typeof signInOptionsSchema>;

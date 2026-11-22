@@ -105,8 +105,8 @@ export function tokenMatches(plaintext: string, storedHash: string): boolean {
   );
 }
 
-// Never pass an encrypted blob here, only a plaintext key.
-export function maskKey(plaintext: string): string {
+// Provider API keys only, which a person recognises by their last four characters.
+export function apiKeyHint(plaintext: string): string {
   const suffix = plaintext.slice(-4);
   return `sk-...${suffix}`;
 }

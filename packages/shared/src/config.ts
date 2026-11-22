@@ -24,6 +24,22 @@ export type ProviderSettingField = (typeof PROVIDER_SETTING_FIELDS)[number];
 export const SANDBOX_NETWORKS = ["allowlist", "open", "none"] as const;
 export type SandboxNetwork = (typeof SANDBOX_NETWORKS)[number];
 
+// Whether the connection to the mail server is plain, upgraded in place, or encrypted from the first byte.
+export const SMTP_SECURITIES = ["none", "starttls", "tls"] as const;
+export type SmtpSecurity = (typeof SMTP_SECURITIES)[number];
+export const DEFAULT_SMTP_SECURITY: SmtpSecurity = "starttls";
+
+// The fields of the mail settings that the environment may set.
+export const MAIL_SETTING_FIELDS = [
+  "host",
+  "port",
+  "security",
+  "username",
+  "password",
+  "from",
+] as const;
+export type MailSettingField = (typeof MAIL_SETTING_FIELDS)[number];
+
 // Hostnames only, so a scheme, a port or a path is refused rather than guessed at.
 export const SANDBOX_HOST_PATTERN =
   /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/i;

@@ -193,4 +193,15 @@ CREATE TABLE `verification` (
 	`updated_at` integer NOT NULL
 );
 --> statement-breakpoint
-CREATE INDEX `verification_identifier_idx` ON `verification` (`identifier`);
+CREATE INDEX `verification_identifier_idx` ON `verification` (`identifier`);--> statement-breakpoint
+CREATE TABLE `mail_server` (
+	`id` text PRIMARY KEY NOT NULL,
+	`host` text,
+	`port` integer,
+	`security` text,
+	`username` text,
+	`password_encrypted` text,
+	`from_address` text,
+	`updated_at` text NOT NULL,
+	CONSTRAINT "mail_server_security" CHECK("mail_server"."security" IN ('none', 'starttls', 'tls'))
+);

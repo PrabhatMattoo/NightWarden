@@ -78,15 +78,22 @@ export {
   bounded,
   configPatchSchema,
   llmProviderNameSchema,
+  mailPatchSchema,
+  mailSettingsSchema,
   modelCatalogSchema,
   modelCheckSchema,
   providerKeySavedSchema,
+  smtpPortSchema,
   themePreferenceSchema,
 } from "./config.js";
 export type { ConfigPatch, SettingsPatch } from "./config.js";
 
 export { errorBodySchema, refusals } from "./http.js";
-export { setupRequestSchema, setupStatusSchema } from "./auth.js";
+export {
+  setupRequestSchema,
+  setupStatusSchema,
+  signInOptionsSchema,
+} from "./auth.js";
 export {
   alertSourceCredentialSchema,
   alertSourceStatusSchema,

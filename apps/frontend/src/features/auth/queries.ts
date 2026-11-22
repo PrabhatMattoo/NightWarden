@@ -21,6 +21,15 @@ export function setupQuery() {
   );
 }
 
+// Read while signed out, to choose what the forgotten-password page offers.
+export function signInOptionsQuery() {
+  return queryOptions(
+    apiQuery.queryOptions("get", "/api/sign-in-options", undefined, {
+      staleTime: Infinity,
+    }),
+  );
+}
+
 interface DeviceSession {
   token: string;
   userAgent: string | null;

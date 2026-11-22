@@ -221,13 +221,26 @@ describe("the environment at boot", () => {
     expect(() => initEnv()).toThrow("NIGHTWARDEN_MAX_RETRIES");
   });
 
+  it("refuses to start on a mail port or security the Mail settings would refuse, naming the variable", () => {
+    vi.stubEnv("NIGHTWARDEN_SMTP_PORT", "70000");
+    expect(() => initEnv()).toThrow("NIGHTWARDEN_SMTP_PORT");
+
+    vi.stubEnv("NIGHTWARDEN_SMTP_PORT", "587");
+    vi.stubEnv("NIGHTWARDEN_SMTP_SECURITY", "ssl");
+    expect(() => initEnv()).toThrow("NIGHTWARDEN_SMTP_SECURITY");
+  });
+
   it("reads an empty variable as unset, as a compose file writes one", () => {
     vi.stubEnv("NIGHTWARDEN_MAX_RETRIES", "");
     vi.stubEnv("NIGHTWARDEN_ANTHROPIC_MODEL", "");
 
     initEnv();
 
-    expect(envConfig().locked).toEqual({ settings: {}, providers: {} });
+    expect(envConfig().locked).toEqual({
+      settings: {},
+      providers: {},
+      mail: {},
+    });
   });
 
   it("reads the trusted proxies as addresses and ranges, none when unset", () => {

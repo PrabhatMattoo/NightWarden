@@ -15,6 +15,7 @@ import { toast } from "@/shared/lib/toast";
 import { api, dataOrThrow } from "@/shared/api/client";
 import { ConfirmDialog } from "@/shared/ui/ConfirmDialog";
 import { LimitsSection } from "@/features/settings/LimitsSection";
+import { MailSection } from "@/features/settings/MailSection";
 import { ProfileSection } from "@/features/settings/ProfileSection";
 import {
   ProviderSection,
@@ -41,6 +42,7 @@ const SECTIONS = [
   { id: "provider", label: "Provider" },
   { id: "limits", label: "Limits" },
   { id: "sandbox", label: "Sandbox" },
+  { id: "mail", label: "Mail" },
 ] as const;
 
 type SectionId = (typeof SECTIONS)[number]["id"];
@@ -336,6 +338,7 @@ export function SettingsPage(): React.JSX.Element {
       {active === "security" && <SecuritySection />}
       {active === "limits" && <LimitsSection config={config} save={save} />}
       {active === "sandbox" && <SandboxSection config={config} save={save} />}
+      {active === "mail" && <MailSection />}
 
       <ConfirmDialog
         open={blocker.status === "blocked"}

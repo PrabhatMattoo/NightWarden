@@ -5,6 +5,7 @@ const STATEMENTS = {
   integration: ["read", "manage"],
   runner: ["read", "manage"],
   settings: ["read", "manage"],
+  mail: ["read", "manage"],
 } as const;
 
 type Statements = typeof STATEMENTS;
@@ -25,6 +26,7 @@ const ROLES = {
     integration: ["read", "manage"],
     runner: ["read", "manage"],
     settings: ["read", "manage"],
+    mail: ["read", "manage"],
   }),
   [MEMBER_ROLE]: accessControl.newRole({
     session: ["read", "run", "approve"],

@@ -1,8 +1,8 @@
 import { z } from "zod";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
+import { LockedSettingError } from "./env.js";
 import {
-  LockedSettingError,
   loadConfig,
   loadApiKey,
   refuseLockedFields,
@@ -19,7 +19,7 @@ import {
 } from "../llm/catalog.js";
 import { languageModel, type ModelFor } from "../llm/factory.js";
 import { checkModelCallsTool } from "../llm/model-check.js";
-import { maskKey } from "../secrets.js";
+import { apiKeyHint } from "../secrets.js";
 import { logger } from "../logger.js";
 import type {
   LLMProviderName,
@@ -233,7 +233,7 @@ export async function registerConfigRoutes(
       } catch (err) {
         return refusedAsLocked(reply, err);
       }
-      return { provider, apiKeyMasked: maskKey(apiKey) };
+      return { provider, apiKeyMasked: apiKeyHint(apiKey) };
     },
   );
 }
