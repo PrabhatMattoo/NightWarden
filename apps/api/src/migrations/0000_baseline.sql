@@ -4,7 +4,6 @@ CREATE TABLE `alerts` (
 	`group_key` text NOT NULL,
 	`source_alert_id` text NOT NULL,
 	`labels` text DEFAULT '{}' NOT NULL,
-	`alert_type` text DEFAULT 'unknown' NOT NULL,
 	`fired_at` text NOT NULL,
 	`arrived_at` text NOT NULL,
 	`cleared_at` text,
@@ -31,6 +30,7 @@ CREATE TABLE `session_transcript` (
 	`reminder` text,
 	PRIMARY KEY(`session_id`, `seq`),
 	FOREIGN KEY (`session_id`) REFERENCES `sessions`(`session_id`) ON UPDATE no action ON DELETE cascade,
+	CONSTRAINT "session_transcript_kind" CHECK("session_transcript"."kind" IN ('user', 'assistant', 'error', 'system_reminder')),
 	CONSTRAINT "session_transcript_reminder" CHECK("session_transcript"."reminder" IN ('alert_opening', 'candidates_opening', 'frontier', 'falsification', 'report_request', 'report_retry', 'closing', 'text_only', 'reopen', 'record_check', 'toolset_change', 'injected_alerts', 'sandbox_ready', 'decision_wait'))
 );
 --> statement-breakpoint

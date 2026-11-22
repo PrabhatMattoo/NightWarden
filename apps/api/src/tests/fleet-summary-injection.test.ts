@@ -40,7 +40,7 @@ function makeAlert(service: string): NormalizedAlert {
       "com.docker.compose.project": service,
       "com.docker.compose.service": service,
     },
-    alertType: "HighCPU",
+    alertName: "HighCPU",
     firedAt: new Date().toISOString(),
     annotations: {},
     generatorURL: null,

@@ -96,7 +96,7 @@ function AlertBand({
                   {alert.labels["severity"]}
                 </span>
               )}
-              <span className="type-heading">{alert.alertType}</span>
+              <span className="type-heading">{alert.alertName}</span>
               <span className="ml-auto flex shrink-0 items-baseline gap-2 type-body">
                 {clearedAt !== null && (
                   <span className="text-ok">Recovered</span>

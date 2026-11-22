@@ -72,7 +72,7 @@ export async function verifyRecovery(
     }
     if (state === "unknown") continue;
     logger.info(
-      { sessionId, source: source.name, alertType: entry.alert.alertType },
+      { sessionId, source: source.name, alertName: entry.alert.alertName },
       "verification: condition is no longer true",
     );
     markAlertCleared(

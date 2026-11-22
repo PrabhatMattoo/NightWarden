@@ -113,7 +113,7 @@ describe("POST /sessions/:id/reopen", () => {
       {
         sourceAlertId: `reopen-${id}`,
         labels: {},
-        alertType: "DiskFull",
+        alertName: "DiskFull",
         firedAt: new Date().toISOString(),
         annotations: {},
         generatorURL: null,

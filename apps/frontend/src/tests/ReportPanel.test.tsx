@@ -18,7 +18,7 @@ const RESOLVED = "2026-07-21T12:30:00.000Z";
 const ALERT: NormalizedAlert = {
   sourceAlertId: "alert-1",
   labels: { service: "payments-worker", severity: "P1" },
-  alertType: "ContainerRestarting",
+  alertName: "ContainerRestarting",
   firedAt: "2026-07-21T12:00:00.000Z",
   annotations: {},
   generatorURL: null,
@@ -28,7 +28,7 @@ const ALERT: NormalizedAlert = {
 const INJECTED_ALERT: NormalizedAlert = {
   sourceAlertId: "alert-2",
   labels: { service: "api" },
-  alertType: "HighLatency",
+  alertName: "HighLatency",
   firedAt: "2026-07-21T12:20:00.000Z",
   annotations: {},
   generatorURL: null,

@@ -27,7 +27,7 @@ export function buildAlertTitleSource(alerts: NormalizedAlert[]): string {
       // rank is still what the user called it, and the title reads it.
       const severity = a.labels["severity"];
       const severityPart = severity === undefined ? "" : ` (${severity})`;
-      return `[${a.alertType}] ${labels}${severityPart}`.replace(/\s+/g, " ");
+      return `[${a.alertName}] ${labels}${severityPart}`.replace(/\s+/g, " ");
     })
     .join("\n");
 }

@@ -32,7 +32,7 @@ describe("how often an open condition is asked about", () => {
           sourceAlertId,
           labels: {},
           annotations: {},
-          alertType: "HighMemory",
+          alertName: "HighMemory",
           firedAt: new Date(openedAt).toISOString(),
           generatorURL: null,
           values: {},

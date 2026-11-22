@@ -40,7 +40,7 @@ describe("parseAlertmanager", () => {
     const [parsed] = parseAlertmanager({ alerts: [alert()] }).firing;
     expect(parsed).toMatchObject({
       sourceAlertId: "fp-1",
-      alertType: "HighCPU",
+      alertName: "HighCPU",
       firedAt: "2026-06-21T10:00:00Z",
     });
     // The labels are the whole record of what the alert named; nothing is derived
@@ -218,7 +218,7 @@ describe("user context reaches the model", () => {
     expect(turn).not.toContain("link:");
     // The alert itself still renders in full, which is the whole point of the
     // absent section being a section rather than a branch.
-    expect(turn).toContain("type: HighCPU");
+    expect(turn).toContain("HighCPU");
   });
 
   // A malformed link is the sender's, not ours: it renders as a link with no

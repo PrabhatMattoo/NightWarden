@@ -35,7 +35,7 @@ import { waitFor } from "./wait.js";
 const alert: NormalizedAlert = {
   sourceAlertId: "src-crash",
   labels: {},
-  alertType: "ContainerDown",
+  alertName: "ContainerDown",
   firedAt: "2026-06-13T00:00:00.000Z",
   annotations: {},
   generatorURL: null,

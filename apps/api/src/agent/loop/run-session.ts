@@ -67,7 +67,7 @@ export function buildSessionMeta(
     title:
       alert == null && userMessage
         ? userMessage.slice(0, 80)
-        : (alert?.alertType ?? "chat"),
+        : (alert?.alertName ?? "chat"),
     createdAt: new Date().toISOString(),
   };
 }
@@ -116,7 +116,7 @@ export async function runSession(
 
   const log = logger.child({
     sessionId,
-    alertType: alert?.alertType ?? "chat",
+    alertName: alert?.alertName ?? "chat",
     alertCount: allAlerts.length,
     investigation: opensInvestigation,
   });

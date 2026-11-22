@@ -186,6 +186,6 @@ function formatAlert(alert: NormalizedAlert, fleet: FleetRunner[]): string {
   const valuesLine = values ? `\nvalues at fire time: ${values}` : "";
   return `id: ${alert.sourceAlertId}
 target: ${targetLine}
-type: ${alert.alertType}${severityLine}
+alertname: ${alert.alertName}${severityLine}
 fired at: ${alert.firedAt}${labelLine}${formatAnnotations(alert.annotations)}${conditionLine}${valuesLine}${linkLine}`;
 }

@@ -13,7 +13,7 @@ const normalizedAlertSchema = z.object({
   labels: stringMap,
   // What a human wrote about this condition. Context only, never a control input.
   annotations: stringMap,
-  alertType: z.string(),
+  alertName: z.string(),
   firedAt: z.string(),
   // Where the sender says the condition lives. Grafana names a rule page.
   generatorURL: z.string().nullable(),

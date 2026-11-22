@@ -56,7 +56,7 @@ function slugify(text: string): string {
 // openPullRequest finds its PR instead of opening a second one.
 function branchNameFor(sessionId: string): string {
   const alert = getSession(sessionId)?.alerts[0]?.alert ?? null;
-  const slug = alert === null ? "chat" : slugify(alert.alertType);
+  const slug = alert === null ? "chat" : slugify(alert.alertName);
   return `nightwarden/fix-${slug}-${sessionId.slice(0, 8)}`;
 }
 
@@ -264,7 +264,7 @@ function composePrBody(
   sections.push(
     alert === null
       ? "## Incident\n\nStarted from a NightWarden chat session."
-      : `## Incident\n\n- Alert: ${alert.alertType}${alert.labels["severity"] === undefined ? "" : ` (${alert.labels["severity"]})`}\n- Fired at: ${alert.firedAt}`,
+      : `## Incident\n\n- Alert: ${alert.alertName}${alert.labels["severity"] === undefined ? "" : ` (${alert.labels["severity"]})`}\n- Fired at: ${alert.firedAt}`,
   );
 
   if (filesChanged.length > 0) {

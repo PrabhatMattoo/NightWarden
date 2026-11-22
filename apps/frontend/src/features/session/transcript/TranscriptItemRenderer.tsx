@@ -69,7 +69,7 @@ function AlertArrived({ item }: { item: AlertArrivedItem }): React.JSX.Element {
         {item.severityLabel !== null && (
           <MetaText>{item.severityLabel}</MetaText>
         )}
-        <span className="emphasis text-ink-base">{item.alertType}</span>
+        <span className="emphasis text-ink-base">{item.alertName}</span>
         <span>
           {item.opening === true
             ? "opened this investigation"

@@ -130,7 +130,7 @@ export type CandidateCardItem = z.infer<typeof candidateCardItemSchema>;
 const alertArrivedItemSchema = z.object({
   kind: z.literal("alert_arrived"),
   id: z.string(),
-  alertType: z.string(),
+  alertName: z.string(),
   // Whatever the sender called it, verbatim. Null when it carried no label.
   severityLabel: z.string().nullable(),
   // True for the alert the session opened on, which reads as its beginning.

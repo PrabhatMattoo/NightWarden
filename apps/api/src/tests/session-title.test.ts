@@ -144,7 +144,7 @@ describe("session title generation", () => {
         severity: "critical",
         container: `svc-${i}`,
       },
-      alertType: "cpu_high",
+      alertName: "cpu_high",
       firedAt: "2024-01-01T00:00:00Z",
       annotations: {},
       generatorURL: null,

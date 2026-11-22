@@ -29,7 +29,6 @@ function alertRow(
     groupKey,
     sourceAlertId: alert.sourceAlertId,
     labels: alert.labels,
-    alertType: alert.alertType,
     firedAt: alert.firedAt,
     arrivedAt,
     clearedAt: null,

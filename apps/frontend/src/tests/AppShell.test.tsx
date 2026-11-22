@@ -78,13 +78,13 @@ const INVESTIGATIONS = [
   }),
 ];
 
-function alertOn(alertType: string, clearedAt: string | null): SessionAlert {
+function alertOn(alertName: string, clearedAt: string | null): SessionAlert {
   return {
     alert: {
-      sourceAlertId: `${alertType}-1`,
-      labels: { alertname: alertType },
+      sourceAlertId: `${alertName}-1`,
+      labels: { alertname: alertName },
       annotations: {},
-      alertType,
+      alertName,
       firedAt: "2026-08-19T02:14:00.000Z",
       generatorURL: null,
       values: {},

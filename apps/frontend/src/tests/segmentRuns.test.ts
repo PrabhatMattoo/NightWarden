@@ -58,7 +58,7 @@ const answer = (seq: number, at?: string): TranscriptItem => ({
 const openingAlert: TranscriptItem = {
   kind: "alert_arrived",
   id: "alert-1",
-  alertType: "HighMemory",
+  alertName: "HighMemory",
   severityLabel: "critical",
   opening: true,
 };
@@ -195,7 +195,7 @@ describe("segmentRuns", () => {
     const interrupt: TranscriptItem = {
       kind: "alert_arrived",
       id: "alert-2",
-      alertType: "DiskFull",
+      alertName: "DiskFull",
       severityLabel: null,
     };
     const nodes = segmentRuns(

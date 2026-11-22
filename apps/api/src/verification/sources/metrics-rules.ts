@@ -11,7 +11,7 @@ export const metricsRulesSource: VerificationSource = {
   name: "metrics-rules",
 
   claims(alert) {
-    return alert.alertType !== "unknown" && getMetricsSource()?.rules != null;
+    return alert.alertName !== "unknown" && getMetricsSource()?.rules != null;
   },
 
   async checkCondition(alert): Promise<ConditionState> {
@@ -22,7 +22,7 @@ export const metricsRulesSource: VerificationSource = {
       const instances = await withStoredCredential(
         source.id,
         async () =>
-          await firingInstancesOf(rules, probeSignal(), alert.alertType),
+          await firingInstancesOf(rules, probeSignal(), alert.alertName),
       );
       // The source knows no rule by that name, so it cannot speak to this
       // alert. Silence is never a recovery.
@@ -34,7 +34,7 @@ export const metricsRulesSource: VerificationSource = {
         : "unknown";
     } catch (err) {
       logger.warn(
-        { err, alertType: alert.alertType },
+        { err, alertName: alert.alertName },
         "verification: the metrics source could not be asked",
       );
       return "unknown";

@@ -231,7 +231,7 @@ export function buildTranscript(sessionId: string): TranscriptItem[] {
     items.push({
       kind: "alert_arrived",
       id: `alert-${entry.alert.sourceAlertId}-${entry.arrivedAt}`,
-      alertType: entry.alert.alertType,
+      alertName: entry.alert.alertName,
       severityLabel: entry.alert.labels["severity"] ?? null,
       opening: true,
     });
@@ -248,7 +248,7 @@ export function buildTranscript(sessionId: string): TranscriptItem[] {
       items.push({
         kind: "alert_arrived",
         id: `alert-${entry.alert.sourceAlertId}-${entry.arrivedAt}`,
-        alertType: entry.alert.alertType,
+        alertName: entry.alert.alertName,
         severityLabel: entry.alert.labels["severity"] ?? null,
       });
       nextArrival++;
@@ -393,7 +393,7 @@ export function buildTranscript(sessionId: string): TranscriptItem[] {
     items.push({
       kind: "alert_arrived",
       id: `alert-${entry.alert.sourceAlertId}-${entry.arrivedAt}`,
-      alertType: entry.alert.alertType,
+      alertName: entry.alert.alertName,
       severityLabel: entry.alert.labels["severity"] ?? null,
     });
   }

@@ -69,7 +69,7 @@ export function parseAlertmanager(body: unknown): ParsedWebhook {
       sourceAlertId: fingerprint,
       labels,
       annotations: toStringMap(alert["annotations"]),
-      alertType: labels["alertname"] ?? "unknown",
+      alertName: labels["alertname"] ?? "unknown",
       firedAt,
       // Kept verbatim: what it means is read where it is rendered, so parsing
       // still stamps nothing derived onto an alert.

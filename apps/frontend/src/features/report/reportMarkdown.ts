@@ -35,7 +35,7 @@ function citedLines(
 function alertLine(entry: SessionAlert): string {
   const severity = entry.alert.labels["severity"];
   const cleared = entry.clearedAt === null ? "still firing" : "cleared";
-  return `- ${entry.alert.alertType}${severity === undefined ? "" : ` (${severity})`}, fired ${entry.alert.firedAt}, ${cleared}`;
+  return `- ${entry.alert.alertName}${severity === undefined ? "" : ` (${severity})`}, fired ${entry.alert.firedAt}, ${cleared}`;
 }
 
 /* The investigation as a postmortem artifact. Only what the record holds: the

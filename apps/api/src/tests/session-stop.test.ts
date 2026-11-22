@@ -158,7 +158,7 @@ describe("POST /sessions/:id/stop", () => {
       {
         sourceAlertId: `stop-${randomUUID()}`,
         labels: {},
-        alertType: "ContainerDown",
+        alertName: "ContainerDown",
         firedAt: new Date().toISOString(),
         annotations: {},
         generatorURL: null,

@@ -22,7 +22,7 @@ export function formatInjectedAlerts(alerts: NormalizedAlert[]): string {
     alerts
       .map(
         (a) =>
-          `- [${a.alertType}] ${formatLabels(a.labels)} (${a.labels["severity"] ?? "no severity"}) fired at ${a.firedAt} [id: ${a.sourceAlertId}]`,
+          `- [${a.alertName}] ${formatLabels(a.labels)} (${a.labels["severity"] ?? "no severity"}) fired at ${a.firedAt} [id: ${a.sourceAlertId}]`,
       )
       .join("\n")
   );

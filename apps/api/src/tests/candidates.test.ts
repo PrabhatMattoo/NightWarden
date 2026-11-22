@@ -32,7 +32,7 @@ function alert(sourceAlertId: string): NormalizedAlert {
   return {
     sourceAlertId,
     labels: {},
-    alertType: "HighLatency",
+    alertName: "HighLatency",
     firedAt: new Date().toISOString(),
     annotations: {},
     generatorURL: null,

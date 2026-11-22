@@ -84,7 +84,7 @@ function msg(
 const alert: NormalizedAlert = {
   sourceAlertId: "src-1",
   labels: {},
-  alertType: "ContainerDown",
+  alertName: "ContainerDown",
   firedAt: "2026-06-13T00:00:00.000Z",
   annotations: {},
   generatorURL: null,
@@ -140,7 +140,7 @@ describe("API-local session store", () => {
   it("keeps an alert that arrived after the session was already running", () => {
     const m = meta();
     const opening = firing();
-    const later = { ...firing(), alertType: "HighLatency" };
+    const later = { ...firing(), alertName: "HighLatency" };
     // Opened running, so the second delivery of its group joins it mid-run.
     admitDelivery(m, "grp-arrival", [opening], WHOLE_DELIVERY, Infinity);
     admitDelivery(m, "grp-arrival", [later], WHOLE_DELIVERY, Infinity);
@@ -612,7 +612,7 @@ describe("API-local session store", () => {
                     groups: [
                       {
                         rules: [
-                          { name: alert.alertType, type: "alerting", alerts },
+                          { name: alert.alertName, type: "alerting", alerts },
                         ],
                       },
                     ],

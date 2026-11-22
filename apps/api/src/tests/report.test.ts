@@ -65,7 +65,7 @@ function alert(sourceAlertId: string): NormalizedAlert {
   return {
     sourceAlertId,
     labels: {},
-    alertType: "HighMemory",
+    alertName: "HighMemory",
     firedAt: new Date().toISOString(),
     annotations: {},
     generatorURL: null,

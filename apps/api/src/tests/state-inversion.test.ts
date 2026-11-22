@@ -179,7 +179,7 @@ describe("state inversion: persistence and reads are API-local", () => {
       {
         sourceAlertId: `si-${randomUUID()}`,
         labels: {},
-        alertType: "ContainerDown",
+        alertName: "ContainerDown",
         firedAt: new Date().toISOString(),
         annotations: {},
         generatorURL: null,
@@ -201,7 +201,7 @@ describe("state inversion: persistence and reads are API-local", () => {
     );
     const session = (await detailRes.json()) as SessionDetail;
     expect(session.investigation).toBe(true);
-    expect(session.alerts[0]?.alert.alertType).toBe("ContainerDown");
+    expect(session.alerts[0]?.alert.alertName).toBe("ContainerDown");
 
     const listRes = await fetch(
       `http://127.0.0.1:${port}/api/sessions?kind=investigation`,
@@ -268,7 +268,7 @@ describe("state inversion: opening alert context stays alert-scoped", () => {
     const alert: NormalizedAlert = {
       sourceAlertId: "src-9",
       labels: {},
-      alertType: "HighMemory",
+      alertName: "HighMemory",
       firedAt: new Date().toISOString(),
       annotations: {},
       generatorURL: null,

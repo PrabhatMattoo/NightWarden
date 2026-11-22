@@ -6,7 +6,13 @@ import type { InvestigationStatus } from "./schemas/sessions.js";
 
 // Four kinds against a provider's two roles: "error" is rendered but never
 // replayed, "system_reminder" replayed but never rendered. buildSeed maps them.
-export type TranscriptKind = "user" | "assistant" | "error" | "system_reminder";
+export const TRANSCRIPT_KINDS = [
+  "user",
+  "assistant",
+  "error",
+  "system_reminder",
+] as const;
+export type TranscriptKind = (typeof TRANSCRIPT_KINDS)[number];
 
 // Which note a system_reminder row is. The run's position is folded from these,
 // never from the prose the note carried.

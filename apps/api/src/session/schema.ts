@@ -13,6 +13,7 @@ import {
   FAILURE_KINDS,
   INVESTIGATION_STATUSES,
   REMINDER_KINDS,
+  TRANSCRIPT_KINDS,
 } from "@nightwarden/shared";
 import type {
   AlertGroupContext,
@@ -23,7 +24,6 @@ import type {
   NormalizedAlert,
   SubmittedReport,
   ToolApprovalPart,
-  TranscriptKind,
 } from "@nightwarden/shared";
 import type { Stage } from "../agent/loop/stage.js";
 import type { ToolResult } from "../llm/types.js";
@@ -115,7 +115,6 @@ export const alerts = sqliteTable(
       .$type<NormalizedAlert["labels"]>()
       .notNull()
       .default(sql`'{}'`),
-    alertType: text("alert_type").notNull().default("unknown"),
     firedAt: text("fired_at").notNull(),
     arrivedAt: text("arrived_at").notNull(),
     clearedAt: text("cleared_at"),
@@ -149,7 +148,7 @@ export const sessionTranscript = sqliteTable(
       .notNull()
       .references(() => sessions.sessionId, { onDelete: "cascade" }),
     seq: integer("seq").notNull(),
-    kind: text("kind").$type<TranscriptKind>().notNull(),
+    kind: text("kind", { enum: TRANSCRIPT_KINDS }).notNull(),
     content: text("content").notNull(),
     canonical: text("canonical", { mode: "json" }).$type<{
       parts: MessagePart[];
@@ -162,6 +161,10 @@ export const sessionTranscript = sqliteTable(
   },
   (t) => [
     primaryKey({ columns: [t.sessionId, t.seq] }),
+    check(
+      "session_transcript_kind",
+      sql`${t.kind} IN (${inList(TRANSCRIPT_KINDS)})`,
+    ),
     check(
       "session_transcript_reminder",
       sql`${t.reminder} IN (${inList(REMINDER_KINDS)})`,

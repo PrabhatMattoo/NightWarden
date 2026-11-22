@@ -12,7 +12,7 @@ const AT = "2026-07-21T12:30:00.000Z";
 const ALERT: NormalizedAlert = {
   sourceAlertId: "alert-1",
   labels: { severity: "critical", service: "payments-worker" },
-  alertType: "ContainerRestarting",
+  alertName: "ContainerRestarting",
   firedAt: "2026-07-21T12:00:00.000Z",
   annotations: {},
   generatorURL: null,

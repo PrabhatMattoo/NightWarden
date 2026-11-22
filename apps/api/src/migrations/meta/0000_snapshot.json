@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "48b15585-0d7a-46dd-8321-c619acdb8765",
+  "id": "b4b5810d-1ddc-4f85-855d-4bfd7da48ec7",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "alerts": {
@@ -42,14 +42,6 @@
           "notNull": true,
           "autoincrement": false,
           "default": "'{}'"
-        },
-        "alert_type": {
-          "name": "alert_type",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'unknown'"
         },
         "fired_at": {
           "name": "fired_at",
@@ -251,6 +243,10 @@
       },
       "uniqueConstraints": {},
       "checkConstraints": {
+        "session_transcript_kind": {
+          "name": "session_transcript_kind",
+          "value": "\"session_transcript\".\"kind\" IN ('user', 'assistant', 'error', 'system_reminder')"
+        },
         "session_transcript_reminder": {
           "name": "session_transcript_reminder",
           "value": "\"session_transcript\".\"reminder\" IN ('alert_opening', 'candidates_opening', 'frontier', 'falsification', 'report_request', 'report_retry', 'closing', 'text_only', 'reopen', 'record_check', 'toolset_change', 'injected_alerts', 'sandbox_ready', 'decision_wait')"
