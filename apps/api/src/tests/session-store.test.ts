@@ -1,6 +1,7 @@
 import { fakeModel } from "./fake-model.js";
 import { randomUUID } from "node:crypto";
 import {
+  insertTestUser,
   seedAlertSession,
   UNANSWERED_TURN,
   WHOLE_DELIVERY,
@@ -98,9 +99,12 @@ function firing(): NormalizedAlert {
 
 describe("API-local session store", () => {
   let cleanupDb: () => void;
+  // Whose chats the list shows.
+  let viewer: string;
 
   beforeAll(() => {
     cleanupDb = useTempDb();
+    viewer = insertTestUser();
   });
 
   afterAll(() => {
@@ -444,7 +448,7 @@ describe("API-local session store", () => {
     }
 
     function statusOf(sessionId: string): string | null {
-      const row = listSessionPage(200, 0, "investigation").rows.find(
+      const row = listSessionPage(200, 0, "investigation", viewer).rows.find(
         (r) => r.sessionId === sessionId,
       );
       return row?.status ?? null;
@@ -784,7 +788,7 @@ describe("API-local session store", () => {
         explanation: "it followed the upstream failure",
         evidenceIds: [seedCitedCall(sessionId)],
       });
-      const rows = listSessionPage(500, 0, "investigation").rows.filter(
+      const rows = listSessionPage(500, 0, "investigation", viewer).rows.filter(
         (r) => r.investigation,
       );
       expect(rows.length).toBeGreaterThan(0);
@@ -802,8 +806,8 @@ describe("API-local session store", () => {
     // and the list is now served one kind at a time.
     function rowOf(sessionId: string) {
       const pages = [
-        listSessionPage(500, 0, "investigation"),
-        listSessionPage(500, 0, "chat"),
+        listSessionPage(500, 0, "investigation", viewer),
+        listSessionPage(500, 0, "chat", viewer),
       ];
       return pages
         .flatMap((page) => page.rows)
@@ -921,7 +925,7 @@ describe("API-local session store", () => {
 
     it("leaves a session that is not under investigation with no finding", () => {
       const m = meta();
-      createSession(m);
+      createSession(m, false, viewer);
       expect(statusLineOf(m.sessionId)).toBeNull();
     });
 
@@ -976,7 +980,7 @@ describe("API-local session store", () => {
     it("lists only the rows a filter gathers", () => {
       const ids = oneOfEach();
       // Active is what is still in play: a run working, or one waiting on a person.
-      const active = listSessionPage(500, 0, "investigation", {
+      const active = listSessionPage(500, 0, "investigation", viewer, {
         status: "active",
       });
       expect(
@@ -986,13 +990,13 @@ describe("API-local session store", () => {
       ).toBe(true);
       expect(active.rows.map((r) => r.sessionId)).toContain(ids.waiting);
 
-      const resolved = listSessionPage(500, 0, "investigation", {
+      const resolved = listSessionPage(500, 0, "investigation", viewer, {
         status: "resolved",
       });
       expect(resolved.rows.every((r) => r.status === "resolved")).toBe(true);
       expect(resolved.rows.map((r) => r.sessionId)).toContain(ids.resolved);
 
-      const closed = listSessionPage(500, 0, "investigation", {
+      const closed = listSessionPage(500, 0, "investigation", viewer, {
         status: "closed",
       });
       expect(
@@ -1009,7 +1013,7 @@ describe("API-local session store", () => {
       const full = investigation("Disk 100% on web_01");
       const near = investigation("Disk 1000 on webX01");
       const found = (q: string): string[] =>
-        listSessionPage(500, 0, "investigation", { q }).rows.map(
+        listSessionPage(500, 0, "investigation", viewer, { q }).rows.map(
           (r) => r.sessionId,
         );
 
@@ -1022,22 +1026,27 @@ describe("API-local session store", () => {
     });
 
     it("totals every investigation, so a record's place in the queue is true", () => {
-      const before = listSessionPage(1, 0, "investigation").investigationTotal;
+      const before = listSessionPage(
+        1,
+        0,
+        "investigation",
+        viewer,
+      ).investigationTotal;
       investigation();
       createSession(meta()); // a chat adds nothing to the total
-      expect(listSessionPage(1, 0, "investigation").investigationTotal).toBe(
-        before + 1,
-      );
+      expect(
+        listSessionPage(1, 0, "investigation", viewer).investigationTotal,
+      ).toBe(before + 1);
     });
 
     it("filters the rows by kind, leaving the total alone", () => {
       const chat = meta();
-      createSession(chat);
-      const only = listSessionPage(500, 0, "investigation");
+      createSession(chat, false, viewer);
+      const only = listSessionPage(500, 0, "investigation", viewer);
       expect(only.rows.every((r) => r.investigation)).toBe(true);
       expect(only.rows.some((r) => r.sessionId === chat.sessionId)).toBe(false);
 
-      const chats = listSessionPage(500, 0, "chat");
+      const chats = listSessionPage(500, 0, "chat", viewer);
       expect(chats.rows.every((r) => !r.investigation)).toBe(true);
       expect(chats.rows.some((r) => r.sessionId === chat.sessionId)).toBe(true);
       expect(chats.investigationTotal).toBe(only.investigationTotal);

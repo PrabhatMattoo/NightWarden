@@ -1,5 +1,6 @@
 import { and, eq, isNotNull } from "drizzle-orm";
 import type { AwaitingKind } from "@nightwarden/shared";
+import { type NewAuditEvent, recordAuditEvent } from "../audit/audit-store.js";
 import { getDb } from "../db.js";
 import type { ToolResult } from "../llm/types.js";
 import { type Decision, type OpenTurn, sessions } from "./schema.js";
@@ -35,13 +36,14 @@ export function deletePendingHumanInput(sessionId: string): boolean {
   return true;
 }
 
-/* Settles the gate and claims the run together, so a crash cannot leave a
-   session reading completed with nothing resuming it. False means nothing changed. */
+/* Settles the gate, claims the run and writes the audit event as one transaction,
+   so a crash leaves a session never half-decided. False means nothing changed. */
 export function resolveGate(
   sessionId: string,
   toolCallId: string,
   decision: Decision,
   result: ToolResult | null,
+  audit: NewAuditEvent | null,
 ): boolean {
   return getDb().transaction((tx) => {
     const parked = tx
@@ -75,6 +77,7 @@ export function resolveGate(
       })
       .where(eq(sessions.sessionId, sessionId))
       .run();
+    if (audit !== null) recordAuditEvent(audit, tx);
     return true;
   });
 }

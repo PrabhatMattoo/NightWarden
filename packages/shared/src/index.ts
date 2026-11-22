@@ -1,3 +1,6 @@
+export type { AuditAction } from "./audit.js";
+export { AUDIT_ACTIONS } from "./audit.js";
+export type { AuditEvent, AuditPage } from "./schemas/audit.js";
 export type { AlertSourceKind } from "./alerts.js";
 export { ALERT_SOURCE_KINDS, isAlertSourceKind } from "./alerts.js";
 export type { ThemePreference } from "./auth.js";

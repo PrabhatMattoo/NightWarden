@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "fbfbbac8-ae0a-447f-89a5-a69449c804c3",
+  "id": "9d5dfd53-23ce-4738-bdc9-6b209a385231",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "alerts": {
@@ -374,6 +374,13 @@
           "notNull": false,
           "autoincrement": false
         },
+        "created_by": {
+          "name": "created_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "text",
@@ -399,9 +406,34 @@
             "session_id"
           ],
           "isUnique": false
+        },
+        "idx_sessions_creator": {
+          "name": "idx_sessions_creator",
+          "columns": [
+            "investigation",
+            "created_by",
+            "(\"awaiting_tool_use_id\" IS NOT NULL) DESC",
+            "\"last_activity_at\" DESC",
+            "session_id"
+          ],
+          "isUnique": false
         }
       },
-      "foreignKeys": {},
+      "foreignKeys": {
+        "sessions_created_by_user_id_fk": {
+          "name": "sessions_created_by_user_id_fk",
+          "tableFrom": "sessions",
+          "tableTo": "user",
+          "columnsFrom": [
+            "created_by"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "checkConstraints": {
@@ -1333,6 +1365,92 @@
           "value": "\"mail_server\".\"security\" IN ('none', 'starttls', 'tls')"
         }
       }
+    },
+    "audit_event": {
+      "name": "audit_event",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "at": {
+          "name": "at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "actor_id": {
+          "name": "actor_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "actor_name": {
+          "name": "actor_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "actor_email": {
+          "name": "actor_email",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "action": {
+          "name": "action",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "target": {
+          "name": "target",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "details": {
+          "name": "details",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "session_id": {
+          "name": "session_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "idx_audit_event_at": {
+          "name": "idx_audit_event_at",
+          "columns": [
+            "at"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "audit_event_action": {
+          "name": "audit_event_action",
+          "value": "\"audit_event\".\"action\" IN ('write_approved', 'write_rejected')"
+        }
+      }
     }
   },
   "views": {},
@@ -1345,6 +1463,16 @@
   "internal": {
     "indexes": {
       "idx_sessions_list": {
+        "columns": {
+          "(\"awaiting_tool_use_id\" IS NOT NULL) DESC": {
+            "isExpression": true
+          },
+          "\"last_activity_at\" DESC": {
+            "isExpression": true
+          }
+        }
+      },
+      "idx_sessions_creator": {
         "columns": {
           "(\"awaiting_tool_use_id\" IS NOT NULL) DESC": {
             "isExpression": true

@@ -18,15 +18,11 @@ import {
   sessionStoppedSchema,
 } from "@nightwarden/shared/schemas";
 import { gatedCalls, resolveEvidence, toolCallsIn } from "../agent/report.js";
+import { requireSessionAccess } from "./access.js";
 import { hasPendingHumanInput } from "./gate-store.js";
 import { getRecord } from "./record-store.js";
 import { isReopenable } from "./reopen.js";
-import {
-  createSession,
-  deleteSession,
-  getSession,
-  sessionExists,
-} from "./store.js";
+import { createSession, deleteSession, getSession } from "./store.js";
 import { buildSessionMeta } from "../agent/loop/run-session.js";
 import { listSessionPage } from "./list.js";
 import { buildTranscript } from "./transcript.js";
@@ -47,7 +43,18 @@ const params = z.object({ id: z.string() });
 
 const accepted = { response: { 202: sessionAcceptedSchema, ...refusals() } };
 
+// Encapsulated, so the access guard covers these routes and no other `:id` route.
 export async function registerSessionRoutes(
+  fastify: FastifyInstance,
+  deps: { dispatcher: Dispatcher },
+): Promise<void> {
+  await fastify.register(async (scope) => {
+    scope.addHook("onRequest", requireSessionAccess);
+    await sessionRoutes(scope, deps);
+  });
+}
+
+async function sessionRoutes(
   fastify: FastifyInstance,
   { dispatcher }: { dispatcher: Dispatcher },
 ): Promise<void> {
@@ -65,7 +72,7 @@ export async function registerSessionRoutes(
     },
     async (request) => {
       const { limit, offset, kind, status, q } = request.query;
-      return listSessionPage(limit, offset, kind, {
+      return listSessionPage(limit, offset, kind, signedInUser(request).id, {
         ...(status !== undefined && { status }),
         ...(q !== undefined && { q }),
       });
@@ -132,7 +139,7 @@ export async function registerSessionRoutes(
   app.delete(
     "/sessions/:id",
     {
-      config: { permission: { session: ["delete"] } },
+      config: { permission: { session: ["run"] } },
       schema: { params, response: { 204: z.undefined(), ...refusals() } },
     },
     async (request, reply) => {
@@ -223,7 +230,11 @@ export async function registerSessionRoutes(
       const sessionId = randomUUID();
       // The row exists before its id is handed out, so a 202 never names a
       // session the next request cannot fetch. The run's own call is idempotent.
-      createSession(buildSessionMeta(sessionId, null, message), false);
+      createSession(
+        buildSessionMeta(sessionId, null, message),
+        false,
+        signedInUser(request).id,
+      );
       dispatcher.dispatch({
         sessionId,
         userMessage: message,
@@ -248,9 +259,6 @@ export async function registerSessionRoutes(
     async (request, reply) => {
       const sessionId = request.params.id;
       const { message, clientMessageId } = request.body;
-      if (!sessionExists(sessionId)) {
-        return reply.code(404).send({ error: "unknown session" });
-      }
       // Parked on a human rather than racing: the answer comes from the respond
       // route, so this is refused before anything tries to claim the session.
       if (hasPendingHumanInput(sessionId)) {
@@ -287,9 +295,6 @@ export async function registerSessionRoutes(
     },
     async (request, reply) => {
       const sessionId = request.params.id;
-      if (!sessionExists(sessionId)) {
-        return reply.code(404).send({ error: "unknown session" });
-      }
       if (deriveStatus(sessionId) !== "not_started") {
         return reply
           .code(409)

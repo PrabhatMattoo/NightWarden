@@ -43,6 +43,7 @@ describe("the migrations", () => {
     expect(tables.sort()).toEqual([
       "account",
       "alerts",
+      "audit_event",
       "auth_session",
       "config",
       "integrations",
@@ -76,6 +77,19 @@ describe("the migrations", () => {
     const detail = plan[0]?.detail ?? "";
     expect(detail).toContain("idx_sessions_list");
     // A temp B-tree would mean every session materialises to answer one page.
+    expect(detail).not.toContain("TEMP B-TREE");
+  });
+
+  it("serves one person's chat list from an index of their own", () => {
+    const plan = getDb().all<{ detail: string }>(
+      sql`EXPLAIN QUERY PLAN SELECT s.session_id FROM sessions s
+            WHERE s.investigation = 0 AND s.created_by = 'someone'
+            ORDER BY (s.awaiting_tool_use_id IS NOT NULL) DESC,
+                     s.last_activity_at DESC, s.session_id ASC
+            LIMIT 21`,
+    );
+    const detail = plan.map((row) => row.detail).join(" ");
+    expect(detail).toContain("idx_sessions_creator");
     expect(detail).not.toContain("TEMP B-TREE");
   });
 

@@ -58,7 +58,9 @@ export type {
   K8sExecInput,
 } from "./kubernetes-commands.js";
 
+export { auditPageSchema } from "./audit.js";
 export {
+  auditPageQuerySchema,
   chatRequestSchema,
   sessionMessageRequestSchema,
   reopenRequestSchema,

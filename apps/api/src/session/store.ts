@@ -21,14 +21,20 @@ type StoredSession = SessionMeta & {
 };
 
 // Create the session row once. Idempotent: a resume re-enters the loop with the
-// same id, and the first title wins - later runs never clobber it.
-export function createSession(meta: SessionMeta, investigation = false): void {
+// same id, and the first title wins - later runs never clobber it. A chat names
+// the person who started it; an investigation names no one.
+export function createSession(
+  meta: SessionMeta,
+  investigation = false,
+  createdBy: string | null = null,
+): void {
   getDb()
     .insert(sessions)
     .values({
       sessionId: meta.sessionId,
       title: meta.title,
       investigation,
+      createdBy,
       createdAt: meta.createdAt,
       lastActivityAt: meta.createdAt,
     })
@@ -83,6 +89,8 @@ interface SessionListFactsPage {
 interface SessionListFilter {
   statuses?: readonly InvestigationStatus[];
   titleContains?: string;
+  // Only the sessions this person started.
+  createdBy?: string;
 }
 
 // A person's search text matched literally, so a typed % or _ finds itself.
@@ -98,7 +106,7 @@ export function listSessionFacts(
   kind: SessionKind,
   filter: SessionListFilter = {},
 ): SessionListFactsPage {
-  const { statuses, titleContains } = filter;
+  const { statuses, titleContains, createdBy } = filter;
   const db = getDb();
   const rows = db
     .select({
@@ -129,6 +137,7 @@ export function listSessionFacts(
     .where(
       and(
         eq(sessions.investigation, kind === "investigation"),
+        createdBy === undefined ? undefined : eq(sessions.createdBy, createdBy),
         statuses === undefined
           ? undefined
           : inArray(sessions.status, [...statuses]),
@@ -195,6 +204,25 @@ export function sessionExists(sessionId: string): boolean {
       .where(eq(sessions.sessionId, sessionId))
       .get() !== undefined
   );
+}
+
+// Whether a session is an investigation and, when it is a chat, whose it is.
+export interface SessionOwnership {
+  investigation: boolean;
+  createdBy: string | null;
+}
+
+export function getSessionOwnership(
+  sessionId: string,
+): SessionOwnership | undefined {
+  return getDb()
+    .select({
+      investigation: sessions.investigation,
+      createdBy: sessions.createdBy,
+    })
+    .from(sessions)
+    .where(eq(sessions.sessionId, sessionId))
+    .get();
 }
 
 export function getSession(sessionId: string): StoredSession | undefined {

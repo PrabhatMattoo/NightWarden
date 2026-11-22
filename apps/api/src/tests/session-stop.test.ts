@@ -12,7 +12,13 @@ const scripted = fakeModel();
 import { connectTestMetrics } from "./temp-db.js";
 import { waitFor } from "./wait.js";
 import { connectFrontendEvents } from "./frontend-events-helper.js";
-import { dispatchAlertSession, messageBody } from "./session-helper.js";
+import {
+  accountId,
+  dispatchAlertSession,
+  messageBody,
+  TEST_OWNER,
+  seedChatSession,
+} from "./session-helper.js";
 
 import { isRunning } from "../session/status-store.js";
 import { hasPendingHumanInput } from "../session/gate-store.js";
@@ -50,8 +56,10 @@ describe("POST /sessions/:id/stop", () => {
   });
 
   it("returns 409 when the session is not running", async () => {
+    const idle = randomUUID();
+    seedChatSession(idle, "hello", accountId(TEST_OWNER.email));
     const res = await fetch(
-      `http://127.0.0.1:${port}/api/sessions/unknown/stop`,
+      `http://127.0.0.1:${port}/api/sessions/${idle}/stop`,
       {
         method: "POST",
         headers: { Cookie: `${SESSION}` },
@@ -193,7 +201,7 @@ describe("POST /sessions/:id/stop", () => {
 
     // Without the stop recorded this falls through to Completed, which names a
     // run that ran out of ideas rather than a decision the user made.
-    const row = listSessionPage(50, 0, "investigation").rows.find(
+    const row = listSessionPage(50, 0, "investigation", "nobody").rows.find(
       (r) => r.sessionId === sessionId,
     );
     expect(row?.status).toBe("stopped");

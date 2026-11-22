@@ -73,19 +73,24 @@ const LIMIT = "limit must be a whole number from 1 to 200";
 const OFFSET = "offset must be a whole number of 0 or more";
 const QUERY = "q must be at most 200 characters";
 
+const limit = z.coerce
+  .number({ error: LIMIT })
+  .int(LIMIT)
+  .min(1, LIMIT)
+  .max(200, LIMIT)
+  .default(50);
+const offset = z.coerce
+  .number({ error: OFFSET })
+  .int(OFFSET)
+  .min(0, OFFSET)
+  .default(0);
+
+export const auditPageQuerySchema = z.object({ limit, offset });
+
 export const sessionPageQuerySchema = z.object({
   kind: z.enum(["investigation", "chat"]),
-  limit: z.coerce
-    .number({ error: LIMIT })
-    .int(LIMIT)
-    .min(1, LIMIT)
-    .max(200, LIMIT)
-    .default(50),
-  offset: z.coerce
-    .number({ error: OFFSET })
-    .int(OFFSET)
-    .min(0, OFFSET)
-    .default(0),
+  limit,
+  offset,
   status: z.enum(STATUS_FILTERS).optional(),
   // A title search. Blank is no search, so an emptied box lists everything again.
   q: z.string().trim().max(200, QUERY).optional(),

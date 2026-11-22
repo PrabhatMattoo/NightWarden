@@ -83,9 +83,12 @@ export function listSessionPage(
   limit: number,
   offset: number,
   kind: SessionKind,
+  viewerId: string,
   filter: { status?: StatusFilter; q?: string } = {},
 ): SessionListPage {
   const { facts, nextOffset } = listSessionFacts(limit, offset, kind, {
+    // A chat is its creator's; an investigation is everyone's.
+    ...(kind === "chat" && { createdBy: viewerId }),
     ...(filter.status !== undefined && {
       statuses: FILTER_STATUSES[filter.status],
     }),

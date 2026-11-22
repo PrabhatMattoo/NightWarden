@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { eq } from "drizzle-orm";
 import type { NormalizedAlert, SessionMeta } from "@nightwarden/shared";
 import type { DeliveryContext } from "../alerts/delivery.js";
 import { getAuth } from "../auth/instance.js";
@@ -74,8 +75,41 @@ export function dispatchAlertSession(
 
 // A chat session's row, on the same terms: the route writes it before handing
 // out the id, so a run dispatched into one always finds it there.
-export function seedChatSession(sessionId: string, message?: string): void {
-  createSession(buildSessionMeta(sessionId, null, message));
+export function seedChatSession(
+  sessionId: string,
+  message?: string,
+  createdBy?: string,
+): void {
+  createSession(buildSessionMeta(sessionId, null, message), false, createdBy);
+}
+
+// A bare account, for a test that needs someone to own a chat without signing in.
+export function insertTestUser(): string {
+  const id = randomUUID();
+  const now = new Date();
+  getDb()
+    .insert(user)
+    .values({
+      id,
+      name: "Test",
+      email: `${id}@example.test`,
+      emailVerified: false,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
+  return id;
+}
+
+// The id behind issueTestSession's cookie, so a chat can be seeded as theirs.
+export function accountId(email: string): string {
+  const row = getDb()
+    .select({ id: user.id })
+    .from(user)
+    .where(eq(user.email, email))
+    .get();
+  if (row === undefined) throw new Error(`no test account for ${email}`);
+  return row.id;
 }
 
 export const TEST_OWNER = {

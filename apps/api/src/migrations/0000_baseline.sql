@@ -51,14 +51,17 @@ CREATE TABLE `sessions` (
 	`findings` text DEFAULT '[]' NOT NULL,
 	`report` text,
 	`record_updated_at` text,
+	`created_by` text,
 	`created_at` text NOT NULL,
 	`last_activity_at` text NOT NULL,
+	FOREIGN KEY (`created_by`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE cascade,
 	CONSTRAINT "sessions_status" CHECK("sessions"."status" IN ('action_required', 'running', 'resolved', 'stopped', 'failed', 'completed', 'not_started')),
 	CONSTRAINT "sessions_failure_kind" CHECK("sessions"."failure_kind" IN ('transient', 'permanent')),
 	CONSTRAINT "sessions_awaiting_kind" CHECK("sessions"."awaiting_kind" IN ('approval', 'clarification', 'continue'))
 );
 --> statement-breakpoint
 CREATE INDEX `idx_sessions_list` ON `sessions` (`investigation`,("awaiting_tool_use_id" IS NOT NULL) DESC,"last_activity_at" DESC,`session_id`);--> statement-breakpoint
+CREATE INDEX `idx_sessions_creator` ON `sessions` (`investigation`,`created_by`,("awaiting_tool_use_id" IS NOT NULL) DESC,"last_activity_at" DESC,`session_id`);--> statement-breakpoint
 CREATE TABLE `tool_result_store` (
 	`session_id` text NOT NULL,
 	`tool_call_id` text NOT NULL,
@@ -205,3 +208,18 @@ CREATE TABLE `mail_server` (
 	`updated_at` text NOT NULL,
 	CONSTRAINT "mail_server_security" CHECK("mail_server"."security" IN ('none', 'starttls', 'tls'))
 );
+--> statement-breakpoint
+CREATE TABLE `audit_event` (
+	`id` integer PRIMARY KEY NOT NULL,
+	`at` text NOT NULL,
+	`actor_id` text NOT NULL,
+	`actor_name` text NOT NULL,
+	`actor_email` text NOT NULL,
+	`action` text NOT NULL,
+	`target` text,
+	`details` text NOT NULL,
+	`session_id` text,
+	CONSTRAINT "audit_event_action" CHECK("audit_event"."action" IN ('write_approved', 'write_rejected'))
+);
+--> statement-breakpoint
+CREATE INDEX `idx_audit_event_at` ON `audit_event` (`at`);

@@ -6,6 +6,7 @@ import {
   jsonSchemaTransformObject,
 } from "fastify-type-provider-zod";
 import { registerAlertRoutes } from "./alerts/ingest.js";
+import { registerAuditRoutes } from "./audit/routes.js";
 import { installAuthorization } from "./auth/authorize.js";
 import { registerAuthRoutes } from "./auth/routes.js";
 import { registerConfigRoutes } from "./config/routes.js";
@@ -40,6 +41,7 @@ const ROUTES: Array<(api: FastifyInstance, deps: ApiDeps) => Promise<void>> = [
   registerInstallRoutes,
   registerIntegrationRoutes,
   registerMetricsRoutes,
+  registerAuditRoutes,
 ];
 
 // Under /api so the frontend owns every other path: /integrations/metrics

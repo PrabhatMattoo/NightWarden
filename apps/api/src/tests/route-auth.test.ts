@@ -35,18 +35,19 @@ const PUBLIC: ReadonlyArray<{ route: string; why: string }> = [
 const PUBLIC_ROUTES = new Set(PUBLIC.map((entry) => entry.route));
 
 // A member chats, investigates and approves writes; what changes the install
-// itself, or erases a session's record, is an admin's.
+// itself, or reads its audit trail, is an admin's. Deleting an investigation is
+// too, but the session guard enforces that once the id names one.
 const ADMIN_ONLY = [
   "POST /api/runners",
   "DELETE /api/runners/:id",
   "GET /api/runners/install",
+  "GET /api/audit",
   "PATCH /api/config",
   "POST /api/config/models",
   "POST /api/config/model-check",
   "PATCH /api/config/key",
   "GET /api/config/mail",
   "PUT /api/config/mail",
-  "DELETE /api/sessions/:id",
   "POST /api/integrations/github/preflight",
   "POST /api/integrations/github/repos",
   "POST /api/integrations/github",

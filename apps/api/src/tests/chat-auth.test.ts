@@ -4,7 +4,12 @@ import { isRunning } from "../session/status-store.js";
 import { clearTestLLM, configureTestLLM } from "./temp-db.js";
 import { waitFor } from "./wait.js";
 import { harness, type Harness } from "./harness.js";
-import { messageBody } from "./session-helper.js";
+import {
+  accountId,
+  messageBody,
+  TEST_OWNER,
+  seedChatSession,
+} from "./session-helper.js";
 
 // The fake provider answers every turn "Done.", so each run ends in one free-form turn.
 describe("chat routes — session-uuid-addressed, owner-cookie-gated", () => {
@@ -122,8 +127,10 @@ describe("chat routes — session-uuid-addressed, owner-cookie-gated", () => {
       expect(body.error).toMatch(/no LLM is configured/i);
 
       // A decision resumes a run as a message does, so it is refused the same way.
+      const own = randomUUID();
+      seedChatSession(own, "hello", accountId(TEST_OWNER.email));
       const respond = await fetch(
-        `http://127.0.0.1:${port}/api/sessions/any/respond`,
+        `http://127.0.0.1:${port}/api/sessions/${own}/respond`,
         {
           method: "POST",
           headers: {

@@ -7,7 +7,7 @@ import {
   onTestFinished,
   vi,
 } from "vitest";
-import type { SessionReportResponse } from "@nightwarden/shared";
+import type { AuditPage, SessionReportResponse } from "@nightwarden/shared";
 import { fakeModel, messagesSentTo, type ScriptedTurn } from "./fake-model.js";
 import { harness, type Harness } from "./harness.js";
 import { seedCompleteReport } from "./report-helper.js";
@@ -65,6 +65,17 @@ describe("durable approval interrupts", () => {
     await nw.close();
     vi.unstubAllEnvs();
   });
+
+  // What the admin reads at GET /audit for one session, newest first.
+  const auditOf = async (sessionId: string) => {
+    const res = await fetch(`http://127.0.0.1:${port}/api/audit?limit=200`, {
+      headers: { Cookie: SESSION },
+    });
+    expect(res.status).toBe(200);
+    return ((await res.json()) as AuditPage).events.filter(
+      (event) => event.sessionId === sessionId,
+    );
+  };
 
   it("gated tool suspends: interrupt row exists in DB, run exited, INTERRUPT published", async () => {
     setScript([
@@ -261,6 +272,8 @@ describe("durable approval interrupts", () => {
       },
     );
     expect(second.status).toBe(409);
+    // The request that lost recorded nothing, since the record is part of the decision.
+    expect(await auditOf(sessionId)).toHaveLength(1);
 
     close();
   });
@@ -664,6 +677,7 @@ describe("durable approval interrupts", () => {
           waitedMs: 0,
         },
         null,
+        null,
       ),
     ).toBe(true);
     nw.dispatcher.launch({ sessionId, seed: buildSeed(sessionId) });
@@ -887,6 +901,29 @@ describe("durable approval interrupts", () => {
       decision: "approved",
     });
 
+    // The decision is on the audit trail with who made it and what was released.
+    const [approved] = await auditOf(sessionId);
+    expect(approved).toMatchObject({
+      action: "write_approved",
+      actorEmail: "owner@example.test",
+      target: "approval-host/web-01/web-01",
+      details: {
+        tool: "RestartDockerService",
+        input: {
+          target: "approval-host/web-01/web-01",
+          reason: "wedged",
+          estimatedDowntimeSeconds: 5,
+        },
+      },
+    });
+    // Deleting the session erases its record and leaves the trail.
+    const deleted = await fetch(
+      `http://127.0.0.1:${port}/api/sessions/${sessionId}`,
+      { method: "DELETE", headers: { Cookie: SESSION } },
+    );
+    expect(deleted.status).toBe(204);
+    expect(await auditOf(sessionId)).toEqual([approved]);
+
     close();
   });
 
@@ -972,6 +1009,12 @@ describe("durable approval interrupts", () => {
       .flatMap((m) => m.toolResults)
       .find((r) => r.toolUseId === "tu-rej-1");
     expect(answer?.content).toContain("too risky");
+    expect(await auditOf(sessionId)).toMatchObject([
+      {
+        action: "write_rejected",
+        details: { tool: "RestartDockerService", reason: "too risky" },
+      },
+    ]);
     // A rejection does not cancel the call asked for behind it: that read ran.
     const read = getTranscriptRows(sessionId)
       .flatMap((row) => row.parts)

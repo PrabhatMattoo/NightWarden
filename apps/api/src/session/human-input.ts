@@ -1,3 +1,4 @@
+import type { NewAuditEvent } from "../audit/audit-store.js";
 import {
   deletePendingHumanInput,
   getPendingHumanInputBySessionId,
@@ -64,6 +65,30 @@ function requireGatedCall(
   return call;
 }
 
+// A write's decision is the audit trail's business; an answer to a question is not.
+function approvalAuditEvent(
+  sessionId: string,
+  part: ToolApprovalPart | ElicitationAnswerPart,
+  call: { name: string; input: Record<string, unknown> },
+): NewAuditEvent | null {
+  if (part.type !== "tool_approval") return null;
+  if (part.actor === undefined) {
+    throw new Error(`approval of ${call.name} in ${sessionId} has no actor`);
+  }
+  const target = call.input["target"];
+  return {
+    actor: part.actor,
+    action: part.approved ? "write_approved" : "write_rejected",
+    target: typeof target === "string" ? target : null,
+    details: {
+      tool: call.name,
+      input: call.input,
+      ...(part.reason !== undefined && { reason: part.reason }),
+    },
+    sessionId,
+  };
+}
+
 function ensureDeleted(sessionId: string): void {
   if (!deletePendingHumanInput(sessionId)) {
     throw new HumanInputError(
@@ -89,7 +114,8 @@ function settle(
     part,
     waitedMs: Date.now() - new Date(gate.askedAt).getTime(),
   };
-  if (!resolveGate(sessionId, toolCallId, decision, result)) {
+  const audit = approvalAuditEvent(sessionId, part, call);
+  if (!resolveGate(sessionId, toolCallId, decision, result, audit)) {
     throw new HumanInputError(
       409,
       "Human input already resolved by another request",

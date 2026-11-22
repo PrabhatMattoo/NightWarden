@@ -175,7 +175,7 @@ describe("recovering runs a restart interrupted", () => {
         decisions: [],
       },
     );
-    expect(resolveGate(sessionId, "tu-b", APPROVED_B, null)).toBe(true);
+    expect(resolveGate(sessionId, "tu-b", APPROVED_B, null, null)).toBe(true);
 
     recoverDeadRuns();
 
@@ -271,7 +271,7 @@ describe("recovering runs a restart interrupted", () => {
 
     // The decision released it, so its run finishes the calls and answers before
     // asking, and the turn stays in the conversation it will send.
-    expect(resolveGate(sessionId, "tu-b", APPROVED_B, null)).toBe(true);
+    expect(resolveGate(sessionId, "tu-b", APPROVED_B, null, null)).toBe(true);
     expect(buildSeed(sessionId)).toHaveLength(2);
 
     // Answered in full, the exchange is an ordinary one.

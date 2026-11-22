@@ -25,6 +25,7 @@ import type {
   SubmittedReport,
   ToolApprovalPart,
 } from "@nightwarden/shared";
+import { user } from "../auth/schema.js";
 import type { Stage } from "../agent/loop/stage.js";
 import type { ToolResult } from "../llm/types.js";
 import { inList } from "../schema-helpers.js";
@@ -76,6 +77,10 @@ export const sessions = sqliteTable(
       .default(sql`'[]'`),
     report: text("report", { mode: "json" }).$type<SubmittedReport>(),
     recordUpdatedAt: text("record_updated_at"),
+    // The person who started a chat; null for an investigation.
+    createdBy: text("created_by").references(() => user.id, {
+      onDelete: "cascade",
+    }),
     createdAt: text("created_at").notNull(),
     lastActivityAt: text("last_activity_at").notNull(),
   },
@@ -94,6 +99,14 @@ export const sessions = sqliteTable(
     ),
     index("idx_sessions_list").on(
       t.investigation,
+      sql`(${t.awaitingToolUseId} IS NOT NULL) DESC`,
+      sql`${t.lastActivityAt} DESC`,
+      t.sessionId,
+    ),
+    // Serves one person's chat list, in the same order as idx_sessions_list.
+    index("idx_sessions_creator").on(
+      t.investigation,
+      t.createdBy,
       sql`(${t.awaitingToolUseId} IS NOT NULL) DESC`,
       sql`${t.lastActivityAt} DESC`,
       t.sessionId,

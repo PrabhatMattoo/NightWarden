@@ -10,7 +10,9 @@ import { isRunning } from "../session/status-store.js";
 import { isReopenable } from "../session/reopen.js";
 import { getTranscriptRows } from "../session/transcript-store.js";
 import {
+  accountId,
   dispatchAlertSession,
+  TEST_OWNER,
   seedAlertSession,
   seedChatSession,
 } from "./session-helper.js";
@@ -132,7 +134,7 @@ describe("POST /sessions/:id/reopen", () => {
 
   it("refuses a chat, which has no investigation to reopen", async () => {
     const id = randomUUID();
-    seedChatSession(id, "hello");
+    seedChatSession(id, "hello", accountId(TEST_OWNER.email));
     expect((await reopen(id)).status).toBe(400);
   });
 
