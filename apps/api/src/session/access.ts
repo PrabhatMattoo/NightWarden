@@ -1,7 +1,7 @@
 import type { FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
+import { isAllowed } from "@nightwarden/shared/permissions";
 import { signedInUser } from "../auth/authorize.js";
-import { isAllowed } from "../auth/permissions.js";
 import { getSessionOwnership, type SessionOwnership } from "./store.js";
 
 const idParams = z.object({ id: z.string() });

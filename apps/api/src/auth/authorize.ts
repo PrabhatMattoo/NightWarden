@@ -1,5 +1,5 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
-import { isAllowed, type Permission } from "./permissions.js";
+import { isAllowed, type Permission } from "@nightwarden/shared/permissions";
 import { currentUser, type SignedInUser } from "./session.js";
 
 declare module "fastify" {
@@ -20,6 +20,12 @@ async function authorizeRequest(
   const user = await currentUser(request);
   if (user === null) {
     return reply.code(401).send({ error: "authentication required" });
+  }
+  if (user.role === null) {
+    return reply.code(403).send({
+      error: "This account is no longer a member of the organization.",
+      code: "not_a_member",
+    });
   }
   if (permission === undefined || !isAllowed(user.role, permission)) {
     return reply.code(403).send({ error: "Your role does not allow this." });

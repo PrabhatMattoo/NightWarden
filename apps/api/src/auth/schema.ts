@@ -22,11 +22,6 @@ export const user = sqliteTable(
     image: text("image"),
     createdAt: timestamp("created_at").notNull(),
     updatedAt: timestamp("updated_at").notNull(),
-    // 'admin' or 'member', the owner created as 'admin' by the setup route.
-    role: text("role"),
-    banned: integer("banned", { mode: "boolean" }),
-    banReason: text("ban_reason"),
-    banExpires: timestamp("ban_expires"),
     theme: text("theme", { enum: THEME_PREFERENCES })
       .notNull()
       .default("system"),
@@ -50,7 +45,6 @@ export const authSession = sqliteTable(
     userId: text("user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
-    impersonatedBy: text("impersonated_by"),
   },
   (t) => [index("auth_session_user_id_idx").on(t.userId)],
 );

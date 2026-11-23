@@ -1,75 +1,20 @@
-import type { AddressInfo } from "node:net";
-import { SMTPServer } from "smtp-server";
-import {
-  afterAll,
-  afterEach,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  it,
-  vi,
-} from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { MailSettings } from "@nightwarden/shared";
 import { initEnv } from "../config/env.js";
 import { harness, type Harness } from "./harness.js";
+import { call, signIn } from "./session-helper.js";
+import { decodeBody, SMTP_LOGIN, useSmtpServer } from "./smtp-helper.js";
 import { waitFor } from "./wait.js";
 
-const LOGIN = { username: "mailer", password: "s3cret" };
-const FROM = "nightwarden@example.test";
 const BROWSER_ORIGIN = "http://localhost";
 
-// The one network boundary: a real SMTP server that keeps every message it accepts.
-const delivered: string[] = [];
-let smtp: SMTPServer;
-let smtpPort = 0;
-
-beforeAll(async () => {
-  smtp = new SMTPServer({
-    disabledCommands: ["STARTTLS"],
-    allowInsecureAuth: true,
-    onAuth(auth, _session, done) {
-      if (
-        auth.username === LOGIN.username &&
-        auth.password === LOGIN.password
-      ) {
-        done(null, { user: auth.username });
-        return;
-      }
-      done(new Error("Invalid login"));
-    },
-    onData(stream, _session, done) {
-      const chunks: Buffer[] = [];
-      stream.on("data", (chunk: Buffer) => chunks.push(chunk));
-      stream.on("end", () => {
-        delivered.push(Buffer.concat(chunks).toString());
-        done();
-      });
-    },
-  });
-  await new Promise<void>((resolve) => smtp.listen(0, "127.0.0.1", resolve));
-  // Listening on a TCP port, so the address is an AddressInfo and not a pipe name.
-  smtpPort = (smtp.server.address() as AddressInfo).port;
-});
-
-afterAll(async () => {
-  await new Promise<void>((resolve) => smtp.close(resolve));
-});
-
-// Quoted-printable, which is how a long line with an equals sign arrives.
-function decodeBody(source: string): string {
-  return source
-    .replace(/=\r?\n/g, "")
-    .replace(/=([0-9A-F]{2})/g, (_, hex: string) =>
-      String.fromCharCode(parseInt(hex, 16)),
-    );
-}
+const smtp = useSmtpServer();
 
 describe("outgoing mail", () => {
   let nw: Harness;
 
   beforeEach(async () => {
-    delivered.length = 0;
+    smtp.delivered.length = 0;
     nw = await harness({ listen: false });
   });
 
@@ -79,29 +24,13 @@ describe("outgoing mail", () => {
     initEnv();
   });
 
-  const goodSettings = () => ({
-    host: "127.0.0.1",
-    port: smtpPort,
-    security: "none",
-    from: FROM,
-    ...LOGIN,
-  });
+  const goodSettings = () => smtp.settings();
 
-  function putMail(payload: Record<string, unknown>) {
-    return nw.server.inject({
-      method: "PUT",
-      url: "/api/config/mail",
-      headers: nw.headers,
-      payload,
-    });
-  }
+  const putMail = (payload: Record<string, unknown>) =>
+    call(nw.server, "PUT", "/api/config/mail", nw.session, payload);
 
   async function getMail(): Promise<MailSettings> {
-    const res = await nw.server.inject({
-      method: "GET",
-      url: "/api/config/mail",
-      headers: nw.headers,
-    });
+    const res = await call(nw.server, "GET", "/api/config/mail", nw.session);
     expect(res.statusCode).toBe(200);
     return JSON.parse(res.body) as MailSettings;
   }
@@ -120,16 +49,18 @@ describe("outgoing mail", () => {
     const saved = await putMail(goodSettings());
     expect(saved.statusCode).toBe(200);
     // Not the password, nor the tail of it, which a hint would show.
-    expect(saved.body).not.toContain(LOGIN.password.slice(-4));
+    expect(saved.body).not.toContain(SMTP_LOGIN.password.slice(-4));
 
     const renamed = await putMail({ from: "ops@example.test" });
 
     expect(renamed.statusCode).toBe(200);
+    const read = await call(nw.server, "GET", "/api/config/mail", nw.session);
+    expect(read.body).not.toContain(SMTP_LOGIN.password.slice(-4));
     expect(await getMail()).toMatchObject({
       host: "127.0.0.1",
-      port: smtpPort,
+      port: smtp.port(),
       security: "none",
-      username: LOGIN.username,
+      username: SMTP_LOGIN.username,
       passwordSet: true,
       from: "ops@example.test",
     });
@@ -142,7 +73,7 @@ describe("outgoing mail", () => {
 
     expect(refused.statusCode).toBe(422);
     expect(await getMail()).toMatchObject({
-      username: LOGIN.username,
+      username: SMTP_LOGIN.username,
       passwordSet: true,
     });
   });
@@ -188,7 +119,7 @@ describe("outgoing mail", () => {
     });
     expect(asked.statusCode).toBe(200);
 
-    const message = decodeBody(await waitFor(() => delivered[0]));
+    const message = decodeBody(await waitFor(() => smtp.delivered[0]));
     const link = message.match(/http\S+\/reset-password\/\S+/)?.[0];
     expect(link).toBeDefined();
     const followed = await nw.server.inject({
@@ -209,20 +140,11 @@ describe("outgoing mail", () => {
     });
     expect(reset.statusCode).toBe(200);
 
-    const signIn = (password: string) =>
-      nw.server.inject({
-        method: "POST",
-        url: "/api/auth/sign-in/email",
-        headers: { origin: BROWSER_ORIGIN },
-        payload: { email: "owner@example.test", password },
-      });
-    expect((await signIn("a-new-long-password")).statusCode).toBe(200);
-    expect((await signIn("a-long-enough-password")).statusCode).toBe(401);
-    const stale = await nw.server.inject({
-      method: "GET",
-      url: "/api/config/mail",
-      headers: nw.headers,
-    });
+    const signInWith = (password: string) =>
+      signIn(nw.server, { email: "owner@example.test", password });
+    expect((await signInWith("a-new-long-password")).statusCode).toBe(200);
+    expect((await signInWith("a-long-enough-password")).statusCode).toBe(401);
+    const stale = await call(nw.server, "GET", "/api/config/mail", nw.session);
     expect(stale.statusCode).toBe(401);
   });
 });

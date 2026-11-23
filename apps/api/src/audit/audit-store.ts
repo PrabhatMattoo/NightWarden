@@ -1,15 +1,16 @@
 import { desc } from "drizzle-orm";
-import type { Actor, AuditAction, AuditEvent } from "@nightwarden/shared";
+import type { Actor, AuditEvent } from "@nightwarden/shared";
 import { type Db, getDb } from "../db.js";
 import { auditEvent } from "./schema.js";
 
-export interface NewAuditEvent {
-  actor: Actor;
-  action: AuditAction;
-  target: string | null;
-  details: AuditEvent["details"];
-  sessionId: string | null;
-}
+type Recorded<Event> = Event extends AuditEvent
+  ? Omit<Event, "id" | "at" | "actorId" | "actorName" | "actorEmail"> & {
+      actor: Actor;
+    }
+  : never;
+
+// Each action pairs with its own details, so a caller cannot record one with another's.
+export type NewAuditEvent = Recorded<AuditEvent>;
 
 // Takes the Db so a decision and its record land in one transaction.
 export function recordAuditEvent(event: NewAuditEvent, db: Db = getDb()): void {
@@ -35,7 +36,8 @@ export function listAuditEvents(limit: number, offset: number) {
     .offset(offset)
     .all();
   return {
-    events: rows.slice(0, limit),
+    // The columns are typed apart; recordAuditEvent only ever writes an action with its own details.
+    events: rows.slice(0, limit) as AuditEvent[],
     // One extra row answers "is there a next page?" without a count.
     nextOffset: rows.length > limit ? offset + limit : null,
   };

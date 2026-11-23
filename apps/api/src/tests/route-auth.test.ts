@@ -28,6 +28,14 @@ const PUBLIC: ReadonlyArray<{ route: string; why: string }> = [
     route: "GET /api/sign-in-options",
     why: "answers whether a forgotten password can be emailed, before anyone is signed in",
   },
+  {
+    route: "GET /api/invitations/:token",
+    why: "the token is a random secret mailed to its recipient, who has no account to sign in with",
+  },
+  {
+    route: "POST /api/invitations/:token/accept",
+    why: "the token is its own credential, and an existing account must also be signed in as the invited address",
+  },
   { route: "POST /api/alerts/ingest", why: "verifies its own issued token" },
   { route: "GET /api/clients/connect", why: "a runner presents its own token" },
 ];
@@ -35,9 +43,23 @@ const PUBLIC: ReadonlyArray<{ route: string; why: string }> = [
 const PUBLIC_ROUTES = new Set(PUBLIC.map((entry) => entry.route));
 
 // A member chats, investigates and approves writes; what changes the install
-// itself, or reads its audit trail, is an admin's. Deleting an investigation is
-// too, but the session guard enforces that once the id names one.
+// itself, reads its settings or audit trail, or manages its people is an admin's.
+// Deleting an investigation is too, but the session guard enforces that once the id names one.
 const ADMIN_ONLY = [
+  "GET /api/config",
+  "PATCH /api/organization",
+  "GET /api/organization/members",
+  "PATCH /api/organization/members/:id",
+  "DELETE /api/organization/members/:id",
+  "GET /api/organization/invitations",
+  "POST /api/organization/invitations",
+  "DELETE /api/organization/invitations/:id",
+  "GET /api/organization/teams",
+  "POST /api/organization/teams",
+  "PATCH /api/organization/teams/:id",
+  "DELETE /api/organization/teams/:id",
+  "POST /api/organization/teams/:id/members",
+  "DELETE /api/organization/teams/:id/members/:userId",
   "POST /api/runners",
   "DELETE /api/runners/:id",
   "GET /api/runners/install",
@@ -67,12 +89,22 @@ const ADMIN_ONLY = [
   "DELETE /api/integrations/metrics",
 ].sort();
 
+// A viewer only reads investigations (and the organization's name, which every
+// page shows); the event stream is one more, left out of the sweep like any stream.
+const VIEWER_ALLOWED = [
+  "GET /api/organization",
+  "GET /api/sessions",
+  "GET /api/sessions/:id",
+  "GET /api/sessions/:id/report",
+].sort();
+
 // A concrete value for every path parameter, so the request reaches the guard
 // rather than dying in routing.
 const STAND_INS: Record<string, string> = {
   id: "00000000-0000-4000-8000-000000000000",
   kind: "alertmanager",
   platform: "docker",
+  userId: "00000000-0000-4000-8000-000000000001",
 };
 
 function fill(url: string): string {
@@ -159,6 +191,19 @@ describe("the route surface", () => {
       }
     }
     expect(refused.sort()).toEqual(ADMIN_ONLY);
+  });
+
+  it("refuses a viewer every route but the ones that read investigations", async () => {
+    const viewer = await issueTestSession("viewer");
+    const reached: string[] = [];
+    for (const { method, url, streams } of routes) {
+      const route = `${method} ${url}`;
+      if (PUBLIC_ROUTES.has(route) || streams) continue;
+      if ((await send(method, url, viewer)).statusCode !== 403) {
+        reached.push(route);
+      }
+    }
+    expect(reached.sort()).toEqual(VIEWER_ALLOWED);
   });
 
   // Checked as each route registers, so an undeclared one stops the boot.

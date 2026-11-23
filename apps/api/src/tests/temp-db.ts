@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import { vi } from "vitest";
 import type { LLMProviderName } from "@nightwarden/shared";
 import { getDb, resetDb } from "../db.js";
@@ -34,6 +35,17 @@ export function useTempDb(): () => void {
     // The auth instance holds the handle resetDb closes, so it goes with it.
     resetAuth();
     resetDb();
+  };
+}
+
+/* Makes every audit insert fail until the returned function is called, so a test
+   can see which writes roll back with it. A temp trigger needs no schema change. */
+export function refuseAuditWrites(): () => void {
+  getDb().run(
+    sql`CREATE TEMP TRIGGER refuse_audit_writes BEFORE INSERT ON audit_event BEGIN SELECT RAISE(ABORT, 'refused'); END`,
+  );
+  return () => {
+    getDb().run(sql`DROP TRIGGER temp.refuse_audit_writes`);
   };
 }
 

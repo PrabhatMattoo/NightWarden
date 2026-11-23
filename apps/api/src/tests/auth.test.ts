@@ -11,11 +11,20 @@ import {
 } from "vitest";
 import type { FastifyInstance } from "fastify";
 import { useTempDb } from "./temp-db.js";
-import { getAuth, resetAuth } from "../auth/instance.js";
-import { ADMIN_ROLE } from "../auth/permissions.js";
-import { user } from "../auth/schema.js";
-import { prepareSetup, writeSetupToken } from "../auth/setup-token.js";
+import { cookieFrom, sessionOf, signIn } from "./session-helper.js";
+import { AccountExistsError, createAccount } from "../auth/accounts.js";
+import { resetAuth } from "../auth/instance.js";
+import { authSession, user } from "../auth/schema.js";
+import { listAuditEvents } from "../audit/audit-store.js";
 import { getDb } from "../db.js";
+import {
+  member,
+  organization,
+  team,
+  teamMember,
+} from "../organization/schema.js";
+import { createOwner } from "../organization/setup.js";
+import { prepareSetup, writeSetupToken } from "../organization/setup-token.js";
 import { setupTokenPath } from "../paths.js";
 import { buildServer as buildApiServer } from "../server.js";
 
@@ -24,6 +33,8 @@ const OWNER = {
   password: "correcthorsebattery",
   name: "Admin",
 };
+
+const ORGANIZATION_NAME = "Acme Ops";
 
 /* What a browser puts on a POST, and what the origin check compares against.
    With no public URL configured the address inject dials is the trusted one. */
@@ -36,43 +47,8 @@ async function buildServer(): Promise<FastifyInstance> {
 }
 
 // The way the setup route adds the owner, for the tests that start after setup.
-async function createOwner(): Promise<void> {
-  await getAuth().api.createUser({ body: { ...OWNER, role: ADMIN_ROLE } });
-}
-
-function signIn(
-  server: FastifyInstance,
-  payload: Record<string, string>,
-  headers: Record<string, string> = {},
-) {
-  return server.inject({
-    method: "POST",
-    url: "/api/auth/sign-in/email",
-    payload,
-    headers,
-  });
-}
-
-// The Set-Cookie values as a Cookie request header, which is what a browser
-// sends back and what every authenticated call here needs.
-function cookieFrom(res: { headers: { "set-cookie"?: string | string[] } }) {
-  const raw = res.headers["set-cookie"] ?? [];
-  const all = Array.isArray(raw) ? raw : [raw];
-  return all.map((c) => c.split(";")[0]).join("; ");
-}
-
-// The parsed body is untyped; the tests read only the fields they assert.
-async function sessionUser(server: FastifyInstance, cookie: string) {
-  const res = await server.inject({
-    method: "GET",
-    url: "/api/auth/get-session",
-    headers: { cookie },
-  });
-  return (
-    JSON.parse(res.body) as {
-      user: { role: string; theme: string; image: string | null };
-    } | null
-  )?.user;
+async function seedOwner(): Promise<void> {
+  await createOwner({ ...OWNER, organizationName: ORGANIZATION_NAME });
 }
 
 function gated(server: FastifyInstance, cookie: string) {
@@ -102,7 +78,11 @@ describe("setup", () => {
   });
 
   function setup(body: Record<string, string>) {
-    return server.inject({ method: "POST", url: "/api/setup", payload: body });
+    return server.inject({
+      method: "POST",
+      url: "/api/setup",
+      payload: { organizationName: ORGANIZATION_NAME, ...body },
+    });
   }
 
   async function setupRequired(): Promise<boolean> {
@@ -122,21 +102,53 @@ describe("setup", () => {
     expect(await setupRequired()).toBe(true);
   });
 
-  it("creates one admin who is signed in, and nothing opens setup again", async () => {
+  it("creates the organization, its default team and one admin who is signed in, and nothing opens setup again", async () => {
     expect(await setupRequired()).toBe(true);
 
-    const res = await setup({ ...OWNER, token });
+    const res = await setup({
+      ...OWNER,
+      token,
+      organizationName: `  ${ORGANIZATION_NAME}  `,
+    });
     expect(res.statusCode).toBe(204);
-    expect((await gated(server, cookieFrom(res))).statusCode).toBe(200);
-    expect(owners()).toMatchObject([{ email: OWNER.email, role: "admin" }]);
+    const cookie = cookieFrom(res);
+    expect((await gated(server, cookie)).statusCode).toBe(200);
+    expect((await sessionOf(server, cookie))?.role).toBe("admin");
+    expect(owners()).toMatchObject([{ email: OWNER.email }]);
+    const organizations = getDb().select().from(organization).all();
+    expect(organizations).toMatchObject([{ name: ORGANIZATION_NAME }]);
+    const members = getDb().select().from(member).all();
+    expect(members).toMatchObject([
+      { organizationId: organizations[0]?.id, role: "admin" },
+    ]);
+    // The default team takes the organization's name and holds the owner from the start.
+    const teams = getDb().select().from(team).all();
+    expect(teams).toMatchObject([{ name: ORGANIZATION_NAME, isDefault: true }]);
+    expect(getDb().select().from(teamMember).all()).toMatchObject([
+      { teamId: teams[0]?.id, userId: members[0]?.userId },
+    ]);
+    expect(
+      listAuditEvents(10, 0)
+        .events.map((event) => [event.action, event.actorEmail])
+        .reverse(),
+    ).toEqual([
+      ["organization_created", OWNER.email],
+      ["team_created", OWNER.email],
+    ]);
     expect(await setupRequired()).toBe(false);
     expect(existsSync(setupTokenPath())).toBe(false);
 
     // A token left behind is refused all the same, which is the owner check.
     writeSetupToken(token);
-    const again = await setup({ ...OWNER, email: "other@example.com", token });
+    const again = await setup({
+      ...OWNER,
+      email: "other@example.com",
+      organizationName: "Second",
+      token,
+    });
     expect(again.statusCode).toBe(409);
     expect(owners()).toHaveLength(1);
+    expect(getDb().select().from(organization).all()).toHaveLength(1);
   });
 
   it("lets exactly one of two simultaneous requests with the token win", async () => {
@@ -167,7 +179,8 @@ describe("setup", () => {
       url: "/api/auth/sign-up/email",
       payload: OWNER,
     });
-    expect(res.statusCode).toBeGreaterThanOrEqual(400);
+    // 404 from the router, not Better Auth's own refusal: in-process sign-up is open.
+    expect(res.statusCode).toBe(404);
     expect(owners()).toEqual([]);
     expect(await setupRequired()).toBe(true);
   });
@@ -175,26 +188,49 @@ describe("setup", () => {
   it("writes the token file for an install with no owner and removes it once there is one", async () => {
     expect(statSync(setupTokenPath()).mode & 0o777).toBe(0o600);
 
-    await createOwner();
+    await seedOwner();
     prepareSetup();
     expect(existsSync(setupTokenPath())).toBe(false);
   });
+});
 
-  // Nothing in NightWarden calls the admin plugin over HTTP, impersonation least of all.
-  it("answers none of the admin plugin's paths, however the URL is spelled", async () => {
-    await createOwner();
-    const cookie = cookieFrom(await signIn(server, OWNER));
-    for (const path of ["admin/impersonate-user", "admin/create-user"]) {
-      for (const url of [`/api/auth/${path}`, `/api/auth//${path}`]) {
-        const res = await server.inject({
-          method: "POST",
-          url,
-          headers: { cookie, origin: BROWSER_ORIGIN },
-          payload: { userId: "x", email: "x@example.com", password: "x" },
-        });
-        expect(res.statusCode, url).toBe(404);
-      }
-    }
+describe("accounts made in-process", () => {
+  let cleanupDb: () => void;
+
+  beforeEach(() => {
+    cleanupDb = useTempDb();
+  });
+
+  afterEach(() => {
+    cleanupDb();
+    vi.unstubAllEnvs();
+  });
+
+  /* Better Auth answers a taken email with an invented user once autoSignIn is off,
+     so createAccount has to refuse it, and an account is made with no session. */
+  it("makes an account with no session and refuses a taken email", async () => {
+    await createAccount(OWNER);
+
+    await expect(createAccount(OWNER)).rejects.toThrow(AccountExistsError);
+    expect(getDb().select().from(user).all()).toHaveLength(1);
+    expect(getDb().select().from(authSession).all()).toEqual([]);
+  });
+
+  it("leaves no account behind when the organization cannot be made", async () => {
+    getDb()
+      .insert(organization)
+      .values({
+        id: "taken",
+        name: "Taken",
+        createdAt: new Date().toISOString(),
+      })
+      .run();
+
+    await expect(
+      createOwner({ ...OWNER, organizationName: ORGANIZATION_NAME }),
+    ).rejects.toThrow();
+
+    expect(getDb().select().from(user).all()).toEqual([]);
   });
 });
 
@@ -205,7 +241,7 @@ describe("the signed-in account", () => {
   beforeAll(async () => {
     cleanupDb = useTempDb();
     server = await buildServer();
-    await createOwner();
+    await seedOwner();
   });
 
   afterAll(async () => {
@@ -225,10 +261,10 @@ describe("the signed-in account", () => {
       });
 
     expect((await update("light")).statusCode).toBe(200);
-    expect((await sessionUser(server, cookie))?.theme).toBe("light");
+    expect((await sessionOf(server, cookie))?.user.theme).toBe("light");
 
     expect((await update("sepia")).statusCode).toBe(400);
-    expect((await sessionUser(server, cookie))?.theme).toBe("light");
+    expect((await sessionOf(server, cookie))?.user.theme).toBe("light");
   });
 
   // Drawn as an <img> on every page, so only a small inline picture is kept.
@@ -248,10 +284,10 @@ describe("the signed-in account", () => {
     expect(
       (await update(`data:image/png;base64,${"A".repeat(200_000)}`)).statusCode,
     ).toBe(400);
-    expect((await sessionUser(server, cookie))?.image).toBe(picture);
+    expect((await sessionOf(server, cookie))?.user.image).toBe(picture);
 
     expect((await update(null)).statusCode).toBe(200);
-    expect((await sessionUser(server, cookie))?.image).toBeNull();
+    expect((await sessionOf(server, cookie))?.user.image).toBeNull();
   });
 
   /* The session is a row, not a signature, so revoking it stops the cookie
@@ -280,7 +316,7 @@ describe("trusted origins", () => {
   let cleanupDb: () => void;
 
   function signInFrom(origin: string) {
-    return signIn(server, OWNER, { origin, cookie: "seen=1" });
+    return signIn(server, OWNER, { headers: { origin, cookie: "seen=1" } });
   }
 
   beforeAll(async () => {
@@ -292,7 +328,7 @@ describe("trusted origins", () => {
     );
     resetAuth();
     server = await buildServer();
-    await createOwner();
+    await seedOwner();
   });
 
   afterAll(async () => {
@@ -327,7 +363,7 @@ describe("the authorization gate", () => {
   beforeAll(async () => {
     cleanupDb = useTempDb();
     server = await buildServer();
-    await createOwner();
+    await seedOwner();
     cookie = cookieFrom(await signIn(server, OWNER));
   });
 

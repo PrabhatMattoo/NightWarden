@@ -17,6 +17,7 @@ export function SetupPage(): React.JSX.Element {
   const linkToken =
     new URLSearchParams(hash.replace(/^#/, "")).get("token") ?? "";
   const [typedToken, setTypedToken] = useState("");
+  const [organizationName, setOrganizationName] = useState("");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -27,6 +28,7 @@ export function SetupPage(): React.JSX.Element {
         api.POST("/api/setup", {
           body: {
             token: linkToken === "" ? typedToken : linkToken,
+            organizationName,
             name,
             email,
             password,
@@ -73,6 +75,13 @@ export function SetupPage(): React.JSX.Element {
             onChange={setTypedToken}
           />
         )}
+        <AuthField
+          id="setup-organization"
+          label="Organization name"
+          type="text"
+          value={organizationName}
+          onChange={setOrganizationName}
+        />
         {/* Shown on an approval record, so it is a person's name and not a login. */}
         <AuthField
           id="setup-name"

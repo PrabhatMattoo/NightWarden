@@ -2,6 +2,7 @@ import { ne } from "drizzle-orm";
 import { afterEach, vi } from "vitest";
 import { openDb } from "../db.js";
 import { logger } from "../logger.js";
+import { wireAuth } from "../auth-wiring.js";
 import { initEnv } from "../config/env.js";
 import { initSecrets } from "../secrets.js";
 import { sessions } from "../session/schema.js";
@@ -16,6 +17,7 @@ process.env["NIGHTWARDEN_DIR"] = createTempFolder();
 process.env["NIGHTWARDEN_SECRET_KEY"] = "nightwarden-test-secret-key";
 initSecrets();
 initEnv();
+wireAuth();
 
 // A dispatched investigation that throws is caught and logged (correct in production, but a
 // swallowed failure would pass green in tests) - fail the test if any run logs it instead.

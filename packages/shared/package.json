@@ -11,9 +11,14 @@
     "./schemas": {
       "types": "./src/schemas/index.ts",
       "default": "./src/schemas/index.ts"
+    },
+    "./permissions": {
+      "types": "./src/permissions.ts",
+      "default": "./src/permissions.ts"
     }
   },
   "dependencies": {
+    "better-auth": "1.7.25",
     "zod": "4.4.3"
   },
   "scripts": {

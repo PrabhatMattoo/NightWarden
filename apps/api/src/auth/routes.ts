@@ -1,20 +1,10 @@
-import { APIError } from "better-auth/api";
-import { fromNodeHeaders } from "better-auth/node";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
-import { z } from "zod";
-import type { SetupStatus, SignInOptions } from "@nightwarden/shared";
-import {
-  refusals,
-  setupRequestSchema,
-  setupStatusSchema,
-  signInOptionsSchema,
-} from "@nightwarden/shared/schemas";
+import type { SignInOptions } from "@nightwarden/shared";
+import { refusals, signInOptionsSchema } from "@nightwarden/shared/schemas";
 import { mailServer } from "../mail/store.js";
-import { CLIENT_IP_HEADER, getAuth } from "./instance.js";
-import { ownerExists } from "./owner-store.js";
-import { ADMIN_ROLE } from "./permissions.js";
-import { claimSetupToken, writeSetupToken } from "./setup-token.js";
+import { getAuth } from "./instance.js";
+import { authHeaders } from "./session.js";
 
 export async function registerAuthRoutes(
   fastify: FastifyInstance,
@@ -33,13 +23,10 @@ export async function registerAuthRoutes(
         request.url,
         `${request.protocol}://${request.headers.host ?? "localhost"}`,
       );
-      // Fastify decides who the visitor is; `set` replaces any value the client sent.
-      const headers = fromNodeHeaders(request.headers);
-      headers.set(CLIENT_IP_HEADER, request.ip);
       const response = await getAuth().handler(
         new Request(url, {
           method: request.method,
-          headers,
+          headers: authHeaders(request),
           ...(request.body !== undefined &&
             request.body !== null && { body: JSON.stringify(request.body) }),
         }),
@@ -53,16 +40,6 @@ export async function registerAuthRoutes(
   });
 
   app.get(
-    "/setup",
-    {
-      // Read before sign-in to decide which page to show.
-      config: { permission: "public" },
-      schema: { response: { 200: setupStatusSchema, ...refusals() } },
-    },
-    (): SetupStatus => ({ required: !ownerExists() }),
-  );
-
-  app.get(
     "/sign-in-options",
     {
       // Read before sign-in, to decide what the forgotten-password page offers.
@@ -70,50 +47,5 @@ export async function registerAuthRoutes(
       schema: { response: { 200: signInOptionsSchema, ...refusals() } },
     },
     (): SignInOptions => ({ passwordReset: mailServer() !== null }),
-  );
-
-  app.post(
-    "/setup",
-    {
-      // The setup token is its own credential.
-      config: { permission: "public" },
-      schema: {
-        body: setupRequestSchema,
-        response: { 204: z.undefined(), ...refusals() },
-      },
-    },
-    async (request, reply) => {
-      const { token, name, email, password } = request.body;
-      if (ownerExists()) {
-        return reply
-          .code(409)
-          .send({ error: "This install is already set up." });
-      }
-      if (!claimSetupToken(token)) {
-        return reply.code(403).send({ error: "The setup token is not valid." });
-      }
-      const auth = getAuth();
-      try {
-        // Without headers: Better Auth reads a call that carries none as the server's own.
-        await auth.api.createUser({
-          body: { email, password, name, role: ADMIN_ROLE },
-        });
-      } catch (err) {
-        writeSetupToken(token);
-        if (err instanceof APIError) {
-          return reply.code(400).send({ error: err.message });
-        }
-        throw err;
-      }
-      const signedIn = await auth.api.signInEmail({
-        body: { email, password },
-        headers: fromNodeHeaders(request.headers),
-        asResponse: true,
-      });
-      return reply
-        .header("set-cookie", signedIn.headers.getSetCookie())
-        .code(204)
-        .send();
-    },
   );
 }

@@ -157,7 +157,6 @@ CREATE TABLE `auth_session` (
 	`ip_address` text,
 	`user_agent` text,
 	`user_id` text NOT NULL,
-	`impersonated_by` text,
 	FOREIGN KEY (`user_id`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint
@@ -178,10 +177,6 @@ CREATE TABLE `user` (
 	`image` text,
 	`created_at` integer NOT NULL,
 	`updated_at` integer NOT NULL,
-	`role` text,
-	`banned` integer,
-	`ban_reason` text,
-	`ban_expires` integer,
 	`theme` text DEFAULT 'system' NOT NULL,
 	CONSTRAINT "user_theme" CHECK("user"."theme" IN ('system', 'light', 'dark'))
 );
@@ -197,6 +192,84 @@ CREATE TABLE `verification` (
 );
 --> statement-breakpoint
 CREATE INDEX `verification_identifier_idx` ON `verification` (`identifier`);--> statement-breakpoint
+CREATE TABLE `audit_event` (
+	`id` integer PRIMARY KEY NOT NULL,
+	`at` text NOT NULL,
+	`actor_id` text NOT NULL,
+	`actor_name` text NOT NULL,
+	`actor_email` text NOT NULL,
+	`action` text NOT NULL,
+	`target` text,
+	`details` text NOT NULL,
+	`session_id` text,
+	CONSTRAINT "audit_event_action" CHECK("audit_event"."action" IN ('write_approved', 'write_rejected', 'organization_created', 'organization_updated', 'member_added', 'member_invited', 'invitation_canceled', 'member_joined', 'member_role_changed', 'member_removed', 'team_created', 'team_renamed', 'team_deleted', 'team_member_added', 'team_member_removed'))
+);
+--> statement-breakpoint
+CREATE INDEX `idx_audit_event_at` ON `audit_event` (`at`);--> statement-breakpoint
+CREATE TABLE `invitation` (
+	`id` text PRIMARY KEY NOT NULL,
+	`organization_id` text NOT NULL,
+	`token_hash` text NOT NULL,
+	`email` text NOT NULL,
+	`role` text NOT NULL,
+	`status` text NOT NULL,
+	`inviter_id` text,
+	`expires_at` text NOT NULL,
+	`created_at` text NOT NULL,
+	FOREIGN KEY (`organization_id`) REFERENCES `organization`(`id`) ON UPDATE no action ON DELETE cascade,
+	FOREIGN KEY (`inviter_id`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE set null,
+	CONSTRAINT "invitation_role" CHECK("invitation"."role" IN ('admin', 'member', 'viewer')),
+	CONSTRAINT "invitation_status" CHECK("invitation"."status" IN ('pending', 'accepted', 'canceled'))
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX `invitation_token_hash_unique` ON `invitation` (`token_hash`);--> statement-breakpoint
+CREATE INDEX `invitation_email_status_idx` ON `invitation` (`email`,`status`);--> statement-breakpoint
+CREATE TABLE `invitation_team` (
+	`invitation_id` text NOT NULL,
+	`team_id` text NOT NULL,
+	PRIMARY KEY(`invitation_id`, `team_id`),
+	FOREIGN KEY (`invitation_id`) REFERENCES `invitation`(`id`) ON UPDATE no action ON DELETE cascade,
+	FOREIGN KEY (`team_id`) REFERENCES `team`(`id`) ON UPDATE no action ON DELETE cascade
+);
+--> statement-breakpoint
+CREATE TABLE `member` (
+	`id` text PRIMARY KEY NOT NULL,
+	`organization_id` text NOT NULL,
+	`user_id` text NOT NULL,
+	`role` text NOT NULL,
+	`created_at` text NOT NULL,
+	FOREIGN KEY (`organization_id`) REFERENCES `organization`(`id`) ON UPDATE no action ON DELETE cascade,
+	FOREIGN KEY (`user_id`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE cascade,
+	CONSTRAINT "member_role" CHECK("member"."role" IN ('admin', 'member', 'viewer'))
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX `member_user_id_unique` ON `member` (`user_id`);--> statement-breakpoint
+CREATE TABLE `organization` (
+	`id` text PRIMARY KEY NOT NULL,
+	`name` text NOT NULL,
+	`logo` text,
+	`created_at` text NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE `team` (
+	`id` text PRIMARY KEY NOT NULL,
+	`organization_id` text NOT NULL,
+	`name` text NOT NULL,
+	`is_default` integer DEFAULT false NOT NULL,
+	`created_at` text NOT NULL,
+	FOREIGN KEY (`organization_id`) REFERENCES `organization`(`id`) ON UPDATE no action ON DELETE cascade
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX `team_one_default_idx` ON `team` (`is_default`) WHERE "team"."is_default" = 1;--> statement-breakpoint
+CREATE TABLE `team_member` (
+	`team_id` text NOT NULL,
+	`user_id` text NOT NULL,
+	`created_at` text NOT NULL,
+	PRIMARY KEY(`team_id`, `user_id`),
+	FOREIGN KEY (`team_id`) REFERENCES `team`(`id`) ON UPDATE no action ON DELETE cascade,
+	FOREIGN KEY (`user_id`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE cascade
+);
+--> statement-breakpoint
 CREATE TABLE `mail_server` (
 	`id` text PRIMARY KEY NOT NULL,
 	`host` text,
@@ -208,18 +281,3 @@ CREATE TABLE `mail_server` (
 	`updated_at` text NOT NULL,
 	CONSTRAINT "mail_server_security" CHECK("mail_server"."security" IN ('none', 'starttls', 'tls'))
 );
---> statement-breakpoint
-CREATE TABLE `audit_event` (
-	`id` integer PRIMARY KEY NOT NULL,
-	`at` text NOT NULL,
-	`actor_id` text NOT NULL,
-	`actor_name` text NOT NULL,
-	`actor_email` text NOT NULL,
-	`action` text NOT NULL,
-	`target` text,
-	`details` text NOT NULL,
-	`session_id` text,
-	CONSTRAINT "audit_event_action" CHECK("audit_event"."action" IN ('write_approved', 'write_rejected'))
-);
---> statement-breakpoint
-CREATE INDEX `idx_audit_event_at` ON `audit_event` (`at`);

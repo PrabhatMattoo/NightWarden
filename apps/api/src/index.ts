@@ -1,7 +1,8 @@
 import "dotenv/config";
 import { initSecrets } from "./secrets.js";
 import { initDb } from "./db.js";
-import { prepareSetup } from "./auth/setup-token.js";
+import { wireAuth } from "./auth-wiring.js";
+import { prepareSetup } from "./organization/setup-token.js";
 import { buildServer } from "./server.js";
 import {
   RECONCILE_TICK_MS,
@@ -42,6 +43,8 @@ try {
 initSecrets();
 // Before the first setting is read, so a bad value refuses the boot here.
 initEnv();
+// Before any request is answered, since the gate asks auth who is signed in.
+wireAuth();
 
 const isDev = process.env["NODE_ENV"] !== "production";
 

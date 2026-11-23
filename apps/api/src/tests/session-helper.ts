@@ -1,13 +1,28 @@
 import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
-import type { NormalizedAlert, SessionMeta } from "@nightwarden/shared";
+import type { FastifyInstance } from "fastify";
+import { z } from "zod";
+import {
+  ADMIN_ROLE,
+  ROLE_NAMES,
+  type Actor,
+  type NormalizedAlert,
+  type RoleName,
+  type SessionMeta,
+} from "@nightwarden/shared";
 import type { DeliveryContext } from "../alerts/delivery.js";
+import { userIdByEmail } from "../auth/account-store.js";
+import { createAccount } from "../auth/accounts.js";
 import { getAuth } from "../auth/instance.js";
-import { ADMIN_ROLE } from "../auth/permissions.js";
 import { user } from "../auth/schema.js";
 import { getDb } from "../db.js";
 import { buildSessionMeta } from "../agent/loop/run-session.js";
 import type { Dispatcher } from "../dispatcher.js";
+import {
+  addMember,
+  organizationExists,
+} from "../organization/organization-store.js";
+import { createOwner } from "../organization/setup.js";
 import { admitDelivery } from "../session/alerts-store.js";
 import type { OpenTurn } from "../session/schema.js";
 import { releaseRun } from "../session/status-store.js";
@@ -101,6 +116,15 @@ export function insertTestUser(): string {
   return id;
 }
 
+// The admin these tests act as, who adds every colleague.
+export function ownerActor(): Actor {
+  return {
+    id: accountId(TEST_OWNER.email),
+    name: TEST_OWNER.name,
+    email: TEST_OWNER.email,
+  };
+}
+
 // The id behind issueTestSession's cookie, so a chat can be seeded as theirs.
 export function accountId(email: string): string {
   const row = getDb()
@@ -123,30 +147,102 @@ export const TEST_MEMBER = {
   name: "Member",
 };
 
+const TEST_VIEWER = {
+  ...TEST_OWNER,
+  email: "viewer@example.test",
+  name: "Viewer",
+};
+
+const ACCOUNT_FOR_ROLE = {
+  admin: TEST_OWNER,
+  member: TEST_MEMBER,
+  viewer: TEST_VIEWER,
+};
+
 /* A real signed-in session: the owner is created the way the setup route does, so
-   the cookie is one Better Auth actually issued. */
+   the cookie is one Better Auth actually issued. Another role is a colleague an admin added. */
 export async function issueTestSession(
-  role: "admin" | "member" = "admin",
+  role: RoleName = ADMIN_ROLE,
 ): Promise<string> {
-  const auth = getAuth();
-  const existing = getDb().select({ email: user.email }).from(user).all();
-  const emails = new Set(existing.map((row) => row.email));
-  if (!emails.has(TEST_OWNER.email)) {
-    await auth.api.createUser({ body: { ...TEST_OWNER, role: ADMIN_ROLE } });
+  if (!organizationExists()) {
+    await createOwner({ ...TEST_OWNER, organizationName: "Test Organization" });
   }
-  // Created the way an admin adds a colleague, so it carries the default role.
-  if (role === "member" && !emails.has(TEST_MEMBER.email)) {
-    await auth.api.createUser({ body: TEST_MEMBER });
+  const account = ACCOUNT_FOR_ROLE[role];
+  if (userIdByEmail(account.email) === undefined) {
+    const userId = await createAccount(account);
+    addMember(userId, role, ownerActor());
   }
-  const response = await auth.api.signInEmail({
-    body: role === "admin" ? TEST_OWNER : TEST_MEMBER,
+  const response = await getAuth().api.signInEmail({
+    body: account,
     asResponse: true,
   });
-  // Returned as a Cookie request header, which is what every caller sends back.
-  return response.headers
-    .getSetCookie()
+  return cookieFrom(response);
+}
+
+// What a browser puts on a POST, and what the origin check compares against.
+const BROWSER_ORIGIN = "http://localhost";
+
+type Method = "GET" | "POST" | "PATCH" | "PUT" | "DELETE";
+
+// The Set-Cookie values as a Cookie request header, which is what a browser sends back.
+export function cookieFrom(res: {
+  headers: { "set-cookie"?: string | string[] } | Headers;
+}): string {
+  const raw =
+    res.headers instanceof Headers
+      ? res.headers.getSetCookie()
+      : (res.headers["set-cookie"] ?? []);
+  return (Array.isArray(raw) ? raw : [raw])
     .map((cookie) => cookie.split(";")[0])
     .join("; ");
+}
+
+export function signIn(
+  server: FastifyInstance,
+  body: { email: string; password?: string },
+  options: { headers?: Record<string, string>; remoteAddress?: string } = {},
+) {
+  return server.inject({
+    method: "POST",
+    url: "/api/auth/sign-in/email",
+    ...(options.remoteAddress !== undefined && {
+      remoteAddress: options.remoteAddress,
+    }),
+    headers: { origin: BROWSER_ORIGIN, ...options.headers },
+    payload: body,
+  });
+}
+
+const sessionSchema = z
+  .object({
+    role: z.enum(ROLE_NAMES).nullable(),
+    user: z.object({ theme: z.string(), image: z.string().nullable() }),
+  })
+  .nullable();
+
+// What /get-session tells the browser about a cookie: its role and account, or null for a stranger.
+export async function sessionOf(server: FastifyInstance, cookie: string) {
+  const res = await server.inject({
+    method: "GET",
+    url: "/api/auth/get-session",
+    headers: { cookie },
+  });
+  return sessionSchema.parse(JSON.parse(res.body));
+}
+
+export function call(
+  server: FastifyInstance,
+  method: Method,
+  url: string,
+  cookie: string | null,
+  payload?: Record<string, unknown>,
+) {
+  return server.inject({
+    method,
+    url,
+    ...(cookie !== null && { headers: { cookie } }),
+    ...(payload !== undefined && { payload }),
+  });
 }
 
 // A typed message as the browser sends it, carrying the id the browser mints.

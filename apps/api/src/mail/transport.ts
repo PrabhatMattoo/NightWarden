@@ -74,5 +74,9 @@ export async function sendMail(message: MailMessage): Promise<void> {
       "mail is not configured: set the host, port and from address under Settings, Mail",
     );
   }
-  await transportFor(server).sendMail({ from: server.from, ...message });
+  try {
+    await transportFor(server).sendMail({ from: server.from, ...message });
+  } catch (err) {
+    throw new MailServerError(describeFailure(err, server), { cause: err });
+  }
 }

@@ -1,8 +1,12 @@
 import { z } from "zod";
 import { STATUS_FILTERS } from "../sessions.js";
 
-// Every refusal a route answers, whatever its status, so a client reads one field.
-export const errorBodySchema = z.object({ error: z.string() });
+/* Every refusal a route answers, whatever its status, so a client reads one field.
+   A code is set where the browser must act on the refusal, not just show it. */
+export const errorBodySchema = z.object({
+  error: z.string(),
+  code: z.enum(["not_a_member", "mfa_required"]).optional(),
+});
 
 // 5xx too: Fastify's own 500 body carries the thrown error's message, which this strips to `error`.
 export function refusals<Body extends z.ZodType>(

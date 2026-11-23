@@ -1,3 +1,4 @@
+import { APIError } from "better-auth/api";
 import type { FastifyInstance } from "fastify";
 import {
   hasZodFastifySchemaValidationErrors,
@@ -27,6 +28,16 @@ export function installRouteSchemas(api: FastifyInstance): void {
 
   // One shape for every 400 a malformed request earns, so no route invents its own.
   api.setErrorHandler((error, _request, reply) => {
+    // Better Auth's refusal, thrown by an in-process call, keeps its own status and sentence.
+    if (error instanceof APIError) {
+      // Carries Retry-After when a sign-in is throttled.
+      new Headers(error.headers).forEach((value, key) => {
+        reply.header(key, value);
+      });
+      return reply
+        .code(error.statusCode)
+        .send({ error: error.message || "The request was refused." });
+    }
     if (!hasZodFastifySchemaValidationErrors(error)) throw error;
     const issues = error.validation.map((issue) => ({
       path: issue.instancePath.split("/").filter((part) => part !== ""),

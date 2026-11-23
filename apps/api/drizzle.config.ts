@@ -8,8 +8,9 @@ export default defineConfig({
     "./src/integrations/schema.ts",
     "./src/config/schema.ts",
     "./src/auth/schema.ts",
-    "./src/mail/schema.ts",
     "./src/audit/schema.ts",
+    "./src/organization/schema.ts",
+    "./src/mail/schema.ts",
   ],
   out: "./src/migrations",
 });

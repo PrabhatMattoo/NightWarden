@@ -72,6 +72,7 @@ describe("layering", () => {
       "index.ts",
       "dispatcher.ts",
       "api.ts",
+      "auth-wiring.ts",
       "openapi.ts",
       "server.ts",
     ];
@@ -112,6 +113,56 @@ describe("layering", () => {
       if (state.get(path) === undefined) walk(path, []);
     }
     expect(found).toEqual([]);
+  });
+});
+
+/* Which way each directory may look. The agent, session and alerts loops predate
+   this rule and are the known exception, so it does not check them. */
+describe("directory dependencies", () => {
+  // What a directory may import beyond itself and the root files; a trailing slash admits a whole directory.
+  const ONLY: Record<string, string[]> = {
+    audit: [],
+    mail: ["config/env.ts"],
+    auth: ["audit/", "mail/"],
+  };
+  const NEVER: Record<string, string[]> = {
+    config: ["mail/", "auth/", "organization/"],
+  };
+
+  function importsOutside(directory: string): [string, string][] {
+    return MODULES.flatMap(([path, text]) =>
+      moduleOf(path) !== directory
+        ? []
+        : imports(text)
+            .map((spec): [string, string] => [path, resolveImport(path, spec)])
+            .filter(
+              ([, target]) =>
+                moduleOf(target) !== null && moduleOf(target) !== directory,
+            ),
+    );
+  }
+
+  it("lets each directory import only what it is allowed", () => {
+    for (const [directory, allowed] of Object.entries(ONLY)) {
+      const found = importsOutside(directory);
+      for (const [path, target] of found) {
+        expect(
+          allowed.some((entry) => target.startsWith(entry)),
+          `${path} imports ${target}, which ${directory}/ may not`,
+        ).toBe(true);
+      }
+    }
+  });
+
+  it("keeps the directories that others stand on from importing them back", () => {
+    for (const [directory, forbidden] of Object.entries(NEVER)) {
+      for (const [path, target] of importsOutside(directory)) {
+        expect(
+          forbidden.some((entry) => target.startsWith(entry)),
+          `${path} imports ${target}, which ${directory}/ may not`,
+        ).toBe(false);
+      }
+    }
   });
 });
 

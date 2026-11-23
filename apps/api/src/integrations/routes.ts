@@ -2,7 +2,6 @@ import { probeSignal } from "./reachability.js";
 import { z } from "zod";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
-import type { Permission } from "../auth/permissions.js";
 import {
   deleteGitHubIntegration,
   getGitHubIntegration,
@@ -22,6 +21,7 @@ import {
 } from "./alert-sources.js";
 import { isAlertSourceKind } from "@nightwarden/shared";
 import type { AlertSourceKind, AlertSourceStatus } from "@nightwarden/shared";
+import type { Permission } from "@nightwarden/shared/permissions";
 import {
   alertSourceCredentialSchema,
   alertSourceStatusSchema,

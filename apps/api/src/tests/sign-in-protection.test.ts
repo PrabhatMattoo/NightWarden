@@ -1,7 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { FastifyInstance } from "fastify";
 import { useTempDb } from "./temp-db.js";
-import { issueTestSession, TEST_MEMBER, TEST_OWNER } from "./session-helper.js";
+import {
+  issueTestSession,
+  signIn,
+  TEST_MEMBER,
+  TEST_OWNER,
+} from "./session-helper.js";
 import { CLIENT_IP_HEADER } from "../auth/instance.js";
 import { buildServer } from "../server.js";
 
@@ -31,32 +36,23 @@ describe("sign-in protection", () => {
     await server.ready();
   }
 
-  function signIn(
+  const signInFrom = (
     remoteAddress: string,
     body: { email: string; password?: string },
     headers: Record<string, string> = {},
-  ) {
-    return server.inject({
-      method: "POST",
-      url: "/api/auth/sign-in/email",
-      remoteAddress,
-      // What a browser puts on a POST; inject dials localhost, the trusted origin.
-      headers: { origin: "http://localhost", ...headers },
-      payload: body,
-    });
-  }
+  ) => signIn(server, body, { remoteAddress, headers });
 
   // A different address each call, which is what a distributed guesser looks like.
   const addressFor = (attempt: number) => `198.51.100.${attempt + 1}`;
 
   const wrong = (attempt: number) =>
-    signIn(addressFor(attempt), {
+    signInFrom(addressFor(attempt), {
       email: TEST_OWNER.email,
       password: WRONG_PASSWORD,
     });
 
   const right = (remoteAddress: string, account = TEST_OWNER) =>
-    signIn(remoteAddress, {
+    signInFrom(remoteAddress, {
       email: account.email,
       password: account.password,
     });
@@ -68,7 +64,7 @@ describe("sign-in protection", () => {
   ): Promise<number[]> {
     const statuses: number[] = [];
     for (let attempt = 0; attempt <= FLOOD_LIMIT; attempt++) {
-      const res = await signIn(
+      const res = await signInFrom(
         remoteAddress,
         { email: `guess-${attempt}@example.com` },
         headersFor(attempt),

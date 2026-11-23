@@ -25,7 +25,7 @@ import {
   kubernetesWorkload,
   manifest,
 } from "./manifest-helper.js";
-import { issueTestSession } from "./session-helper.js";
+import { call, issueTestSession } from "./session-helper.js";
 import { useTempDb } from "./temp-db.js";
 import { waitFor } from "./wait.js";
 
@@ -74,6 +74,14 @@ export interface Harness {
   // Ready to spread into a request: { headers: harness.headers }.
   headers: { cookie: string };
   session: string;
+  // A request as the admin the session belongs to.
+  asAdmin: (
+    method: Parameters<typeof call>[1],
+    url: string,
+    payload?: Record<string, unknown>,
+  ) => ReturnType<typeof call>;
+  // A read as that admin, which must answer 200, parsed as the caller names it.
+  readAsAdmin: <T>(url: string) => Promise<T>;
   runners: HarnessRunner[];
   runner: HarnessRunner;
   url(path: string): string;
@@ -215,6 +223,16 @@ export async function harness(options: HarnessOptions = {}): Promise<Harness> {
     port,
     session,
     headers: { cookie: `${session}` },
+    asAdmin: (method, url, payload) =>
+      call(server, method, url, session, payload),
+    async readAsAdmin<T>(url: string): Promise<T> {
+      const res = await call(server, "GET", url, session);
+      if (res.statusCode !== 200) {
+        throw new Error(`GET ${url} answered ${res.statusCode}: ${res.body}`);
+      }
+      // The route's own response schema already shaped the body.
+      return JSON.parse(res.body) as T;
+    },
     runners,
     // The common case is one, and naming it saves every test an index.
     get runner() {

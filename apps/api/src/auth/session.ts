@@ -1,11 +1,21 @@
 import { fromNodeHeaders } from "better-auth/node";
 import type { Actor } from "@nightwarden/shared";
 import type { FastifyRequest } from "fastify";
-import { getAuth } from "./instance.js";
+import { CLIENT_IP_HEADER, getAuth } from "./instance.js";
 
-export type SignedInUser = ReturnType<
-  typeof getAuth
->["$Infer"]["Session"]["user"];
+// Fastify decides who the visitor is; `set` replaces any value the client sent.
+export function authHeaders(request: FastifyRequest): Headers {
+  const headers = fromNodeHeaders(request.headers);
+  headers.set(CLIENT_IP_HEADER, request.ip);
+  return headers;
+}
+
+type SessionPayload = ReturnType<typeof getAuth>["$Infer"]["Session"];
+
+// The account with the role its member row gives it, null once it is no longer a member.
+export type SignedInUser = SessionPayload["user"] & {
+  role: SessionPayload["role"];
+};
 
 // The audit-trail slice of a signed-in user: who released a write, without the
 // role, which is not part of the record a decision carries.
@@ -21,5 +31,5 @@ export async function currentUser(
   const session = await getAuth().api.getSession({
     headers: fromNodeHeaders(request.headers),
   });
-  return session?.user ?? null;
+  return session === null ? null : { ...session.user, role: session.role };
 }

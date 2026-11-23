@@ -3,7 +3,7 @@ import { readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { logger } from "../logger.js";
 import { setupTokenPath } from "../paths.js";
 import { configuredPublicUrl } from "../public-url.js";
-import { ownerExists } from "./owner-store.js";
+import { organizationExists } from "./organization-store.js";
 
 function isMissingFile(err: unknown): boolean {
   return err instanceof Error && "code" in err && err.code === "ENOENT";
@@ -16,7 +16,7 @@ export function writeSetupToken(token: string): void {
 // A fresh token on every boot of an install with no owner, and none once it has one.
 export function prepareSetup(): void {
   rmSync(setupTokenPath(), { force: true });
-  if (ownerExists()) return;
+  if (organizationExists()) return;
   const token = randomBytes(32).toString("base64url");
   writeSetupToken(token);
   const publicUrl = configuredPublicUrl();

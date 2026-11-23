@@ -22,6 +22,7 @@ function setup(
 }
 
 async function fillAndSubmit(user: ReturnType<typeof userEvent.setup>) {
+  await user.type(screen.getByLabelText(/^organization name/i), "Acme Ops");
   await user.type(screen.getByLabelText(/^name/i), "Admin");
   await user.type(screen.getByLabelText(/^email/i), "admin@example.com");
   await user.type(screen.getByLabelText(/^password/i), "correcthorsebattery");
@@ -52,6 +53,7 @@ describe("SetupPage", () => {
       {
         body: {
           token: "abc-123_x",
+          organizationName: "Acme Ops",
           name: "Admin",
           email: "admin@example.com",
           password: "correcthorsebattery",

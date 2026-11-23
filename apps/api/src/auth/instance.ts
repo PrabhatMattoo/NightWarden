@@ -2,12 +2,13 @@ import { hash, verify } from "argon2";
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { APIError, createAuthMiddleware, isAPIError } from "better-auth/api";
-import { admin } from "better-auth/plugins";
+import { customSession } from "better-auth/plugins";
 import {
   AVATAR_MAX_LENGTH,
   AVATAR_PATTERN,
   PASSWORD_MIN_LENGTH,
   THEME_FIELD,
+  type RoleName,
 } from "@nightwarden/shared";
 import { themePreferenceSchema } from "@nightwarden/shared/schemas";
 import { getDb } from "../db.js";
@@ -19,7 +20,6 @@ import {
 import { sendMail } from "../mail/transport.js";
 import { configuredPublicUrl, extraTrustedOrigins } from "../public-url.js";
 import { authSecret } from "../secrets.js";
-import { MEMBER_ROLE } from "./permissions.js";
 import { account, authSession, user, verification } from "./schema.js";
 import {
   clearSignInFailures,
@@ -41,6 +41,7 @@ const SIGN_IN_FAILURE_LIMIT = 5;
 const SIGN_IN_FAILURE_WINDOW_MS = 15 * 60 * 1000;
 
 const SIGN_IN_PATH = "/sign-in/email";
+const SIGN_UP_PATH = "/sign-up/email";
 
 function attemptedEmail(path: string | undefined, body: unknown) {
   if (path !== SIGN_IN_PATH) return undefined;
@@ -50,14 +51,25 @@ function attemptedEmail(path: string | undefined, body: unknown) {
   return typeof body.email === "string" ? body.email.toLowerCase() : undefined;
 }
 
+// What auth/ needs from the rest of the install, handed in at boot so it imports none of it.
+export interface AuthAccess {
+  // A null role is an account that belongs to nothing, which the gate refuses on every route.
+  accessOf: (userId: string) => { role: RoleName | null };
+}
+
+let access: AuthAccess | null = null;
+
+export function initAuth(provided: AuthAccess): void {
+  access = provided;
+}
+
 // Built through a function so the return type keeps the options Better Auth
 // infers from this config; naming it erases them and the plugin routes with it.
-function buildAuth() {
+function buildAuth({ accessOf }: AuthAccess) {
   const publicUrl = configuredPublicUrl();
   // The public URL is a trusted origin as well as the address NightWarden
   // answers on; an install reached at a second address names that one too.
   const trusted = [...(publicUrl ? [publicUrl] : []), ...extraTrustedOrigins()];
-  const adminPlugin = admin({ defaultRole: MEMBER_ROLE });
   return betterAuth({
     // The one handle the stores hold, so both write through one connection.
     database: drizzleAdapter(getDb(), {
@@ -119,15 +131,14 @@ function buildAuth() {
         }
       }),
     },
-    // Nothing calls the plugin over HTTP, so none of its paths, impersonation
-    // among them, answers; the server still calls them through auth.api.
-    disabledPaths: Object.values(adminPlugin.endpoints).map(
-      (endpoint) => endpoint.path,
-    ),
+    // Nothing calls this over HTTP, so it does not answer; the server still calls it through auth.api.
+    disabledPaths: [SIGN_UP_PATH],
     emailAndPassword: {
       enabled: true,
-      // Accounts are created in-process: the owner by the setup route.
-      disableSignUp: true,
+      // Sign-up is open to the server alone: the path above is closed to everyone else.
+      disableSignUp: false,
+      // An account gets a session only by signing in.
+      autoSignIn: false,
       minPasswordLength: PASSWORD_MIN_LENGTH,
       resetPasswordTokenExpiresIn: RESET_LINK_LIFETIME_S,
       // Whoever held the old password may hold a session; a reset ends them all.
@@ -180,7 +191,15 @@ function buildAuth() {
         "/change-password": CHANGE_PASSWORD_LIMIT,
       },
     },
-    plugins: [adminPlugin],
+    plugins: [
+      customSession(({ user: signedIn, session }) =>
+        Promise.resolve({
+          user: signedIn,
+          session,
+          role: accessOf(signedIn.id).role,
+        }),
+      ),
+    ],
   });
 }
 
@@ -189,7 +208,10 @@ type Auth = ReturnType<typeof buildAuth>;
 let instance: Auth | null = null;
 
 export function getAuth(): Auth {
-  instance ??= buildAuth();
+  if (access === null) {
+    throw new Error("auth is not initialised; initAuth() runs at boot");
+  }
+  instance ??= buildAuth(access);
   return instance;
 }
 
