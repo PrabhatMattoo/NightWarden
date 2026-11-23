@@ -100,6 +100,7 @@ function MemberRow({
   isSelf,
   error,
   onChangeRole,
+  onResetMfa,
   onRemove,
 }: {
   member: OrganizationMember;
@@ -109,6 +110,7 @@ function MemberRow({
   isSelf: boolean;
   error: string | null;
   onChangeRole: (role: OrganizationMember["role"]) => void;
+  onResetMfa: () => void;
   onRemove: () => void;
 }): React.JSX.Element {
   const teams = member.teams.map((team) => team.name).join(", ");
@@ -135,7 +137,7 @@ function MemberRow({
         />
       </TableCell>
       <TableCell className="w-12 text-right">
-        {!isSelf && !soleAdmin && (
+        {!isSelf && (member.mfaEnabled || !soleAdmin) && (
           <DropdownMenu>
             <DropdownMenuTrigger
               render={
@@ -150,9 +152,16 @@ function MemberRow({
               <Ellipsis {...ICON_UI} />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuItem variant="destructive" onClick={onRemove}>
-                Remove
-              </DropdownMenuItem>
+              {member.mfaEnabled && (
+                <DropdownMenuItem onClick={onResetMfa}>
+                  Reset MFA
+                </DropdownMenuItem>
+              )}
+              {!soleAdmin && (
+                <DropdownMenuItem variant="destructive" onClick={onRemove}>
+                  Remove
+                </DropdownMenuItem>
+              )}
             </DropdownMenuContent>
           </DropdownMenu>
         )}
@@ -168,6 +177,7 @@ export function MembersSection(): React.JSX.Element {
   const { data: session } = useSuspenseQuery(authSessionQuery());
   const [inviting, setInviting] = useState(false);
   const [removing, setRemoving] = useState<OrganizationMember | null>(null);
+  const [resetting, setResetting] = useState<OrganizationMember | null>(null);
   const adminCount = members.filter((m) => m.role === ADMIN_ROLE).length;
 
   // Member counts on the teams page move with who is in the organization.
@@ -200,6 +210,23 @@ export function MembersSection(): React.JSX.Element {
     onError: (err) =>
       toast.show({
         title: "Could not remove the member",
+        message: err.message,
+        variant: "error",
+      }),
+  });
+
+  const resetMfa = useMutation({
+    mutationFn: (id: string) =>
+      dataOrThrow(
+        api.POST("/api/organization/members/{id}/reset-mfa", {
+          params: { path: { id } },
+        }),
+      ),
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: membersQuery().queryKey }),
+    onError: (err) =>
+      toast.show({
+        title: "Could not reset MFA",
         message: err.message,
         variant: "error",
       }),
@@ -261,6 +288,7 @@ export function MembersSection(): React.JSX.Element {
                   onChangeRole={(role) =>
                     changeRole.mutate({ id: member.id, role })
                   }
+                  onResetMfa={() => setResetting(member)}
                   onRemove={() => setRemoving(member)}
                 />
               ))}
@@ -328,6 +356,20 @@ export function MembersSection(): React.JSX.Element {
       )}
 
       <InviteDialog open={inviting} onOpenChange={setInviting} />
+
+      <ConfirmDialog
+        open={resetting !== null}
+        onOpenChange={(open) => {
+          if (!open) setResetting(null);
+        }}
+        title={`Reset MFA for ${resetting?.name ?? ""}?`}
+        description={`${resetting?.name ?? ""} signs in with their password alone until they set MFA up again. If MFA is required, they are asked to at their next sign-in.`}
+        confirmLabel="Reset MFA"
+        destructive
+        onConfirm={() => {
+          if (resetting !== null) resetMfa.mutate(resetting.id);
+        }}
+      />
 
       <ConfirmDialog
         open={removing !== null}

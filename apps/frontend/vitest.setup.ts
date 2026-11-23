@@ -10,6 +10,12 @@ window.getComputedStyle = (elt) => computedStyle(elt);
 window.HTMLElement.prototype.scrollIntoView = () => {};
 // jsdom has no scrollTo; the router's scroll restoration calls it on navigate.
 window.scrollTo = () => {};
+// jsdom has no hit testing; input-otp polls it to spot a password manager's badge.
+if (!("elementFromPoint" in window.Document.prototype)) {
+  Object.defineProperty(window.Document.prototype, "elementFromPoint", {
+    value: () => null,
+  });
+}
 // jsdom doesn't implement the Web Animations API; Base UI's ScrollArea
 // viewport calls element.getAnimations() to detect transition completion.
 if (!("getAnimations" in window.Element.prototype)) {

@@ -14,5 +14,7 @@ export const AUDIT_ACTIONS = [
   "team_deleted",
   "team_member_added",
   "team_member_removed",
+  "mfa_requirement_changed",
+  "mfa_reset",
 ] as const;
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];

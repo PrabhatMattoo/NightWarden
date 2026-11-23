@@ -58,6 +58,8 @@
   --color-fail-fill: var(--fail-fill);
   --color-fail-fill-hover: var(--fail-fill-hover);
   --color-scrim: var(--scrim);
+  --color-qr-dark-module: var(--qr-dark-module);
+  --color-qr-light-module: var(--qr-light-module);
   /* Vendor logos are drawn for a white ground in every theme. */
   --color-logo-tile: lch(100 0 0);
 
@@ -512,10 +514,10 @@
 }
 
 /* Focus is one outline on the control's own edge and changes nothing else.
-   Excluded: containers reached through, options, and an input its group rings. */
+   Excluded: containers reached through, options, and an input its group or slots ring. */
 :focus-visible:not([tabindex="-1"]):not([role="tabpanel"]):not(
     [role="option"]
-  ):not([data-slot="input-group-control"]) {
+  ):not([data-slot="input-group-control"]):not([data-slot="input-otp"]) {
   outline: 1px solid var(--focus);
   outline-offset: -1px;
 }

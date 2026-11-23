@@ -12,10 +12,12 @@ function member(
   id: string,
   name: string,
   role: OrganizationMember["role"],
+  mfaEnabled = false,
 ): OrganizationMember {
   return {
     id,
     userId: `u-${id}`,
+    mfaEnabled,
     name,
     email: `${name.toLowerCase()}@example.com`,
     image: null,
@@ -66,7 +68,7 @@ function setup(
     if (path === "/api/organization/members") {
       return json([
         member("m1", "Ada", "admin"),
-        member("m2", "Grace", "member"),
+        member("m2", "Grace", "member", true),
       ]);
     }
     if (path === "/api/organization/invitations" && method === "GET") {
@@ -140,24 +142,34 @@ describe("MembersSection", () => {
     );
   });
 
-  it("sends the removal for that member once confirmed", async () => {
+  it("sends the MFA reset and the removal for that member once each is confirmed", async () => {
     const api = setup(({ path, method }) =>
-      path === "/api/organization/members/m2" && method === "DELETE"
+      (path === "/api/organization/members/m2/reset-mfa" &&
+        method === "POST") ||
+      (path === "/api/organization/members/m2" && method === "DELETE")
         ? new Response(null, { status: 204 })
         : undefined,
     );
     const user = userEvent.setup();
+    const actOnGrace = async (item: string, confirm: string) => {
+      await user.click(
+        await screen.findByRole("button", { name: "Actions for Grace" }),
+      );
+      await user.click(await screen.findByRole("menuitem", { name: item }));
+      await user.click(
+        within(await screen.findByRole("alertdialog")).getByRole("button", {
+          name: confirm,
+        }),
+      );
+    };
 
-    await user.click(
-      await screen.findByRole("button", { name: "Actions for Grace" }),
+    await actOnGrace("Reset MFA", "Reset MFA");
+    await waitFor(() =>
+      expect(
+        api.requests("/api/organization/members/m2/reset-mfa"),
+      ).toHaveLength(1),
     );
-    await user.click(await screen.findByRole("menuitem", { name: "Remove" }));
-    await user.click(
-      within(await screen.findByRole("alertdialog")).getByRole("button", {
-        name: "Remove",
-      }),
-    );
-
+    await actOnGrace("Remove", "Remove");
     await waitFor(() =>
       expect(
         api

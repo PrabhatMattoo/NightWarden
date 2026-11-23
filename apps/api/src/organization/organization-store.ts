@@ -14,6 +14,7 @@ import {
 import { recordAuditEvent } from "../audit/audit-store.js";
 import { deleteSessionsOf } from "../auth/account-store.js";
 import { user } from "../auth/schema.js";
+import { envConfig, refuseLocked } from "../config/env.js";
 import { type Db, getDb } from "../db.js";
 import { INVITATION_LIFETIME_S } from "../mail/messages.js";
 import { hashToken, issueToken, tokenMatches } from "../secrets.js";
@@ -40,6 +41,13 @@ export class AlreadyMemberError extends Error {
   }
 }
 
+// Requiring MFA without having it would shut its own admin out behind the setup page.
+export class OwnMfaRequiredError extends Error {
+  constructor() {
+    super("Set up your own MFA before requiring it of everyone.");
+  }
+}
+
 export class DefaultTeamError extends Error {
   constructor() {
     super("The default team cannot be deleted.");
@@ -55,6 +63,7 @@ export class InvitationNotValidError extends Error {
 export interface OrganizationPatch {
   name?: string | undefined;
   logo?: string | null | undefined;
+  requireMfa?: boolean | undefined;
 }
 
 export type PendingInvitation = Omit<InvitationPreview, "accountExists"> & {
@@ -62,6 +71,24 @@ export type PendingInvitation = Omit<InvitationPreview, "accountExists"> & {
 };
 
 const nowIso = (): string => new Date().toISOString();
+
+// The environment's answer when it sets one, else the organization's own.
+function effectiveRequireMfa(stored: boolean): boolean {
+  return envConfig().organization.requireMfa ?? stored;
+}
+
+function organizationOf(row: {
+  name: string;
+  logo: string | null;
+  requireMfa: boolean;
+}): Organization {
+  return {
+    name: row.name,
+    logo: row.logo,
+    requireMfa: effectiveRequireMfa(row.requireMfa),
+    locked: envConfig().locked.organization,
+  };
+}
 
 function organizationIn(db: Db): { id: string; name: string } {
   const found = db
@@ -179,6 +206,7 @@ export function updateOrganization(
   patch: OrganizationPatch,
   actor: Actor,
 ): Organization {
+  refuseLocked(envConfig().locked.organization, patch);
   return getDb().transaction((tx) => {
     const current = tx.select().from(organization).get();
     if (current === undefined) throw new NotFoundError("unknown organization");
@@ -189,24 +217,52 @@ export function updateOrganization(
     if (patch.logo !== undefined && patch.logo !== current.logo) {
       fields.push("logo");
     }
-    if (fields.length === 0) return { name: current.name, logo: current.logo };
+    const mfaChanged =
+      patch.requireMfa !== undefined && patch.requireMfa !== current.requireMfa;
+    if (mfaChanged && patch.requireMfa === true) {
+      const own = tx
+        .select({ enabled: user.twoFactorEnabled })
+        .from(user)
+        .where(eq(user.id, actor.id))
+        .get();
+      if (own?.enabled !== true) throw new OwnMfaRequiredError();
+    }
+    if (fields.length === 0 && !mfaChanged) return organizationOf(current);
     const updated = tx
       .update(organization)
-      .set({ name: patch.name, logo: patch.logo })
+      .set({
+        name: patch.name,
+        logo: patch.logo,
+        requireMfa: patch.requireMfa,
+      })
       .where(eq(organization.id, current.id))
-      .returning({ name: organization.name, logo: organization.logo })
+      .returning()
       .get();
-    recordAuditEvent(
-      {
-        actor,
-        action: "organization_updated",
-        target: null,
-        details: { fields },
-        sessionId: null,
-      },
-      tx,
-    );
-    return updated;
+    if (fields.length > 0) {
+      recordAuditEvent(
+        {
+          actor,
+          action: "organization_updated",
+          target: null,
+          details: { fields },
+          sessionId: null,
+        },
+        tx,
+      );
+    }
+    if (mfaChanged) {
+      recordAuditEvent(
+        {
+          actor,
+          action: "mfa_requirement_changed",
+          target: null,
+          details: { required: updated.requireMfa },
+          sessionId: null,
+        },
+        tx,
+      );
+    }
+    return organizationOf(updated);
   });
 }
 
@@ -569,10 +625,8 @@ export function removeTeamMember(
 }
 
 export function readOrganization(): Organization | undefined {
-  return getDb()
-    .select({ name: organization.name, logo: organization.logo })
-    .from(organization)
-    .get();
+  const found = getDb().select().from(organization).get();
+  return found === undefined ? undefined : organizationOf(found);
 }
 
 export function organizationExists(): boolean {
@@ -583,13 +637,27 @@ export function organizationExists(): boolean {
 }
 
 // A null role is an account with no membership, which is what removing someone leaves behind.
-export function accessOf(userId: string): { role: RoleName | null } {
+export function accessOf(userId: string): {
+  role: RoleName | null;
+  requireMfa: boolean;
+} {
   const found = getDb()
-    .select({ role: member.role })
+    .select({ role: member.role, requireMfa: organization.requireMfa })
     .from(member)
+    .innerJoin(organization, eq(organization.id, member.organizationId))
     .where(eq(member.userId, userId))
     .get();
-  return { role: found?.role ?? null };
+  return found === undefined
+    ? { role: null, requireMfa: false }
+    : { role: found.role, requireMfa: effectiveRequireMfa(found.requireMfa) };
+}
+
+export function memberUserId(memberId: string): string | undefined {
+  return getDb()
+    .select({ userId: member.userId })
+    .from(member)
+    .where(eq(member.id, memberId))
+    .get()?.userId;
 }
 
 function teamsByUser(): Map<string, { id: string; name: string }[]> {
@@ -613,6 +681,7 @@ export function listMembers(): OrganizationMember[] {
       id: member.id,
       userId: member.userId,
       role: member.role,
+      mfaEnabled: user.twoFactorEnabled,
       joinedAt: member.createdAt,
       name: user.name,
       email: user.email,

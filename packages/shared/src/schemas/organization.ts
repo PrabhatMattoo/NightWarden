@@ -13,12 +13,17 @@ const logo = z
 export const organizationSchema = z.object({
   name: z.string(),
   logo: z.string().nullable(),
+  // Whether every person must set up MFA before using the app.
+  requireMfa: z.boolean(),
+  // The variable that sets a field, which the page tells an admin to unset.
+  locked: z.partialRecord(z.enum(["requireMfa"]), z.string()),
 });
 export type Organization = z.infer<typeof organizationSchema>;
 
 export const organizationPatchSchema = z.object({
   name: organizationNameSchema.optional(),
   logo: logo.nullable().optional(),
+  requireMfa: z.boolean().optional(),
 });
 
 const teamRefSchema = z.object({ id: z.string(), name: z.string() });
@@ -30,6 +35,7 @@ const memberSchema = z.object({
   email: z.string(),
   image: z.string().nullable(),
   role: roleSchema,
+  mfaEnabled: z.boolean(),
   joinedAt: z.string(),
   teams: z.array(teamRefSchema),
 });

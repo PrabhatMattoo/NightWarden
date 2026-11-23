@@ -94,6 +94,7 @@ function NewAccountForm({
           id="invite-password"
           label="Password"
           type="password"
+          autoComplete="new-password"
           value={password}
           description={`At least ${PASSWORD_MIN_LENGTH} characters.`}
           onChange={setPassword}

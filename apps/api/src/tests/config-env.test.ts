@@ -230,6 +230,16 @@ describe("the environment at boot", () => {
     expect(() => initEnv()).toThrow("NIGHTWARDEN_SMTP_SECURITY");
   });
 
+  // A typo must stop the boot: read as off, it would quietly drop the requirement.
+  it("reads the MFA requirement as true or false only, refusing any other word", () => {
+    vi.stubEnv("NIGHTWARDEN_REQUIRE_MFA", "true");
+    initEnv();
+    expect(envConfig().organization.requireMfa).toBe(true);
+
+    vi.stubEnv("NIGHTWARDEN_REQUIRE_MFA", "yes");
+    expect(() => initEnv()).toThrow("NIGHTWARDEN_REQUIRE_MFA");
+  });
+
   it("reads an empty variable as unset, as a compose file writes one", () => {
     vi.stubEnv("NIGHTWARDEN_MAX_RETRIES", "");
     vi.stubEnv("NIGHTWARDEN_ANTHROPIC_MODEL", "");
@@ -240,6 +250,7 @@ describe("the environment at boot", () => {
       settings: {},
       providers: {},
       mail: {},
+      organization: {},
     });
   });
 

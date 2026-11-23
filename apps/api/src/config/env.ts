@@ -153,6 +153,13 @@ const MAIL_SETTINGS = {
   }
 >;
 
+const REQUIRE_MFA_VARIABLE = "NIGHTWARDEN_REQUIRE_MFA";
+
+// Strict, so a typo stops the boot rather than reading as off.
+const strictBoolean = z
+  .enum(["true", "false"])
+  .transform((text) => text === "true");
+
 type EnvSettings = {
   [F in GlobalSettingField]?: z.output<(typeof GLOBAL_SETTINGS)[F]["schema"]>;
 };
@@ -165,9 +172,11 @@ interface EnvConfig {
   settings: EnvSettings;
   providers: Partial<Record<LLMProviderName, ProviderEnv>>;
   mail: MailEnv;
+  organization: { requireMfa?: boolean };
   // The variable that set each value above, which is what the page tells a person to unset.
   locked: AgentConfig["locked"] & {
     mail: Partial<Record<MailSettingField, string>>;
+    organization: { requireMfa?: string };
   };
   // Not a setting a person edits, so it carries no lock.
   trustedProxies: string[];
@@ -226,6 +235,18 @@ function readEnvConfig(): EnvConfig {
     lockedMail[field] = variable;
   }
 
+  const rawRequireMfa = readVariable(REQUIRE_MFA_VARIABLE);
+  const organization =
+    rawRequireMfa === undefined
+      ? {}
+      : {
+          requireMfa: parseVariable(
+            REQUIRE_MFA_VARIABLE,
+            rawRequireMfa,
+            strictBoolean,
+          ),
+        };
+
   const rawProxies = readVariable(TRUSTED_PROXIES_VARIABLE);
   const trustedProxies =
     rawProxies === undefined
@@ -237,10 +258,13 @@ function readEnvConfig(): EnvConfig {
     settings: settings as EnvSettings,
     providers,
     mail: mail as MailEnv,
+    organization,
     locked: {
       settings: lockedSettings,
       providers: lockedProviders,
       mail: lockedMail,
+      organization:
+        rawRequireMfa === undefined ? {} : { requireMfa: REQUIRE_MFA_VARIABLE },
     },
     trustedProxies,
   };

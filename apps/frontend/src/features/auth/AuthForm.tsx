@@ -36,6 +36,7 @@ export function AuthField({
   label,
   type,
   value,
+  autoComplete,
   description,
   error,
   onChange,
@@ -45,6 +46,7 @@ export function AuthField({
   label: string;
   type: "email" | "password" | "text";
   value: string;
+  autoComplete?: "current-password" | "new-password";
   description?: string;
   error?: string;
   onChange: (value: string) => void;
@@ -55,6 +57,7 @@ export function AuthField({
     id,
     required: true,
     value,
+    autoComplete,
     "aria-invalid": invalid,
     "aria-describedby": invalid ? `${id}-error` : undefined,
     onChange: (e: React.ChangeEvent<HTMLInputElement>) =>

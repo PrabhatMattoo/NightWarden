@@ -27,6 +27,12 @@ async function authorizeRequest(
       code: "not_a_member",
     });
   }
+  if (user.mfaRequired) {
+    return reply.code(403).send({
+      error: "Set up multi-factor authentication to continue.",
+      code: "mfa_required",
+    });
+  }
   if (permission === undefined || !isAllowed(user.role, permission)) {
     return reply.code(403).send({ error: "Your role does not allow this." });
   }

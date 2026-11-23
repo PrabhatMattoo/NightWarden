@@ -17,16 +17,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/shared/ui/dialog";
-import { PasswordInput } from "@/shared/ui/PasswordInput";
-import {
-  Field,
-  FieldDescription,
-  FieldError,
-  FieldLabel,
-} from "@/shared/ui/field";
+import { FieldError } from "@/shared/ui/field";
 import { toast } from "@/shared/lib/toast";
 import { timeAgo } from "@/shared/lib/time";
+import { AuthField } from "@/features/auth/AuthForm";
 import { authSessionQuery, devicesQuery } from "@/features/auth/queries";
+import { MfaRow } from "./MfaRow";
 import { SettingsGroup, SettingsRow } from "./SettingsRow";
 
 /* A user agent is a long string nobody reads, so it is reduced to the two facts
@@ -54,38 +50,6 @@ function describeDevice(userAgent: string | null): string {
             ? "Linux"
             : "an unknown system";
   return `${browser} on ${system}`;
-}
-
-function PasswordField({
-  id,
-  label,
-  value,
-  autoComplete,
-  description,
-  onChange,
-}: {
-  id: string;
-  label: string;
-  value: string;
-  autoComplete: "current-password" | "new-password";
-  description?: string;
-  onChange: (value: string) => void;
-}): React.JSX.Element {
-  return (
-    <Field>
-      <FieldLabel htmlFor={id}>{label}</FieldLabel>
-      <PasswordInput
-        id={id}
-        required
-        autoComplete={autoComplete}
-        value={value}
-        onChange={(e) => onChange(e.currentTarget.value)}
-      />
-      {description !== undefined && (
-        <FieldDescription>{description}</FieldDescription>
-      )}
-    </Field>
-  );
 }
 
 // Other devices sign out, since a password changes when one is no longer trusted.
@@ -147,15 +111,17 @@ function ChangePasswordDialog({
             </DialogDescription>
           </DialogHeader>
           <div className="flex flex-col gap-4">
-            <PasswordField
+            <AuthField
               id="settings-current-password"
+              type="password"
               label="Current password"
               value={current}
               autoComplete="current-password"
               onChange={setCurrent}
             />
-            <PasswordField
+            <AuthField
               id="settings-new-password"
+              type="password"
               label="New password"
               value={next}
               autoComplete="new-password"
@@ -267,6 +233,7 @@ export function SecuritySection(): React.JSX.Element {
           </Button>
           <ChangePasswordDialog open={changing} onOpenChange={setChanging} />
         </SettingsRow>
+        <MfaRow />
       </SettingsGroup>
       <Devices />
     </div>

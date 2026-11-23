@@ -62,6 +62,42 @@ describe("the session check", () => {
     expect(requests("/api/setup")).toHaveLength(0);
   });
 
+  // The API as it answers while the organization requires MFA and the person has none.
+  function stubRequiringMfa(required: () => boolean) {
+    vi.stubGlobal("EventSource", MockEventSource);
+    return stubApi((request) => {
+      if (request.path === GET_SESSION_PATH) {
+        return json({ ...sessionBody(), mfaRequired: required() });
+      }
+      if (required() && request.path.startsWith("/api/")) {
+        return json(
+          {
+            error: "Set up multi-factor authentication to continue.",
+            code: "mfa_required",
+          },
+          403,
+        );
+      }
+      return pages(request);
+    });
+  }
+
+  it("sends a page already open to the setup page when its next request is refused for MFA", async () => {
+    let required = false;
+    stubRequiringMfa(() => required);
+    const { router, queryClient } = renderApp({ path: "/integrations" });
+    await screen.findByRole("link", { name: /integrations/i });
+
+    required = true;
+    await act(() =>
+      queryClient.refetchQueries({ queryKey: runnersQuery().queryKey }),
+    );
+
+    await waitFor(() =>
+      expect(router.state.location.pathname).toBe("/mfa/setup"),
+    );
+  });
+
   it("sends a fresh install to account setup, from the app or the login page", async () => {
     signedOut(true);
     const { router } = renderApp({ path: "/" });

@@ -169,6 +169,18 @@ CREATE TABLE `sign_in_failure` (
 );
 --> statement-breakpoint
 CREATE INDEX `sign_in_failure_email_failed_at_idx` ON `sign_in_failure` (`email`,`failed_at`);--> statement-breakpoint
+CREATE TABLE `two_factor` (
+	`id` text PRIMARY KEY NOT NULL,
+	`secret` text NOT NULL,
+	`backup_codes` text NOT NULL,
+	`user_id` text NOT NULL,
+	`verified` integer DEFAULT true NOT NULL,
+	`failed_verification_count` integer DEFAULT 0 NOT NULL,
+	`locked_until` integer,
+	FOREIGN KEY (`user_id`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE cascade
+);
+--> statement-breakpoint
+CREATE INDEX `two_factor_user_id_idx` ON `two_factor` (`user_id`);--> statement-breakpoint
 CREATE TABLE `user` (
 	`id` text PRIMARY KEY NOT NULL,
 	`name` text NOT NULL,
@@ -178,6 +190,7 @@ CREATE TABLE `user` (
 	`created_at` integer NOT NULL,
 	`updated_at` integer NOT NULL,
 	`theme` text DEFAULT 'system' NOT NULL,
+	`two_factor_enabled` integer DEFAULT false NOT NULL,
 	CONSTRAINT "user_theme" CHECK("user"."theme" IN ('system', 'light', 'dark'))
 );
 --> statement-breakpoint
@@ -202,7 +215,7 @@ CREATE TABLE `audit_event` (
 	`target` text,
 	`details` text NOT NULL,
 	`session_id` text,
-	CONSTRAINT "audit_event_action" CHECK("audit_event"."action" IN ('write_approved', 'write_rejected', 'organization_created', 'organization_updated', 'member_added', 'member_invited', 'invitation_canceled', 'member_joined', 'member_role_changed', 'member_removed', 'team_created', 'team_renamed', 'team_deleted', 'team_member_added', 'team_member_removed'))
+	CONSTRAINT "audit_event_action" CHECK("audit_event"."action" IN ('write_approved', 'write_rejected', 'organization_created', 'organization_updated', 'member_added', 'member_invited', 'invitation_canceled', 'member_joined', 'member_role_changed', 'member_removed', 'team_created', 'team_renamed', 'team_deleted', 'team_member_added', 'team_member_removed', 'mfa_requirement_changed', 'mfa_reset'))
 );
 --> statement-breakpoint
 CREATE INDEX `idx_audit_event_at` ON `audit_event` (`at`);--> statement-breakpoint
@@ -248,6 +261,7 @@ CREATE TABLE `organization` (
 	`id` text PRIMARY KEY NOT NULL,
 	`name` text NOT NULL,
 	`logo` text,
+	`require_mfa` integer DEFAULT false NOT NULL,
 	`created_at` text NOT NULL
 );
 --> statement-breakpoint

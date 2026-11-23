@@ -35,6 +35,7 @@ function member(
     email: `${name.toLowerCase()}@example.com`,
     image: null,
     role: "member",
+    mfaEnabled: false,
     joinedAt: "2026-11-01T00:00:00.000Z",
     teams,
   };

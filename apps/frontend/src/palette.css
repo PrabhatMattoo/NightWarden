@@ -18,6 +18,8 @@
   --fail-text: lch(80 80 29);
   --fail-fill: lch(58 73 29);
   --fail-fill-hover: lch(62.5 73 29);
+  --qr-dark-module: lch(10 0 282);
+  --qr-light-module: lch(100 0 282);
   --series-1: lch(72 45 300);
   --series-2: lch(72 45 340);
   --series-3: lch(72 45 260);
@@ -229,6 +231,8 @@
   --fail-text: lch(50 80 29);
   --fail-fill: lch(58 73 29);
   --fail-fill-hover: lch(53 73 29);
+  --qr-dark-module: lch(10 0 282);
+  --qr-light-module: lch(100 0 282);
   --series-1: lch(55 50 300);
   --series-2: lch(55 50 340);
   --series-3: lch(55 50 260);

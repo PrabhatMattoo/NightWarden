@@ -1,6 +1,9 @@
 // Better Auth's own client for its routes under /api/auth on this origin; the one other fetch boundary.
 import { createAuthClient } from "better-auth/react";
-import { inferAdditionalFields } from "better-auth/client/plugins";
+import {
+  inferAdditionalFields,
+  twoFactorClient,
+} from "better-auth/client/plugins";
 import { THEME_FIELD } from "@nightwarden/shared";
 
 import { ApiError } from "@/shared/api/client";
@@ -9,7 +12,10 @@ export const authClient = createAuthClient({
   // The global is read per call rather than captured once, so a stubbed fetch is the one used.
   fetchOptions: { customFetchImpl: (input, init) => fetch(input, init) },
   disableDefaultFetchPlugins: true,
-  plugins: [inferAdditionalFields({ user: { theme: THEME_FIELD } })],
+  plugins: [
+    inferAdditionalFields({ user: { theme: THEME_FIELD } }),
+    twoFactorClient(),
+  ],
 });
 
 type AuthResult<T> =

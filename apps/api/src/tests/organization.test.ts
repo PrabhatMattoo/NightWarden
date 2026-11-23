@@ -581,7 +581,12 @@ describe("the organization's people", () => {
       JSON.parse(
         (await call(nw.server, "GET", "/api/organization", cookie)).body,
       ),
-    ).toEqual({ name: "Test Organization", logo: null });
+    ).toEqual({
+      name: "Test Organization",
+      logo: null,
+      requireMfa: false,
+      locked: {},
+    });
 
     const logo = "data:image/webp;base64,UklGRhIAAABXRUJQVlA4";
     expect(
@@ -605,7 +610,7 @@ describe("the organization's people", () => {
       JSON.parse(
         (await call(nw.server, "GET", "/api/organization", cookie)).body,
       ),
-    ).toEqual({ name: "Renamed", logo });
+    ).toMatchObject({ name: "Renamed", logo });
     expect(
       (await audit()).filter((event) =>
         event.action.startsWith("organization"),

@@ -17,6 +17,10 @@ export const organization = sqliteTable("organization", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
   logo: text("logo"),
+  // NIGHTWARDEN_REQUIRE_MFA outranks it, as the environment does every setting.
+  requireMfa: integer("require_mfa", { mode: "boolean" })
+    .notNull()
+    .default(false),
   createdAt: text("created_at").notNull(),
 });
 

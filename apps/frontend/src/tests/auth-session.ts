@@ -6,10 +6,10 @@ import { json, stubApi } from "./stubApi.js";
 import type { ApiRequest } from "./stubApi.js";
 
 export const GET_SESSION_PATH = "/api/auth/get-session";
-const ORGANIZATION_PATH = "/api/organization";
+export const ORGANIZATION_PATH = "/api/organization";
 
 // What every signed-in page reads beside the session: the organization the sidebar names.
-function organizationBody(overrides: Record<string, unknown> = {}) {
+export function organizationBody(overrides: Record<string, unknown> = {}) {
   return {
     name: "Acme",
     logo: null,

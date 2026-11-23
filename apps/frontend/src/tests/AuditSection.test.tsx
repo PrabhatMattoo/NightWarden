@@ -162,6 +162,15 @@ const CASES: { event: AuditEvent; shows: string[] }[] = [
     },
     shows: ["name", "logo"],
   },
+  {
+    event: {
+      ...ACTOR,
+      action: "mfa_reset",
+      target: "jane@example.com",
+      details: { email: "jane@example.com" },
+    },
+    shows: ["jane@example.com"],
+  },
 ];
 
 function setup(pages: { events: AuditEvent[]; nextOffset: number | null }[]) {

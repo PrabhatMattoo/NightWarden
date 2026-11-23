@@ -3,10 +3,22 @@ import { MutationCache, QueryCache, QueryClient } from "@tanstack/react-query";
 import { ApiError } from "@/shared/api/client";
 import { authSessionQuery } from "@/features/auth/queries";
 
+// The refusals that mean the session itself changed, such as a requirement taking effect.
+const SESSION_REFUSAL_CODES: readonly unknown[] = [
+  "not_a_member",
+  "mfa_required",
+];
+
 /* A 401 can be an upstream credential rejected, such as GitHub refusing a token,
-   so the session is asked again rather than assumed gone. */
+   so the session is asked again rather than assumed gone. A 403 says so by its code. */
 function recheckSession(client: QueryClient, error: Error): void {
-  if (!(error instanceof ApiError) || error.status !== 401) return;
+  if (!(error instanceof ApiError)) return;
+  const { body } = error;
+  const code =
+    typeof body === "object" && body !== null && "code" in body
+      ? body.code
+      : undefined;
+  if (error.status !== 401 && !SESSION_REFUSAL_CODES.includes(code)) return;
   const { queryKey } = authSessionQuery();
   if (!client.getQueryData(queryKey)) return;
   void client.refetchQueries({ queryKey, exact: true });

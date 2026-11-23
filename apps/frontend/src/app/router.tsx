@@ -22,6 +22,7 @@ import { AppLayout } from "./AppLayout.js";
 import { AcceptInvitePage } from "../features/auth/AcceptInvitePage.js";
 import { ForgotPasswordPage } from "../features/auth/ForgotPasswordPage.js";
 import { LoginPage } from "../features/auth/LoginPage.js";
+import { MfaSetupPage } from "../features/auth/MfaSetupPage.js";
 import { ResetPasswordPage } from "../features/auth/ResetPasswordPage.js";
 import { SetupPage } from "../features/auth/SetupPage.js";
 import { IntegrationsPage } from "../features/integrations/IntegrationsPage.js";
@@ -49,6 +50,7 @@ import {
   setupQuery,
   signInOptionsQuery,
 } from "../features/auth/queries.js";
+import { hasMfa, mfaRequiredOf } from "../features/auth/mfa.js";
 import { roleOf } from "../features/auth/useCan.js";
 import {
   auditQuery,
@@ -228,6 +230,33 @@ const resetPasswordRoute = createRoute({
   component: ResetPasswordPage,
 });
 
+// Outside the app layout, which the API's refusals would otherwise bounce the person from.
+const mfaSetupRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/mfa/setup",
+  // What finishing turns on: an admin who asked to require MFA sets up their own first.
+  validateSearch: (
+    search: Record<string, unknown>,
+  ): { after?: "require-mfa" | undefined } => ({
+    after: search["after"] === "require-mfa" ? "require-mfa" : undefined,
+  }),
+  beforeLoad: async ({ context }) => {
+    const session = await readAuthSession(context.queryClient);
+    if (session === null) {
+      throw redirect({
+        to: (await setupRequired(context.queryClient)) ? "/setup" : "/login",
+      });
+    }
+    if (hasMfa(session)) {
+      throw redirect({
+        to: "/settings/$section",
+        params: { section: "security" },
+      });
+    }
+  },
+  component: MfaSetupPage,
+});
+
 // Pathless layout: nests every authenticated page so the session is checked
 // once, here, instead of each page route checking it itself.
 const appRoute = createRoute({
@@ -241,8 +270,8 @@ const appRoute = createRoute({
       });
     }
     const role = roleOf(session);
-    // The sidebar names the organization; the layout turns away an account with no membership.
-    if (role !== null) {
+    // The sidebar names the organization; the layout turns away whoever the API would refuse.
+    if (role !== null && !mfaRequiredOf(session)) {
       await need(context.queryClient, organizationQuery());
     }
     // Every route below decides what its person may open from this, so none asks again.
@@ -473,7 +502,10 @@ const settingsRoute = createRoute({
   loader: ({ context: { queryClient }, params }) => {
     switch (params.section) {
       case "security":
-        return need(queryClient, devicesQuery());
+        return Promise.all([
+          need(queryClient, devicesQuery()),
+          need(queryClient, organizationQuery()),
+        ]);
       case "general":
         return need(queryClient, organizationQuery());
       case "members":
@@ -563,6 +595,7 @@ const routeTree = rootRoute.addChildren([
   forgotPasswordRoute,
   resetPasswordRoute,
   inviteRoute,
+  mfaSetupRoute,
   appRoute.addChildren([
     indexRoute,
     chatRoute.addChildren([agentRoute, agentSessionRoute]),

@@ -12,9 +12,11 @@ export function authHeaders(request: FastifyRequest): Headers {
 
 type SessionPayload = ReturnType<typeof getAuth>["$Infer"]["Session"];
 
-// The account with the role its member row gives it, null once it is no longer a member.
+// The account with the role its member row gives it, null once it is no longer a member,
+// and whether the organization still waits for it to set up MFA.
 export type SignedInUser = SessionPayload["user"] & {
   role: SessionPayload["role"];
+  mfaRequired: SessionPayload["mfaRequired"];
 };
 
 // The audit-trail slice of a signed-in user: who released a write, without the
@@ -31,5 +33,11 @@ export async function currentUser(
   const session = await getAuth().api.getSession({
     headers: fromNodeHeaders(request.headers),
   });
-  return session === null ? null : { ...session.user, role: session.role };
+  return session === null
+    ? null
+    : {
+        ...session.user,
+        role: session.role,
+        mfaRequired: session.mfaRequired,
+      };
 }

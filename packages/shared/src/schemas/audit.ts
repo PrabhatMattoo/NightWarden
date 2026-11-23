@@ -58,6 +58,8 @@ const auditEventSchema = z.discriminatedUnion("action", [
   eventOf("team_deleted", team),
   eventOf("team_member_added", teamMembership),
   eventOf("team_member_removed", teamMembership),
+  eventOf("mfa_requirement_changed", z.object({ required: z.boolean() })),
+  eventOf("mfa_reset", z.object({ email: z.string() })),
 ]);
 
 // Resolves to a type naming the missing action when AUDIT_ACTIONS and the schema drift apart.

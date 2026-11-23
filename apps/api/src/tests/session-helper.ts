@@ -180,11 +180,11 @@ export async function issueTestSession(
 }
 
 // What a browser puts on a POST, and what the origin check compares against.
-const BROWSER_ORIGIN = "http://localhost";
+export const BROWSER_ORIGIN = "http://localhost";
 
 type Method = "GET" | "POST" | "PATCH" | "PUT" | "DELETE";
 
-// The Set-Cookie values as a Cookie request header, which is what a browser sends back.
+// The Set-Cookie values a browser keeps, as the Cookie header it sends back; a cleared one is dropped.
 export function cookieFrom(res: {
   headers: { "set-cookie"?: string | string[] } | Headers;
 }): string {
@@ -193,7 +193,8 @@ export function cookieFrom(res: {
       ? res.headers.getSetCookie()
       : (res.headers["set-cookie"] ?? []);
   return (Array.isArray(raw) ? raw : [raw])
-    .map((cookie) => cookie.split(";")[0])
+    .map((cookie) => cookie.split(";")[0] ?? "")
+    .filter((pair) => !pair.endsWith("="))
     .join("; ");
 }
 
@@ -216,7 +217,12 @@ export function signIn(
 const sessionSchema = z
   .object({
     role: z.enum(ROLE_NAMES).nullable(),
-    user: z.object({ theme: z.string(), image: z.string().nullable() }),
+    mfaRequired: z.boolean(),
+    user: z.object({
+      theme: z.string(),
+      image: z.string().nullable(),
+      twoFactorEnabled: z.boolean(),
+    }),
   })
   .nullable();
 
@@ -236,11 +242,15 @@ export function call(
   url: string,
   cookie: string | null,
   payload?: Record<string, unknown>,
+  options: { headers?: Record<string, string>; remoteAddress?: string } = {},
 ) {
   return server.inject({
     method,
     url,
-    ...(cookie !== null && { headers: { cookie } }),
+    ...(options.remoteAddress !== undefined && {
+      remoteAddress: options.remoteAddress,
+    }),
+    headers: { ...options.headers, ...(cookie !== null && { cookie }) },
     ...(payload !== undefined && { payload }),
   });
 }

@@ -45,6 +45,12 @@ export function auditSentence(event: AuditEvent): string {
       return `Added ${event.details.email} to the team ${event.details.team}`;
     case "team_member_removed":
       return `Removed ${event.details.email} from the team ${event.details.team}`;
+    case "mfa_requirement_changed":
+      return event.details.required
+        ? "Required MFA for everyone"
+        : "Made MFA optional";
+    case "mfa_reset":
+      return `Reset MFA for ${event.details.email}`;
     default: {
       const unhandled: never = event;
       return unhandled;

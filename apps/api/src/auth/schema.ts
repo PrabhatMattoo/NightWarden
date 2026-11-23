@@ -25,6 +25,9 @@ export const user = sqliteTable(
     theme: text("theme", { enum: THEME_PREFERENCES })
       .notNull()
       .default("system"),
+    twoFactorEnabled: integer("two_factor_enabled", { mode: "boolean" })
+      .notNull()
+      .default(false),
   },
   (t) => [
     check("user_theme", sql`${t.theme} IN (${inList(THEME_PREFERENCES)})`),
@@ -94,4 +97,23 @@ export const signInFailure = sqliteTable(
     failedAt: text("failed_at").notNull(),
   },
   (t) => [index("sign_in_failure_email_failed_at_idx").on(t.email, t.failedAt)],
+);
+
+// Created when MFA setup begins; `verified` turns true on the first correct code.
+export const twoFactor = sqliteTable(
+  "two_factor",
+  {
+    id: text("id").primaryKey(),
+    secret: text("secret").notNull(),
+    backupCodes: text("backup_codes").notNull(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    verified: integer("verified", { mode: "boolean" }).notNull().default(true),
+    failedVerificationCount: integer("failed_verification_count")
+      .notNull()
+      .default(0),
+    lockedUntil: timestamp("locked_until"),
+  },
+  (t) => [index("two_factor_user_id_idx").on(t.userId)],
 );

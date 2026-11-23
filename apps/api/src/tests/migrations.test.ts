@@ -61,6 +61,7 @@ describe("the migrations", () => {
       "team",
       "team_member",
       "tool_result_store",
+      "two_factor",
       "user",
       "verification",
     ]);

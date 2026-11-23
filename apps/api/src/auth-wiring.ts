@@ -1,7 +1,11 @@
 import { initAuth } from "./auth/instance.js";
-import { accessOf } from "./organization/organization-store.js";
+import {
+  accessOf,
+  readOrganization,
+} from "./organization/organization-store.js";
 
 // The one place auth/ learns what organization/ knows, so auth/ imports none of it.
 export function wireAuth(): void {
-  initAuth({ accessOf });
+  // An authenticator lists the account under the organization's name.
+  initAuth({ accessOf, mfaIssuer: () => readOrganization()?.name });
 }

@@ -18,6 +18,8 @@ export const rowLabel = (id: string): string => `${id}-label`;
 interface SettingsRowProps {
   id: string;
   title: string;
+  // A state beside the title, such as On, so the description can stay the same either way.
+  badge?: React.ReactNode;
   description?: string;
   // For a control too tall to sit beside its title: it drops below at full width.
   stacked?: boolean;
@@ -35,6 +37,7 @@ interface SettingsRowProps {
 export function SettingsRow({
   id,
   title,
+  badge,
   description,
   stacked = false,
   unavailable = false,
@@ -48,7 +51,14 @@ export function SettingsRow({
       data-unavailable={unavailable || undefined}
     >
       <ItemContent>
-        <FieldTitle id={rowLabel(id)}>{title}</FieldTitle>
+        {badge === undefined ? (
+          <FieldTitle id={rowLabel(id)}>{title}</FieldTitle>
+        ) : (
+          <span className="flex items-center gap-2">
+            <FieldTitle id={rowLabel(id)}>{title}</FieldTitle>
+            {badge}
+          </span>
+        )}
         {description !== undefined && (
           <ItemDescription>{description}</ItemDescription>
         )}

@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "156ca852-5bbd-43ae-83f2-5c13b96c7003",
+  "id": "755b10d7-6e04-4430-934e-750e1dfbbb43",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "alerts": {
@@ -1120,6 +1120,89 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
+    "two_factor": {
+      "name": "two_factor",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "secret": {
+          "name": "secret",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "backup_codes": {
+          "name": "backup_codes",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "verified": {
+          "name": "verified",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": true
+        },
+        "failed_verification_count": {
+          "name": "failed_verification_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "locked_until": {
+          "name": "locked_until",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "two_factor_user_id_idx": {
+          "name": "two_factor_user_id_idx",
+          "columns": [
+            "user_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "two_factor_user_id_user_id_fk": {
+          "name": "two_factor_user_id_user_id_fk",
+          "tableFrom": "two_factor",
+          "tableTo": "user",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
     "user": {
       "name": "user",
       "columns": {
@@ -1179,6 +1262,14 @@
           "notNull": true,
           "autoincrement": false,
           "default": "'system'"
+        },
+        "two_factor_enabled": {
+          "name": "two_factor_enabled",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
         }
       },
       "indexes": {
@@ -1342,7 +1433,7 @@
       "checkConstraints": {
         "audit_event_action": {
           "name": "audit_event_action",
-          "value": "\"audit_event\".\"action\" IN ('write_approved', 'write_rejected', 'organization_created', 'organization_updated', 'member_added', 'member_invited', 'invitation_canceled', 'member_joined', 'member_role_changed', 'member_removed', 'team_created', 'team_renamed', 'team_deleted', 'team_member_added', 'team_member_removed')"
+          "value": "\"audit_event\".\"action\" IN ('write_approved', 'write_rejected', 'organization_created', 'organization_updated', 'member_added', 'member_invited', 'invitation_canceled', 'member_joined', 'member_role_changed', 'member_removed', 'team_created', 'team_renamed', 'team_deleted', 'team_member_added', 'team_member_removed', 'mfa_requirement_changed', 'mfa_reset')"
         }
       }
     },
@@ -1638,6 +1729,14 @@
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
+        },
+        "require_mfa": {
+          "name": "require_mfa",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
         },
         "created_at": {
           "name": "created_at",

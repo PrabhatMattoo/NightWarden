@@ -15,7 +15,9 @@ import {
   teamRequestSchema,
 } from "@nightwarden/shared/schemas";
 import { signedInUser } from "../auth/authorize.js";
+import { MfaNotSetUpError, resetMfa } from "../auth/mfa-store.js";
 import { actorOf } from "../auth/session.js";
+import { LockedSettingError } from "../config/env.js";
 import { logger } from "../logger.js";
 import { invitationMessage } from "../mail/messages.js";
 import { mailServer } from "../mail/store.js";
@@ -33,7 +35,9 @@ import {
   listMembers,
   listPendingInvitations,
   listTeams,
+  memberUserId,
   NotFoundError,
+  OwnMfaRequiredError,
   readOrganization,
   removeMember,
   removeTeamMember,
@@ -51,7 +55,13 @@ function refused(reply: FastifyReply, err: unknown): FastifyReply {
   if (err instanceof NotFoundError) {
     return reply.code(404).send({ error: err.message });
   }
-  if (err instanceof LastAdminError || err instanceof DefaultTeamError) {
+  if (
+    err instanceof LastAdminError ||
+    err instanceof DefaultTeamError ||
+    err instanceof OwnMfaRequiredError ||
+    err instanceof LockedSettingError ||
+    err instanceof MfaNotSetUpError
+  ) {
     return reply.code(409).send({ error: err.message });
   }
   throw err;
@@ -138,6 +148,27 @@ export async function registerOrganizationRoutes(
     async (request, reply) => {
       try {
         removeMember(request.params.id, actorOf(signedInUser(request)));
+      } catch (err) {
+        return refused(reply, err);
+      }
+      return reply.code(204).send();
+    },
+  );
+
+  // For a person who lost their authenticator and their recovery codes.
+  app.post(
+    "/organization/members/:id/reset-mfa",
+    {
+      config: { permission: { member: ["manage"] } },
+      schema: { params: idParams, response: noContent },
+    },
+    async (request, reply) => {
+      const userId = memberUserId(request.params.id);
+      if (userId === undefined) {
+        return reply.code(404).send({ error: "unknown member" });
+      }
+      try {
+        resetMfa(userId, actorOf(signedInUser(request)));
       } catch (err) {
         return refused(reply, err);
       }

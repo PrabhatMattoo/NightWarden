@@ -51,6 +51,7 @@ const ADMIN_ONLY = [
   "GET /api/organization/members",
   "PATCH /api/organization/members/:id",
   "DELETE /api/organization/members/:id",
+  "POST /api/organization/members/:id/reset-mfa",
   "GET /api/organization/invitations",
   "POST /api/organization/invitations",
   "DELETE /api/organization/invitations/:id",
