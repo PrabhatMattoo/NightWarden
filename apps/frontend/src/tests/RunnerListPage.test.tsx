@@ -9,6 +9,7 @@ import {
   createRoute,
   createRouter,
 } from "@tanstack/react-router";
+import { signedIn } from "./auth-session.js";
 import { TestProviders } from "./renderWithProviders.js";
 import { json, stubApi } from "./stubApi.js";
 import type { RunnerRecord } from "@nightwarden/shared";
@@ -92,9 +93,11 @@ function setup(runners: RunnerRecord[] = []) {
   const revokes = () =>
     api.requests("/api/runners/").filter((r) => r.method === "DELETE");
 
-  const qc = new QueryClient({
-    defaultOptions: { queries: { retry: false, gcTime: 0 } },
-  });
+  const qc = signedIn(
+    new QueryClient({
+      defaultOptions: { queries: { retry: false, gcTime: 0 } },
+    }),
+  );
 
   renderRunnerServersRoute(qc);
 
@@ -154,9 +157,11 @@ describe("RunnerListPage", () => {
         return json([{ ...WEB_RUNNER, online: call === 1 }]);
       });
 
-      const qc = new QueryClient({
-        defaultOptions: { queries: { retry: false, gcTime: 0 } },
-      });
+      const qc = signedIn(
+        new QueryClient({
+          defaultOptions: { queries: { retry: false, gcTime: 0 } },
+        }),
+      );
       renderRunnerServersRoute(qc);
 
       await act(async () => {

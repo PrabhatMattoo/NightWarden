@@ -1,7 +1,11 @@
 import { act, screen, waitFor } from "@testing-library/react";
 import { describe, it, expect, vi, afterEach } from "vitest";
 
-import { GET_SESSION_PATH, sessionBody } from "./auth-session.js";
+import {
+  GET_SESSION_PATH,
+  organizationAnswer,
+  sessionBody,
+} from "./auth-session.js";
 import { renderApp } from "./renderWithProviders.js";
 import { json, stubApi } from "./stubApi.js";
 import type { ApiRequest } from "./stubApi.js";
@@ -16,6 +20,8 @@ const EMPTY_LIST = {
 
 // The pages a signed-in load lands on, answered empty.
 function pages({ path }: ApiRequest): Response | undefined {
+  const organization = organizationAnswer(path);
+  if (organization !== undefined) return organization;
   if (path.startsWith("/api/sessions")) return json(EMPTY_LIST);
   if (path.startsWith("/api/runners")) return json([]);
   if (path.startsWith("/api/integrations/")) {

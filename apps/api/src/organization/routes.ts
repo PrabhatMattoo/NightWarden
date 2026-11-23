@@ -164,7 +164,7 @@ export async function registerOrganizationRoutes(
       const { email, role, teamIds } = request.body;
       if (mailServer() === null) {
         return reply.code(409).send({
-          error: "Set up a mail server under Settings, Mail before inviting.",
+          error: "Set up a mail server under Settings, Email before inviting.",
         });
       }
       if (isMemberEmail(email)) {

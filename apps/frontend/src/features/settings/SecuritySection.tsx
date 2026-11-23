@@ -26,8 +26,7 @@ import {
 } from "@/shared/ui/field";
 import { toast } from "@/shared/lib/toast";
 import { timeAgo } from "@/shared/lib/time";
-import { devicesQuery } from "@/features/auth/queries";
-import { useSignOut } from "@/features/auth/useSignOut";
+import { authSessionQuery, devicesQuery } from "@/features/auth/queries";
 import { SettingsGroup, SettingsRow } from "./SettingsRow";
 
 /* A user agent is a long string nobody reads, so it is reduced to the two facts
@@ -190,31 +189,58 @@ function ChangePasswordDialog({
 
 function Devices(): React.JSX.Element {
   const { data: sessions } = useSuspenseQuery(devicesQuery());
+  const { data: current } = useSuspenseQuery(authSessionQuery());
   const queryClient = useQueryClient();
+  const refresh = () =>
+    queryClient.invalidateQueries({ queryKey: devicesQuery().queryKey });
   const revoke = useMutation({
     mutationFn: (token: string) =>
       authCall(authClient.revokeSession({ token })),
-    onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: devicesQuery().queryKey }),
+    onSuccess: refresh,
   });
+  const revokeOthers = useMutation({
+    mutationFn: () => authCall(authClient.revokeOtherSessions()),
+    onSuccess: refresh,
+  });
+  const thisDevice = current?.session.id;
 
   return (
-    <SettingsGroup title="Signed-in devices">
+    <SettingsGroup
+      title="Signed-in devices"
+      action={
+        sessions.length > 1 && (
+          <Button
+            type="button"
+            variant="secondary"
+            disabled={revokeOthers.isPending}
+            onClick={() => revokeOthers.mutate()}
+          >
+            Sign out other devices
+          </Button>
+        )
+      }
+    >
       {sessions.map((session) => (
         <SettingsRow
           key={session.token}
-          id={`settings-device-${session.token}`}
+          id={`settings-device-${session.id}`}
           title={describeDevice(session.userAgent)}
-          description={`Signed in ${timeAgo(session.createdAt)} ago`}
+          description={
+            session.id === thisDevice
+              ? "This device"
+              : `Active ${timeAgo(session.updatedAt)} ago`
+          }
         >
-          <Button
-            type="button"
-            variant="destructive-ghost"
-            disabled={revoke.isPending && revoke.variables === session.token}
-            onClick={() => revoke.mutate(session.token)}
-          >
-            Revoke
-          </Button>
+          {session.id !== thisDevice && (
+            <Button
+              type="button"
+              variant="destructive-ghost"
+              disabled={revoke.isPending && revoke.variables === session.token}
+              onClick={() => revoke.mutate(session.token)}
+            >
+              Revoke
+            </Button>
+          )}
         </SettingsRow>
       ))}
     </SettingsGroup>
@@ -222,8 +248,6 @@ function Devices(): React.JSX.Element {
 }
 
 export function SecuritySection(): React.JSX.Element {
-  const signOut = useSignOut();
-  const signOutEverywhere = useSignOut({ everywhere: true });
   const [changing, setChanging] = useState(false);
 
   return (
@@ -242,34 +266,6 @@ export function SecuritySection(): React.JSX.Element {
             Change password
           </Button>
           <ChangePasswordDialog open={changing} onOpenChange={setChanging} />
-        </SettingsRow>
-        <SettingsRow
-          id="settings-sign-out"
-          title="Sign out"
-          description="Ends the session on this device."
-        >
-          <Button
-            type="button"
-            variant="secondary"
-            disabled={signOut.isPending}
-            onClick={() => signOut.mutate()}
-          >
-            Sign out
-          </Button>
-        </SettingsRow>
-        <SettingsRow
-          id="settings-sign-out-everywhere"
-          title="Sign out everywhere"
-          description="Ends every signed-in session, including this one."
-        >
-          <Button
-            type="button"
-            variant="destructive-ghost"
-            disabled={signOutEverywhere.isPending}
-            onClick={() => signOutEverywhere.mutate()}
-          >
-            Sign out everywhere
-          </Button>
         </SettingsRow>
       </SettingsGroup>
       <Devices />

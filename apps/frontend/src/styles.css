@@ -80,8 +80,8 @@
   --radius-overlay: 0.75rem;
 
   /* Measures a page's column takes, and the fixed widths of the frame itself. */
-  --container-page: 760px;
-  --container-page-wide: 820px;
+  --container-page: 820px;
+  --container-reading: 760px;
   --container-field: 420px;
   --container-control: 288px;
   --container-control-sm: 240px;
@@ -391,11 +391,11 @@
 }
 
 @utility conversation-column {
-  @apply mx-auto w-full max-w-page px-6 max-md:px-4;
+  @apply mx-auto w-full max-w-reading px-6 max-md:px-4;
 }
 
 @utility report-column {
-  @apply mx-auto w-full max-w-page px-8 py-6;
+  @apply mx-auto w-full max-w-reading px-8 py-6;
 }
 
 /* Two dims for what something outside the page is blocking: a control, and a row. */

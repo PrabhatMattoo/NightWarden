@@ -1,6 +1,8 @@
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, afterEach } from "vitest";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { signedIn } from "./auth-session.js";
 import { TestProviders } from "./renderWithProviders.js";
 
 import {
@@ -18,27 +20,30 @@ function wrap(
   },
 ): void {
   render(
-    <TestProviders>
-      <div
-        data-testid="transcript-column"
-        style={{ maxWidth: 860, margin: "0 auto", padding: "0 16px" }}
-      >
-        {item.kind === "tool_call" && item.state.phase === "awaiting_human" ? (
-          // A gate is drawn by the pinned slot; the transcript keeps its row.
-          <PinnedGate
-            item={item}
-            onResolve={opts?.onResolve}
-            onAnswer={opts?.onAnswer}
-          />
-        ) : (
-          <TranscriptItemRenderer
-            item={item}
-            onResolve={opts?.onResolve}
-            onRetryReport={opts?.onRetryReport}
-          />
-        )}
-      </div>
-    </TestProviders>,
+    <QueryClientProvider client={signedIn(new QueryClient())}>
+      <TestProviders>
+        <div
+          data-testid="transcript-column"
+          style={{ maxWidth: 860, margin: "0 auto", padding: "0 16px" }}
+        >
+          {item.kind === "tool_call" &&
+          item.state.phase === "awaiting_human" ? (
+            // A gate is drawn by the pinned slot; the transcript keeps its row.
+            <PinnedGate
+              item={item}
+              onResolve={opts?.onResolve}
+              onAnswer={opts?.onAnswer}
+            />
+          ) : (
+            <TranscriptItemRenderer
+              item={item}
+              onResolve={opts?.onResolve}
+              onRetryReport={opts?.onRetryReport}
+            />
+          )}
+        </div>
+      </TestProviders>
+    </QueryClientProvider>,
   );
 }
 

@@ -29,12 +29,6 @@ interface Bar {
   controls?: React.ReactNode;
 }
 
-// Two widths: the reading column, and a wider one for pages that list or lay out a grid.
-const MEASURE = {
-  page: "max-w-page",
-  wide: "max-w-page-wide",
-} as const;
-
 // A bar over a full-width workspace is ruled off from it.
 function PageBar({
   back,
@@ -130,7 +124,8 @@ export function Page({
   actions?: React.ReactNode;
   // A row under the title: a filter, a view toggle.
   toolbar?: React.ReactNode;
-  measure?: keyof typeof MEASURE | "full";
+  // One width for every page; a full workspace lays out its own.
+  measure?: "page" | "full";
   children?: React.ReactNode;
 }): React.JSX.Element {
   const { isOverlay } = useSidebar();
@@ -146,7 +141,7 @@ export function Page({
         <div
           className={cn(
             "mx-auto flex w-full flex-1 flex-col gap-8 px-4 pb-12 sm:px-6",
-            MEASURE[measure],
+            "max-w-page",
             title === undefined ? "pt-4" : showBar ? "pt-6" : "pt-16",
           )}
         >

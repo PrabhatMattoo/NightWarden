@@ -10,6 +10,7 @@ import {
   createRoute,
   createRouter,
 } from "@tanstack/react-router";
+import { signedIn } from "./auth-session.js";
 import { TestProviders } from "./renderWithProviders.js";
 import { json, stubApi } from "./stubApi.js";
 import type { RunnerRecord } from "@nightwarden/shared";
@@ -87,9 +88,11 @@ function renderAddServerRoute() {
     }),
   });
 
-  const qc = new QueryClient({
-    defaultOptions: { queries: { retry: false, gcTime: 0 } },
-  });
+  const qc = signedIn(
+    new QueryClient({
+      defaultOptions: { queries: { retry: false, gcTime: 0 } },
+    }),
+  );
 
   const view = render(
     <TestProviders>

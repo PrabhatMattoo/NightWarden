@@ -10,6 +10,7 @@ import { Page } from "@/shared/ui/Page";
 import { StatusText, type StatusTone } from "@/shared/ui/status";
 import { cn } from "@/shared/lib/utils";
 import { dayClock } from "@/shared/lib/time";
+import { useCan } from "@/features/auth/useCan";
 import { rowLabel, SettingsRow } from "@/features/settings/SettingsRow";
 import type { IntegrationIdentity } from "./catalog";
 
@@ -154,15 +155,26 @@ export function IntegrationPage({
   );
 }
 
-/* The actions under a section's card. Disconnect stands apart on the left, so the
-   one irreversible action is never beside the ones that are safe to press. */
+// Where a member, who reads integrations and never changes them, would find the connect form.
+export function AdminsConnect(): React.JSX.Element {
+  return (
+    <p className="type-body text-ink-muted">
+      An admin connects and changes this integration.
+    </p>
+  );
+}
+
+/* The actions under a section's card, left out for anyone who cannot change the
+   connection. Disconnect stands apart on the left, so the one irreversible
+   action is never beside the ones that are safe to press. */
 export function ConnectionActions({
   onDisconnect,
   children,
 }: {
   onDisconnect?: () => void;
   children?: React.ReactNode;
-}): React.JSX.Element {
+}): React.JSX.Element | null {
+  if (!useCan({ integration: ["manage"] })) return null;
   return (
     <div className="flex items-center gap-2">
       {onDisconnect !== undefined && (

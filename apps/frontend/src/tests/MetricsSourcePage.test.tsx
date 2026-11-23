@@ -14,6 +14,7 @@ import type {
   MetricsSourceStatus,
 } from "@nightwarden/shared";
 
+import { signedIn } from "./auth-session.js";
 import { TestProviders } from "./renderWithProviders.js";
 import { MetricsSourcePage } from "../features/integrations/metrics/MetricsSourcePage.js";
 import { json, stubApi } from "./stubApi";
@@ -37,9 +38,11 @@ function renderPage(kind: MetricsSourceKind) {
       initialEntries: [`/integrations/metrics/${kind}`],
     }),
   });
-  const qc = new QueryClient({
-    defaultOptions: { queries: { retry: false, gcTime: 0 } },
-  });
+  const qc = signedIn(
+    new QueryClient({
+      defaultOptions: { queries: { retry: false, gcTime: 0 } },
+    }),
+  );
   return render(
     <TestProviders>
       <QueryClientProvider client={qc}>

@@ -1,6 +1,6 @@
 import { queryOptions } from "@tanstack/react-query";
 
-import { apiQuery } from "@/shared/api/client";
+import { ApiError, api, apiQuery, dataOrThrow } from "@/shared/api/client";
 import { authCall, authClient } from "@/shared/api/authClient";
 
 // Changed only by signing in or out and by a 401 recheck, so it never goes stale on its own.
@@ -30,10 +30,27 @@ export function signInOptionsQuery() {
   );
 }
 
+/* What the invitation link shows before the person chooses a password. An
+   unknown, cancelled or used token is one answer, so it reads as null. */
+export function invitationQuery(token: string) {
+  return queryOptions({
+    queryKey: ["invitation", token],
+    queryFn: () =>
+      dataOrThrow(
+        api.GET("/api/invitations/{token}", { params: { path: { token } } }),
+      ).catch((err: unknown) => {
+        if (err instanceof ApiError && err.status === 404) return null;
+        throw err;
+      }),
+  });
+}
+
 interface DeviceSession {
+  id: string;
   token: string;
   userAgent: string | null;
-  createdAt: string;
+  // Moves when the session is refreshed, at most once a day, so it reads as roughly when.
+  updatedAt: string;
 }
 
 // The IP address is left behind: the list names a device, not where it was.
@@ -42,9 +59,10 @@ export function devicesQuery() {
     queryKey: ["auth", "devices"],
     queryFn: async (): Promise<DeviceSession[]> =>
       ((await authCall(authClient.listSessions())) ?? []).map((s) => ({
+        id: s.id,
         token: s.token,
         userAgent: s.userAgent ?? null,
-        createdAt: new Date(s.createdAt).toISOString(),
+        updatedAt: new Date(s.updatedAt).toISOString(),
       })),
   });
 }

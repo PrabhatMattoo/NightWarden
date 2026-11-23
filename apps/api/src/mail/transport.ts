@@ -71,7 +71,7 @@ export async function sendMail(message: MailMessage): Promise<void> {
   const server = mailServer();
   if (server === null) {
     throw new Error(
-      "mail is not configured: set the host, port and from address under Settings, Mail",
+      "mail is not configured: set the host, port and from address under Settings, Email",
     );
   }
   try {

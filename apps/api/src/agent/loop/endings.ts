@@ -51,7 +51,7 @@ export function reportEnding(
     case "tools":
       return null;
     case "length":
-      return `The report was cut off at this model's output limit of ${maxOutputTokens} tokens, so it was never finished. Raise the limit or pick a model with a larger one under Settings, Provider, then try again.`;
+      return `The report was cut off at this model's output limit of ${maxOutputTokens} tokens, so it was never finished. Raise the limit or pick a model with a larger one under Settings, Model provider, then try again.`;
     case "filtered":
       return "The model declined to write the report.";
     case "paused":

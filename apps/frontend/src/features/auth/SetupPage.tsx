@@ -65,16 +65,6 @@ export function SetupPage(): React.JSX.Element {
     <AuthFrame>
       <form className="flex flex-col gap-6" onSubmit={handleSubmit}>
         <FormHeading>Create your account</FormHeading>
-        {linkToken === "" && (
-          <AuthField
-            id="setup-token"
-            label="Setup token"
-            type="text"
-            value={typedToken}
-            description="The server printed it in its log, and it is in the setup-token file in NightWarden's state directory."
-            onChange={setTypedToken}
-          />
-        )}
         <AuthField
           id="setup-organization"
           label="Organization name"
@@ -106,6 +96,17 @@ export function SetupPage(): React.JSX.Element {
           onChange={setPassword}
           onBlur={validatePassword}
         />
+        {/* Filled in by the printed link; asked for only when the page was opened without it. */}
+        {linkToken === "" && (
+          <AuthField
+            id="setup-token"
+            label="Setup token"
+            type="text"
+            value={typedToken}
+            description="The server printed it in its log, and it is in the setup-token file in NightWarden's state directory."
+            onChange={setTypedToken}
+          />
+        )}
         <div className="flex flex-col gap-2">
           {setup.error && <FieldError>{setup.error.message}</FieldError>}
           <Button type="submit" className="w-full" disabled={setup.isPending}>

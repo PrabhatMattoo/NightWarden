@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
-import { Link } from "@tanstack/react-router";
+import { Link, useSearch } from "@tanstack/react-router";
 
 import { authCall, authClient } from "@/shared/api/authClient";
 import { Button, buttonVariants } from "@/shared/ui/button";
@@ -9,7 +9,8 @@ import { AuthField, AuthFrame, FormHeading } from "@/features/auth/AuthForm";
 import { useEnterApp } from "@/features/auth/useEnterApp";
 
 export function LoginPage(): React.JSX.Element {
-  const enter = useEnterApp();
+  const { redirect } = useSearch({ from: "/login" });
+  const enter = useEnterApp(redirect);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const signIn = useMutation({

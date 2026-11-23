@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderApp, TestProviders } from "./renderWithProviders.js";
-import { GET_SESSION_PATH, sessionBody } from "./auth-session.js";
+import { sessionBody, signedInAnswer } from "./auth-session.js";
 import { json, stubApi, type ApiRequest } from "./stubApi.js";
 import { MockEventSource } from "./mockEventSource.js";
 import type {
@@ -126,7 +126,8 @@ function answerFrom(
   models: ModelCatalog | Promise<ModelCatalog> = MODELS_RESPONSE,
 ) {
   return async ({ path, method, body }: ApiRequest): Promise<Response> => {
-    if (path === GET_SESSION_PATH) return json(SESSION);
+    const signedIn = signedInAnswer(path, SESSION);
+    if (signedIn !== undefined) return signedIn;
     if (path === "/api/config/models") return json(await models);
     if (path.startsWith("/api/config")) {
       if (method === "PATCH" && typeof body === "object") {
@@ -165,7 +166,9 @@ function renderSettings(answer: (request: ApiRequest) => Promise<Response>) {
   });
   const router = createRouter({
     routeTree: rootRoute.addChildren([settingsRoute, awayRoute]),
-    history: createMemoryHistory({ initialEntries: ["/settings/provider"] }),
+    history: createMemoryHistory({
+      initialEntries: ["/settings/model-provider"],
+    }),
   });
   sectionRouter = router;
 
@@ -195,9 +198,9 @@ async function openSection(
   name: RegExp,
 ): Promise<void> {
   const section =
-    ["profile", "security", "provider", "limits", "sandbox"].find((s) =>
+    ["profile", "security", "model-provider", "limits", "sandbox"].find((s) =>
       name.source.includes(s),
-    ) ?? "provider";
+    ) ?? "model-provider";
   await act(async () => {
     await sectionRouter?.navigate({
       to: "/settings/$section",
@@ -942,7 +945,8 @@ describe("SettingsPage", () => {
       vi.stubGlobal("EventSource", MockEventSource);
       const user = userEvent.setup();
       const { requests } = stubApi((request) => {
-        if (request.path === GET_SESSION_PATH) return json(SESSION);
+        const signedIn = signedInAnswer(request.path, SESSION);
+        if (signedIn !== undefined) return signedIn;
         if (request.path === "/api/config") return json(CONFIG);
         if (request.path === "/api/auth/update-user") {
           return json({ status: true });
@@ -972,9 +976,11 @@ describe("SettingsPage", () => {
     function openAppearance() {
       vi.stubGlobal("EventSource", MockEventSource);
       const api = stubApi((request) => {
-        if (request.path === GET_SESSION_PATH) {
-          return json(sessionBody({ email: OWNER_EMAIL, theme: "dark" }));
-        }
+        const signedIn = signedInAnswer(
+          request.path,
+          sessionBody({ email: OWNER_EMAIL, theme: "dark" }),
+        );
+        if (signedIn !== undefined) return signedIn;
         if (request.path === "/api/config") return json(CONFIG);
         if (request.path === "/api/auth/update-user") {
           return json({ status: true });
@@ -1009,7 +1015,8 @@ describe("SettingsPage", () => {
     function openAccount(answer: (path: string) => Response | undefined) {
       vi.stubGlobal("EventSource", MockEventSource);
       const api = stubApi((request) => {
-        if (request.path === GET_SESSION_PATH) return json(SESSION);
+        const signedIn = signedInAnswer(request.path, SESSION);
+        if (signedIn !== undefined) return signedIn;
         if (request.path === "/api/config") return json(CONFIG);
         return answer(request.path);
       });
@@ -1017,22 +1024,29 @@ describe("SettingsPage", () => {
       return { ...api, router };
     }
 
-    const DEVICE = (token: string, userAgent: string) => ({
-      id: token,
-      token,
+    const DEVICE = (id: string, userAgent: string) => ({
+      id,
+      token: `token-${id}`,
       userAgent,
       createdAt: new Date(Date.now() - 60_000).toISOString(),
+      updatedAt: new Date(Date.now() - 60_000).toISOString(),
     });
 
-    it("lists each signed-in device and revokes the one asked", async () => {
+    it("revokes the device asked and signs out the others", async () => {
       const user = userEvent.setup();
       let devices = [
-        DEVICE("t-mac", "Mozilla/5.0 (Macintosh; Mac OS X) Chrome/140"),
-        DEVICE("t-linux", "Mozilla/5.0 (X11; Linux) Firefox/130"),
+        // The session the page itself runs on, as get-session names it.
+        DEVICE("s1", "Mozilla/5.0 (Macintosh; Mac OS X) Chrome/140"),
+        DEVICE("s2", "Mozilla/5.0 (X11; Linux) Firefox/130"),
+        DEVICE("s3", "Mozilla/5.0 (Windows NT 10.0) Edg/140"),
       ];
       const { requests } = openAccount((path) => {
         if (path === "/api/auth/list-sessions") return json(devices);
         if (path === "/api/auth/revoke-session") {
+          devices = devices.filter((d) => d.id !== "s2");
+          return json({ status: true });
+        }
+        if (path === "/api/auth/revoke-other-sessions") {
           devices = devices.slice(0, 1);
           return json({ status: true });
         }
@@ -1040,14 +1054,21 @@ describe("SettingsPage", () => {
       });
 
       expect(await screen.findByText(/firefox on linux/i)).toBeInTheDocument();
-      await user.click(screen.getAllByRole("button", { name: "Revoke" })[1]!);
+      await user.click(screen.getAllByRole("button", { name: "Revoke" })[0]!);
 
       await waitFor(() =>
         expect(screen.queryByText(/firefox on linux/i)).not.toBeInTheDocument(),
       );
       expect(requests("/api/auth/revoke-session")[0]?.body).toEqual({
-        token: "t-linux",
+        token: "token-s2",
       });
+
+      await user.click(
+        screen.getByRole("button", { name: "Sign out other devices" }),
+      );
+      await waitFor(() =>
+        expect(requests("/api/auth/revoke-other-sessions")).toHaveLength(1),
+      );
     });
 
     it("shows the server's reason when the current password is wrong", async () => {
@@ -1077,29 +1098,6 @@ describe("SettingsPage", () => {
       );
 
       expect(await screen.findByText("Invalid password")).toBeInTheDocument();
-    });
-
-    it("signs out every device, this one included, and lands on the login page", async () => {
-      const user = userEvent.setup();
-      const { requests, router } = openAccount((path) => {
-        if (path === "/api/auth/list-sessions") return json([]);
-        if (path === "/api/auth/revoke-sessions") return json({ status: true });
-        if (path === "/api/auth/sign-out") return json({ success: true });
-        // The login page asks whether setup is still waiting.
-        if (path === "/api/setup") return json({ required: false });
-        return undefined;
-      });
-
-      await user.click(
-        await screen.findByRole("button", { name: "Sign out everywhere" }),
-      );
-
-      expect(
-        await screen.findByRole("heading", { name: /^log in$/i }),
-      ).toBeInTheDocument();
-      expect(router.state.location.pathname).toBe("/login");
-      expect(requests("/api/auth/revoke-sessions")).toHaveLength(1);
-      expect(requests("/api/auth/sign-out")).toHaveLength(1);
     });
   });
 });

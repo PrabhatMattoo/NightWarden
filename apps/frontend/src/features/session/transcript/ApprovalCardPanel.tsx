@@ -3,6 +3,7 @@
 
 import { useState } from "react";
 import { Button } from "@/shared/ui/button";
+import { DecisionButton } from "./DecisionButton.js";
 import { CodeBlock } from "@/shared/ui/code-block";
 import { Textarea } from "@/shared/ui/textarea";
 import type { ToolCallItem } from "./types.js";
@@ -134,21 +135,21 @@ export function ApprovalCardPanel({
         </div>
       ) : (
         <div className="flex gap-2">
-          <Button
+          <DecisionButton
             size="sm"
             disabled={submitting}
             onClick={() => onResolve?.("approve")}
           >
             {actionLabel(item.toolName, input)}
-          </Button>
-          <Button
+          </DecisionButton>
+          <DecisionButton
             size="sm"
             variant="ghost"
             disabled={submitting}
             onClick={() => setRejecting(true)}
           >
             Reject
-          </Button>
+          </DecisionButton>
         </div>
       )}
     </GateCard>

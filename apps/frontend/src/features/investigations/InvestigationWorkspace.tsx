@@ -22,6 +22,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/shared/ui/dropdown-menu";
+import { useCan } from "@/features/auth/useCan";
 import { useSession } from "@/features/session/useSession";
 import { useSessionDeletion } from "@/features/session/useSessionDeletion";
 import { useSessionReport } from "@/features/report/useSessionReport";
@@ -112,6 +113,8 @@ export function InvestigationWorkspace(): React.JSX.Element {
     title,
     returnTo: "/investigations",
   });
+
+  const canDelete = useCan({ session: ["delete"] });
 
   const running = session?.running ?? false;
   const reportReady = (report?.record?.report ?? null) !== null;
@@ -209,11 +212,15 @@ export function InvestigationWorkspace(): React.JSX.Element {
                 <ClipboardCopy {...ICON_UI} />
                 Copy report as Markdown
               </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={deletion.confirm}>
-                <Trash2 {...ICON_UI} />
-                Delete
-              </DropdownMenuItem>
+              {canDelete && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={deletion.confirm}>
+                    <Trash2 {...ICON_UI} />
+                    Delete
+                  </DropdownMenuItem>
+                </>
+              )}
             </DropdownMenuContent>
           </DropdownMenu>
 

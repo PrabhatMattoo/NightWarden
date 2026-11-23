@@ -59,7 +59,7 @@ function Button({
       {...unavailableProps(unavailable, disabled)}
       className={cn(
         buttonVariants({ variant, size }),
-        "data-unavailable:dim-control",
+        "data-unavailable:dim-control aria-disabled:dim-control",
         className,
       )}
       {...props}

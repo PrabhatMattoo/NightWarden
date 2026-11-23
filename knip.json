@@ -8,7 +8,8 @@
   "ignoreIssues": {
     "apps/frontend/src/shared/ui/checkbox.tsx": ["exports", "types"],
     "apps/frontend/src/shared/ui/dialog.tsx": ["exports", "types"],
-    "apps/frontend/src/shared/ui/input-group.tsx": ["exports", "types"]
+    "apps/frontend/src/shared/ui/input-group.tsx": ["exports", "types"],
+    "apps/frontend/src/shared/ui/table.tsx": ["exports", "types"]
   },
   "workspaces": {
     ".": {

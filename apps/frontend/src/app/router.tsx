@@ -16,7 +16,10 @@ import type {
   ErrorComponentProps,
   RouterHistory,
 } from "@tanstack/react-router";
+import { isAllowed } from "@nightwarden/shared/permissions";
+import type { Permission } from "@nightwarden/shared/permissions";
 import { AppLayout } from "./AppLayout.js";
+import { AcceptInvitePage } from "../features/auth/AcceptInvitePage.js";
 import { ForgotPasswordPage } from "../features/auth/ForgotPasswordPage.js";
 import { LoginPage } from "../features/auth/LoginPage.js";
 import { ResetPasswordPage } from "../features/auth/ResetPasswordPage.js";
@@ -33,17 +36,29 @@ import { MetricsSourcePage } from "../features/integrations/metrics/MetricsSourc
 import { LokiPage } from "../features/integrations/loki/LokiPage.js";
 import { SentryPage } from "../features/integrations/sentry/SentryPage.js";
 import { SettingsPage } from "../features/settings/SettingsPage.js";
+import { TeamPage } from "../features/settings/TeamPage.js";
+import { groupOfSection } from "../features/settings/sections.js";
 import { METRICS_SOURCE_KINDS } from "@nightwarden/shared";
-import type { SessionKind } from "@nightwarden/shared";
+import type { RoleName, SessionKind } from "@nightwarden/shared";
 import { sessionQuery, sessionsQuery } from "../features/session/queries.js";
 import { reportQuery } from "../features/report/queries.js";
 import {
   authSessionQuery,
   devicesQuery,
+  invitationQuery,
   setupQuery,
   signInOptionsQuery,
 } from "../features/auth/queries.js";
-import { configQuery, mailQuery } from "../features/settings/queries.js";
+import { roleOf } from "../features/auth/useCan.js";
+import {
+  auditQuery,
+  configQuery,
+  invitationsQuery,
+  mailQuery,
+  membersQuery,
+  organizationQuery,
+  teamsQuery,
+} from "../features/settings/queries.js";
 import {
   alertSourceQuery,
   githubPreflightQuery,
@@ -145,11 +160,32 @@ const rootRoute = createRootRouteWithContext<RouterContext>()({
   errorComponent: RouteError,
 });
 
+/* Only a path inside this app is kept: "//host" and a backslash would let a link
+   send someone who just signed in to another site. */
+function appPath(value: unknown): string | undefined {
+  return typeof value === "string" &&
+    value.startsWith("/") &&
+    !value.startsWith("//") &&
+    !value.includes("\\")
+    ? value
+    : undefined;
+}
+
 const loginRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/login",
-  beforeLoad: async ({ context }) => {
+  /* Where to go once signed in, such as back to an invitation. The router keeps a key
+     the result leaves out, so a refused value is set to undefined rather than dropped. */
+  validateSearch: (
+    search: Record<string, unknown>,
+  ): { redirect?: string | undefined } => ({
+    redirect: appPath(search["redirect"]),
+  }),
+  beforeLoad: async ({ context, search }) => {
     if ((await readAuthSession(context.queryClient)) !== null) {
+      if (search.redirect !== undefined) {
+        throw redirect({ href: search.redirect });
+      }
       throw redirect({ to: "/" });
     }
     if (await setupRequired(context.queryClient)) {
@@ -198,13 +234,46 @@ const appRoute = createRoute({
   getParentRoute: () => rootRoute,
   id: "app",
   beforeLoad: async ({ context }) => {
-    if ((await readAuthSession(context.queryClient)) === null) {
+    const session = await readAuthSession(context.queryClient);
+    if (session === null) {
       throw redirect({
         to: (await setupRequired(context.queryClient)) ? "/setup" : "/login",
       });
     }
+    const role = roleOf(session);
+    // The sidebar names the organization; the layout turns away an account with no membership.
+    if (role !== null) {
+      await need(context.queryClient, organizationQuery());
+    }
+    // Every route below decides what its person may open from this, so none asks again.
+    return { role };
   },
   component: AppLayout,
+});
+
+/* A page a person's role can never use is not offered to them, so a link to it
+   leads somewhere they can be instead of to a screen of refusals. */
+function requires(
+  permission: Permission,
+  to: "/investigations" | "/integrations/docker" | "/integrations/kubernetes",
+) {
+  return ({ context }: { context: { role: RoleName | null } }): void => {
+    if (!isAllowed(context.role, permission)) throw redirect({ to });
+  };
+}
+
+// Pathless: the chat is for whoever may start a run, and a viewer has none to start.
+const chatRoute = createRoute({
+  getParentRoute: () => appRoute,
+  id: "chat",
+  beforeLoad: requires({ session: ["run"] }, "/investigations"),
+});
+
+// Pathless: what the integration pages share is who may open them.
+const integrationAccessRoute = createRoute({
+  getParentRoute: () => appRoute,
+  id: "integration-access",
+  beforeLoad: requires({ integration: ["read"] }, "/investigations"),
 });
 
 // What the agent found while the user slept is what they came for.
@@ -236,7 +305,7 @@ async function readSession(queryClient: QueryClient, sessionId: string) {
 // What a session is decides its route when it is created, so nothing crosses
 // between the two families and nothing has to survive the crossing.
 const agentRoute = createRoute({
-  getParentRoute: () => appRoute,
+  getParentRoute: () => chatRoute,
   path: "/agent",
   // The history popover's list counts as page data, so it opens already filled.
   loader: ({ context: { queryClient } }) => needSessions(queryClient, "chat"),
@@ -246,7 +315,7 @@ const agentRoute = createRoute({
 /* What a session is decided its route when it was created, so a link that names
    the other one is answered by sending the reader where the session lives. */
 const agentSessionRoute = createRoute({
-  getParentRoute: () => appRoute,
+  getParentRoute: () => chatRoute,
   path: "/agent/$id",
   loader: async ({ context: { queryClient }, params }) => {
     const [session] = await Promise.all([
@@ -285,7 +354,7 @@ const investigationsRoute = createRoute({
 });
 
 const integrationsRoute = createRoute({
-  getParentRoute: () => appRoute,
+  getParentRoute: () => integrationAccessRoute,
   path: "/integrations",
   loader: ({ context: { queryClient } }) =>
     Promise.all([
@@ -301,14 +370,16 @@ const integrationsRoute = createRoute({
 });
 
 const githubConnectRoute = createRoute({
-  getParentRoute: () => appRoute,
+  getParentRoute: () => integrationAccessRoute,
   path: "/integrations/github",
   /* Our own data only. The repositories are GitHub's answer, which can take
      seconds, so the page opens and that section waits in place. */
-  loader: ({ context: { queryClient } }) =>
+  loader: ({ context: { queryClient, role } }) =>
     Promise.all([
       need(queryClient, githubStatusQuery()),
-      need(queryClient, githubPreflightQuery()),
+      // The host check is for whoever can connect; reading it is refused to a member.
+      isAllowed(role, { integration: ["manage"] }) &&
+        need(queryClient, githubPreflightQuery()),
     ]),
   component: LAZY.GitHubConnectPage,
 });
@@ -316,35 +387,37 @@ const githubConnectRoute = createRoute({
 // Docker hosts and Kubernetes clusters install and address differently, so they
 // are two integrations served by one list and wizard, keyed on the route.
 const dockerHostsRoute = createRoute({
-  getParentRoute: () => appRoute,
+  getParentRoute: () => integrationAccessRoute,
   path: "/integrations/docker",
   loader: ({ context: { queryClient } }) => need(queryClient, runnersQuery()),
   component: () => <LAZY.RunnerListPage platform="docker" />,
 });
 
 const addDockerHostRoute = createRoute({
-  getParentRoute: () => appRoute,
+  getParentRoute: () => integrationAccessRoute,
   path: "/integrations/docker/add",
+  beforeLoad: requires({ runner: ["manage"] }, "/integrations/docker"),
   loader: ({ context: { queryClient } }) => need(queryClient, runnersQuery()),
   component: () => <LAZY.AddRunnerPage platform="docker" />,
 });
 
 const kubernetesClustersRoute = createRoute({
-  getParentRoute: () => appRoute,
+  getParentRoute: () => integrationAccessRoute,
   path: "/integrations/kubernetes",
   loader: ({ context: { queryClient } }) => need(queryClient, runnersQuery()),
   component: () => <LAZY.RunnerListPage platform="kubernetes" />,
 });
 
 const addKubernetesClusterRoute = createRoute({
-  getParentRoute: () => appRoute,
+  getParentRoute: () => integrationAccessRoute,
   path: "/integrations/kubernetes/add",
+  beforeLoad: requires({ runner: ["manage"] }, "/integrations/kubernetes"),
   loader: ({ context: { queryClient } }) => need(queryClient, runnersQuery()),
   component: () => <LAZY.AddRunnerPage platform="kubernetes" />,
 });
 
 const alertmanagerRoute = createRoute({
-  getParentRoute: () => appRoute,
+  getParentRoute: () => integrationAccessRoute,
   path: "/integrations/alerting/alertmanager",
   loader: ({ context: { queryClient } }) =>
     need(queryClient, alertSourceQuery("alertmanager")),
@@ -352,7 +425,7 @@ const alertmanagerRoute = createRoute({
 });
 
 const grafanaAlertingRoute = createRoute({
-  getParentRoute: () => appRoute,
+  getParentRoute: () => integrationAccessRoute,
   path: "/integrations/alerting/grafana",
   loader: ({ context: { queryClient } }) =>
     need(queryClient, alertSourceQuery("grafana")),
@@ -363,7 +436,7 @@ const grafanaAlertingRoute = createRoute({
    What differs between them is words, which live in METRICS_SOURCE_CONTENT. */
 const metricsRoutes = METRICS_SOURCE_KINDS.map((kind) =>
   createRoute({
-    getParentRoute: () => appRoute,
+    getParentRoute: () => integrationAccessRoute,
     path: `/integrations/metrics/${kind}`,
     loader: ({ context: { queryClient } }) =>
       need(queryClient, metricsSourceQuery()),
@@ -385,19 +458,91 @@ const settingsIndexRoute = createRoute({
 const settingsRoute = createRoute({
   getParentRoute: () => appRoute,
   path: "/settings/$section",
+  // A section named by a URL is opened only by someone its group admits; the rest land on Profile.
+  beforeLoad: ({ context, params }) => {
+    const group = groupOfSection(params.section);
+    if (group !== undefined && !isAllowed(context.role, group.permission)) {
+      throw redirect({
+        to: "/settings/$section",
+        params: { section: "profile" },
+      });
+    }
+  },
   /* The model list is the provider's own answer, which can take seconds, so the
      page opens and the model field waits in place. */
-  loader: ({ context: { queryClient }, params }) =>
-    Promise.all([
-      need(queryClient, configQuery()),
-      params.section === "security" && need(queryClient, devicesQuery()),
-      params.section === "mail" && need(queryClient, mailQuery()),
-    ]),
+  loader: ({ context: { queryClient }, params }) => {
+    switch (params.section) {
+      case "security":
+        return need(queryClient, devicesQuery());
+      case "general":
+        return need(queryClient, organizationQuery());
+      case "members":
+        // The invite dialog reads the teams and whether mail is set up.
+        return Promise.all([
+          need(queryClient, membersQuery()),
+          need(queryClient, invitationsQuery()),
+          need(queryClient, teamsQuery()),
+          need(queryClient, mailQuery()),
+        ]);
+      case "teams":
+        return Promise.all([
+          need(queryClient, teamsQuery()),
+          need(queryClient, membersQuery()),
+        ]);
+      case "email":
+        return need(queryClient, mailQuery());
+      case "model-provider":
+      case "limits":
+      case "sandbox":
+        return need(queryClient, configQuery());
+      case "audit":
+        return queryClient.infiniteQuery({
+          ...auditQuery(),
+          staleTime: "static",
+        });
+      default:
+        return undefined;
+    }
+  },
   component: LAZY.SettingsPage,
 });
 
-const lokiRoute = createRoute({
+// One team, opened from the Teams list; only the people who see Teams may open it.
+const teamRoute = createRoute({
   getParentRoute: () => appRoute,
+  path: "/settings/teams/$teamId",
+  beforeLoad: ({ context }) => {
+    const group = groupOfSection("teams");
+    if (group !== undefined && !isAllowed(context.role, group.permission)) {
+      throw redirect({
+        to: "/settings/$section",
+        params: { section: "profile" },
+      });
+    }
+  },
+  loader: ({ context: { queryClient } }) =>
+    Promise.all([
+      need(queryClient, teamsQuery()),
+      need(queryClient, membersQuery()),
+    ]),
+  component: TeamPage,
+});
+
+// Outside the app layout: the person following an invitation link has no session yet.
+const inviteRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/invite/$token",
+  // An existing account joins with its session, so the page needs to know whose it is.
+  loader: ({ context: { queryClient }, params }) =>
+    Promise.all([
+      need(queryClient, invitationQuery(params.token)),
+      readAuthSession(queryClient),
+    ]),
+  component: AcceptInvitePage,
+});
+
+const lokiRoute = createRoute({
+  getParentRoute: () => integrationAccessRoute,
   path: "/integrations/loki",
   loader: ({ context: { queryClient } }) =>
     need(queryClient, lokiStatusQuery()),
@@ -405,7 +550,7 @@ const lokiRoute = createRoute({
 });
 
 const sentryRoute = createRoute({
-  getParentRoute: () => appRoute,
+  getParentRoute: () => integrationAccessRoute,
   path: "/integrations/sentry",
   loader: ({ context: { queryClient } }) =>
     need(queryClient, sentryStatusQuery()),
@@ -417,25 +562,28 @@ const routeTree = rootRoute.addChildren([
   setupRoute,
   forgotPasswordRoute,
   resetPasswordRoute,
+  inviteRoute,
   appRoute.addChildren([
     indexRoute,
-    agentRoute,
-    agentSessionRoute,
+    chatRoute.addChildren([agentRoute, agentSessionRoute]),
     investigationsRoute,
     investigationRoute,
-    integrationsRoute,
-    githubConnectRoute,
-    dockerHostsRoute,
-    addDockerHostRoute,
-    kubernetesClustersRoute,
-    addKubernetesClusterRoute,
-    alertmanagerRoute,
-    grafanaAlertingRoute,
-    ...metricsRoutes,
-    lokiRoute,
-    sentryRoute,
+    integrationAccessRoute.addChildren([
+      integrationsRoute,
+      githubConnectRoute,
+      dockerHostsRoute,
+      addDockerHostRoute,
+      kubernetesClustersRoute,
+      addKubernetesClusterRoute,
+      alertmanagerRoute,
+      grafanaAlertingRoute,
+      ...metricsRoutes,
+      lokiRoute,
+      sentryRoute,
+    ]),
     settingsIndexRoute,
     settingsRoute,
+    teamRoute,
   ]),
 ]);
 

@@ -68,7 +68,7 @@ export function MailSection(): React.JSX.Element {
     onSuccess: (saved) => {
       queryClient.setQueryData(mailQuery().queryKey, saved);
       setPassword("");
-      toast.success("Mail settings saved");
+      toast.success("Email settings saved");
     },
   });
 

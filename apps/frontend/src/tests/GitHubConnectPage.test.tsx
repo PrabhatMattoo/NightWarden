@@ -11,6 +11,7 @@ import {
 } from "@tanstack/react-router";
 import type { GitHubIntegrationStatus } from "@nightwarden/shared";
 
+import { signedIn } from "./auth-session.js";
 import { TestProviders } from "./renderWithProviders.js";
 import { GitHubConnectPage } from "@/features/integrations/github/GitHubConnectPage";
 import { toast } from "@/shared/lib/toast";
@@ -124,9 +125,11 @@ function setup(overrides?: Partial<MockState>) {
   const sent = (method: string, path: string) =>
     api.requests(path).find((r) => r.method === method && r.path === path);
 
-  const qc = new QueryClient({
-    defaultOptions: { queries: { retry: false, gcTime: 0 } },
-  });
+  const qc = signedIn(
+    new QueryClient({
+      defaultOptions: { queries: { retry: false, gcTime: 0 } },
+    }),
+  );
   renderConnectRoute(qc);
   return { sent, state };
 }

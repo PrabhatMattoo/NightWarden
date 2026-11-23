@@ -24,7 +24,13 @@ import { api, dataOrThrow } from "@/shared/api/client";
 import { INTEGRATION_CATALOG } from "../catalog";
 import { runnersQuery } from "../queries";
 import { connectedOn } from "./connectedOn";
-import { IntegrationPage, metaFacts } from "../IntegrationPage";
+import { useCan } from "@/features/auth/useCan";
+import {
+  AdminsConnect,
+  IntegrationPage,
+  metaFacts,
+  NOT_CONNECTED,
+} from "../IntegrationPage";
 
 // The two platforms are genuinely different things - a machine running
 // containers, and a cluster - so each gets its own noun, page and install path.
@@ -100,6 +106,7 @@ export function RunnerListPage({
   const [sortDir, setSortDir] = useState<SortDir>("asc");
 
   const copy = PLATFORM_COPY[platform];
+  const canManage = useCan({ runner: ["manage"] });
 
   // A failed poll keeps the last list and says so, rather than emptying the page.
   const { data: runners, isError } = useSuspenseQuery({
@@ -131,12 +138,22 @@ export function RunnerListPage({
     }
   }
 
+  const identity = INTEGRATION_CATALOG[platform];
   // Nothing to list, so an empty fleet goes to the wizard, not an empty page.
   if (connected.length === 0) {
-    return <Navigate to={`/integrations/${platform}/add`} replace />;
+    return canManage ? (
+      <Navigate to={`/integrations/${platform}/add`} replace />
+    ) : (
+      <IntegrationPage
+        identity={identity}
+        facts={metaFacts(identity)}
+        state={NOT_CONNECTED}
+      >
+        <AdminsConnect />
+      </IntegrationPage>
+    );
   }
 
-  const identity = INTEGRATION_CATALOG[platform];
   const offline = connected.filter((r) => !r.online).length;
   return (
     <IntegrationPage
@@ -189,15 +206,17 @@ export function RunnerListPage({
                 </SelectContent>
               </Select>
             )}
-            <Button
-              variant="secondary"
-              onClick={() =>
-                void navigate({ to: `/integrations/${platform}/add` })
-              }
-            >
-              <Plus {...ICON_UI} />
-              Add a {copy.singular.toLowerCase()}
-            </Button>
+            {canManage && (
+              <Button
+                variant="secondary"
+                onClick={() =>
+                  void navigate({ to: `/integrations/${platform}/add` })
+                }
+              >
+                <Plus {...ICON_UI} />
+                Add a {copy.singular.toLowerCase()}
+              </Button>
+            )}
           </div>
         }
       >
@@ -207,15 +226,19 @@ export function RunnerListPage({
               key={runner.id}
               runner={runner}
               actions={
-                <Button
-                  variant="destructive-ghost"
-                  size="sm"
-                  disabled={remove.isPending && remove.variables === runner.id}
-                  aria-label={`Remove ${runner.serverName}`}
-                  onClick={() => setRemoving(runner)}
-                >
-                  Remove
-                </Button>
+                canManage ? (
+                  <Button
+                    variant="destructive-ghost"
+                    size="sm"
+                    disabled={
+                      remove.isPending && remove.variables === runner.id
+                    }
+                    aria-label={`Remove ${runner.serverName}`}
+                    onClick={() => setRemoving(runner)}
+                  >
+                    Remove
+                  </Button>
+                ) : undefined
               }
             />
           ))}

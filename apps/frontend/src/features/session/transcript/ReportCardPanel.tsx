@@ -1,4 +1,5 @@
 import { Button } from "@/shared/ui/button";
+import { useCan } from "@/features/auth/useCan";
 import type { ReportCardItem } from "./types.js";
 import { GateCard } from "./GateCard.js";
 
@@ -13,14 +14,17 @@ export function ReportCardPanel({
   retrying?: boolean;
   onRetry?: () => void;
 }): React.JSX.Element | null {
+  const canRun = useCan({ session: ["run"] });
   if (item.state.phase !== "failed") return null;
 
   return (
     <GateCard data-testid="report-card" data-phase="failed">
       <p className="type-body">The run did not finish.</p>
-      <Button size="sm" disabled={retrying} onClick={() => onRetry?.()}>
-        Try again
-      </Button>
+      {canRun && (
+        <Button size="sm" disabled={retrying} onClick={() => onRetry?.()}>
+          Try again
+        </Button>
+      )}
     </GateCard>
   );
 }

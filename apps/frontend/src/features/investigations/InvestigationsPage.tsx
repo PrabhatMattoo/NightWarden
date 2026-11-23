@@ -27,6 +27,7 @@ import {
   ItemTitle,
 } from "@/shared/ui/item";
 import { ToggleGroup, ToggleGroupItem } from "@/shared/ui/toggle-group";
+import { useCan } from "@/features/auth/useCan";
 import { useFrontendEvents } from "@/shared/events/FrontendEventsProvider";
 import { useSessions } from "@/features/session/useSessions";
 import { sessionsQueryKey } from "@/features/session/queries";
@@ -86,6 +87,7 @@ function StartButton({ sessionId }: { sessionId: string }): React.JSX.Element {
 // The severity word is the user's own and never matched against a list, so a
 // fleet labelling alerts P1 reads as one labelling them critical.
 function InvestigationRow({ row }: { row: SessionListRow }): React.JSX.Element {
+  const canRun = useCan({ session: ["run"] });
   // Read from the row's own status, so it says a run is moving at this moment.
   const running = row.status === "running";
   // A held row carries a button, which a link cannot hold, so only its title links.
@@ -126,7 +128,7 @@ function InvestigationRow({ row }: { row: SessionListRow }): React.JSX.Element {
         <span className="w-9 text-right type-body tabular-nums text-ink-muted">
           {timeAgo(row.lastActivityAt)}
         </span>
-        {held && <StartButton sessionId={row.sessionId} />}
+        {held && canRun && <StartButton sessionId={row.sessionId} />}
       </ItemActions>
     </>
   );
@@ -192,6 +194,7 @@ function Nothing({
   onShowAll: () => void;
 }): React.JSX.Element {
   const first = shown === "all";
+  const canConnect = useCan({ integration: ["manage"] });
   return (
     <Empty>
       <EmptyHeader>
@@ -200,17 +203,19 @@ function Nothing({
         <EmptyDescription>{NOTHING[shown].description}</EmptyDescription>
       </EmptyHeader>
       <EmptyContent>
-        {first ? (
-          <Link
-            to="/integrations"
-            className={buttonVariants({ variant: "secondary", size: "sm" })}
-          >
-            Connect alerting
-          </Link>
-        ) : (
+        {!first ? (
           <Button variant="secondary" size="sm" onClick={onShowAll}>
             Show all investigations
           </Button>
+        ) : (
+          canConnect && (
+            <Link
+              to="/integrations"
+              className={buttonVariants({ variant: "secondary", size: "sm" })}
+            >
+              Connect alerting
+            </Link>
+          )
         )}
       </EmptyContent>
     </Empty>
@@ -247,7 +252,6 @@ export function InvestigationsPage(): React.JSX.Element {
 
   return (
     <Page
-      measure="wide"
       title="Investigations"
       subtitle="Every investigation NightWarden has opened, grouped by what each one needs."
       toolbar={

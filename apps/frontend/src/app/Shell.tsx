@@ -1,23 +1,20 @@
-import { useRef, useState } from "react";
+import { Suspense, useRef, useState } from "react";
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { Link, useRouterState } from "@tanstack/react-router";
 import {
   ArrowLeft,
   BookOpen,
   Bot,
-  Box,
-  ChevronRight,
-  CircleUser,
-  Cpu,
+  ChevronDown,
   Ellipsis,
-  Gauge,
   LogOut,
-  Mail,
   Plug,
   Settings,
-  Shield,
   Telescope,
+  UserPlus,
+  type LucideIcon,
 } from "lucide-react";
+import type { Permission } from "@nightwarden/shared/permissions";
 
 import {
   Sidebar,
@@ -28,11 +25,11 @@ import {
   SidebarHeader,
   SidebarInset,
   SidebarMenu,
-  SidebarMenuAction,
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarMenuLabel,
-  SidebarMenuStatic,
+  SidebarMenuTrigger,
+  SidebarMenuTriggerMark,
   SidebarProvider,
   SidebarTrigger,
   useSidebar,
@@ -47,8 +44,11 @@ import {
 import { ConfirmDialog } from "@/shared/ui/ConfirmDialog";
 import { authSessionQuery } from "@/features/auth/queries";
 import { UserAvatar } from "@/features/auth/UserAvatar";
+import { useCan } from "@/features/auth/useCan";
 import { useSignOut } from "@/features/auth/useSignOut";
-import { cn } from "@/shared/lib/utils";
+import { InviteDialog } from "@/features/settings/InviteDialog";
+import { organizationQuery } from "@/features/settings/queries";
+import { SETTINGS_GROUPS } from "@/features/settings/sections";
 import { cssNumber } from "@/shared/lib/cssNumber";
 import { ICON_NAV, ICON_UI } from "@/shared/lib/iconProps";
 import { useMediaQuery } from "@/shared/hooks/useMediaQuery";
@@ -58,32 +58,90 @@ const DOCS_URL = "https://github.com/PrabhatMattoo/NightWarden#readme";
 // The rail keeps its own column from lg; narrower, it opens over the stage.
 const WIDE = `(width >= ${cssNumber("--breakpoint-lg", 1024)}px)`;
 
+interface NavItem {
+  to: "/agent" | "/investigations" | "/integrations";
+  label: string;
+  icon: LucideIcon;
+  // An item the person can never use is left out of their rail.
+  permission: Permission;
+}
+
 // The whole of the sidebar's navigation. Lists and actions belong to the pages.
-const NAV_ITEMS = [
-  { to: "/agent", label: "Agent", icon: Bot },
-  { to: "/investigations", label: "Investigations", icon: Telescope },
-  { to: "/integrations", label: "Integrations", icon: Plug },
-] as const;
+const NAV_ITEMS: readonly NavItem[] = [
+  { to: "/agent", label: "Agent", icon: Bot, permission: { session: ["run"] } },
+  {
+    to: "/investigations",
+    label: "Investigations",
+    icon: Telescope,
+    permission: { session: ["read"] },
+  },
+  {
+    to: "/integrations",
+    label: "Integrations",
+    icon: Plug,
+    permission: { integration: ["read"] },
+  },
+];
+
+function NavLink({
+  item: { to, label, icon: Icon, permission },
+  active,
+  onNavigate,
+}: {
+  item: NavItem;
+  active: boolean;
+  onNavigate: () => void;
+}): React.JSX.Element | null {
+  if (!useCan(permission)) return null;
+  return (
+    <SidebarMenuItem>
+      <SidebarMenuButton
+        aria-label={label}
+        tooltip={label}
+        isActive={active}
+        onClick={onNavigate}
+        render={<Link to={to} />}
+      >
+        <Icon {...ICON_NAV} />
+        <SidebarMenuLabel>{label}</SidebarMenuLabel>
+      </SidebarMenuButton>
+    </SidebarMenuItem>
+  );
+}
 
 // Settings is a level below the app: the rail drills into these groups and back out.
-const SETTINGS_GROUPS = [
-  {
-    label: "Account",
-    items: [
-      { section: "profile", label: "Profile", icon: CircleUser },
-      { section: "security", label: "Security", icon: Shield },
-    ],
-  },
-  {
-    label: "Organization",
-    items: [
-      { section: "provider", label: "Provider", icon: Cpu },
-      { section: "limits", label: "Limits", icon: Gauge },
-      { section: "sandbox", label: "Sandbox", icon: Box },
-      { section: "mail", label: "Mail", icon: Mail },
-    ],
-  },
-] as const;
+function SettingsNavGroup({
+  group,
+  isActive,
+  onNavigate,
+}: {
+  group: (typeof SETTINGS_GROUPS)[number];
+  isActive: (to: string) => boolean;
+  onNavigate: () => void;
+}): React.JSX.Element | null {
+  if (!useCan(group.permission)) return null;
+  return (
+    <section aria-label={group.label}>
+      <SidebarGroupLabel>{group.label}</SidebarGroupLabel>
+      <SidebarMenu>
+        {group.items.map(({ id, label, icon: Icon }) => (
+          <SidebarMenuItem key={id}>
+            <SidebarMenuButton
+              aria-label={label}
+              tooltip={label}
+              isActive={isActive(`/settings/${id}`)}
+              onClick={onNavigate}
+              render={<Link to="/settings/$section" params={{ section: id }} />}
+            >
+              <Icon {...ICON_NAV} />
+              <SidebarMenuLabel>{label}</SidebarMenuLabel>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        ))}
+      </SidebarMenu>
+    </section>
+  );
+}
 
 export function Shell({
   children,
@@ -110,6 +168,9 @@ function ShellContent({
   const [confirmingSignOut, setConfirmingSignOut] = useState(false);
   const accountRow = useRef<HTMLLIElement>(null);
   const { data: session } = useSuspenseQuery(authSessionQuery());
+  const { data: organization } = useSuspenseQuery(organizationQuery());
+  const canInvite = useCan({ invitation: ["manage"] });
+  const [inviting, setInviting] = useState(false);
   const name = session?.user.name ?? "";
   const image = session?.user.image ?? null;
   const inSettings = pathname.startsWith("/settings");
@@ -133,16 +194,46 @@ function ShellContent({
       </a>
 
       <Sidebar>
-        {/* The same 10px inset open and closed; the wordmark gives up its own 4px so the toggle ends on the rail's centre. */}
-        <SidebarHeader className="h-12 flex-row items-center justify-between gap-2 overflow-hidden px-2.5 group-data-[collapsible=icon]:gap-0">
-          <span
-            className={cn(
-              "nav-label-motion min-w-0 flex-1 truncate ps-1 whitespace-nowrap type-heading",
-              "group-data-[collapsible=icon]:ps-0 group-data-[collapsible=icon]:opacity-0 group-data-[collapsible=icon]:delay-0",
-            )}
-          >
-            NightWarden
-          </span>
+        {/* The organization everything here belongs to; collapsed, its logo alone stays. */}
+        <SidebarHeader className="h-12 flex-row items-center justify-between gap-2 overflow-hidden px-2 group-data-[collapsible=icon]:gap-0">
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              render={
+                <SidebarMenuTrigger
+                  aria-label={`${organization.name} menu`}
+                  className="min-w-0 flex-1"
+                />
+              }
+            >
+              <UserAvatar
+                size="sm"
+                name={organization.name}
+                image={organization.logo}
+              />
+              <SidebarMenuLabel className="ms-1.5 flex-none">
+                {organization.name}
+              </SidebarMenuLabel>
+              <ChevronDown
+                aria-hidden
+                className="ms-1 size-4 shrink-0 text-ink-faint group-data-[collapsible=icon]:hidden"
+              />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="min-w-48">
+              <DropdownMenuItem
+                render={<Link to="/settings" />}
+                onClick={dismissOverlay}
+              >
+                <Settings {...ICON_UI} />
+                Settings
+              </DropdownMenuItem>
+              {canInvite && (
+                <DropdownMenuItem onClick={() => setInviting(true)}>
+                  <UserPlus {...ICON_UI} />
+                  Invite members
+                </DropdownMenuItem>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
           {!isOverlay && <SidebarTrigger className="shrink-0" />}
         </SidebarHeader>
 
@@ -152,19 +243,13 @@ function ShellContent({
             <div inert={inSettings} data-side="start" className="drill-level">
               <SidebarGroup>
                 <SidebarMenu>
-                  {NAV_ITEMS.map(({ to, label, icon: Icon }) => (
-                    <SidebarMenuItem key={to}>
-                      <SidebarMenuButton
-                        aria-label={label}
-                        tooltip={label}
-                        isActive={isActive(to)}
-                        onClick={dismissOverlay}
-                        render={<Link to={to} />}
-                      >
-                        <Icon {...ICON_NAV} />
-                        <SidebarMenuLabel>{label}</SidebarMenuLabel>
-                      </SidebarMenuButton>
-                    </SidebarMenuItem>
+                  {NAV_ITEMS.map((item) => (
+                    <NavLink
+                      key={item.to}
+                      item={item}
+                      active={isActive(item.to)}
+                      onNavigate={dismissOverlay}
+                    />
                   ))}
                 </SidebarMenu>
               </SidebarGroup>
@@ -186,30 +271,12 @@ function ShellContent({
                     </SidebarMenuItem>
                   </SidebarMenu>
                   {SETTINGS_GROUPS.map((group) => (
-                    <section key={group.label} aria-label={group.label}>
-                      <SidebarGroupLabel>{group.label}</SidebarGroupLabel>
-                      <SidebarMenu>
-                        {group.items.map(({ section, label, icon: Icon }) => (
-                          <SidebarMenuItem key={section}>
-                            <SidebarMenuButton
-                              aria-label={label}
-                              tooltip={label}
-                              isActive={isActive(`/settings/${section}`)}
-                              onClick={dismissOverlay}
-                              render={
-                                <Link
-                                  to="/settings/$section"
-                                  params={{ section }}
-                                />
-                              }
-                            >
-                              <Icon {...ICON_NAV} />
-                              <SidebarMenuLabel>{label}</SidebarMenuLabel>
-                            </SidebarMenuButton>
-                          </SidebarMenuItem>
-                        ))}
-                      </SidebarMenu>
-                    </section>
+                    <SettingsNavGroup
+                      key={group.label}
+                      group={group}
+                      isActive={isActive}
+                      onNavigate={dismissOverlay}
+                    />
                   ))}
                 </div>
               </SidebarGroup>
@@ -219,37 +286,18 @@ function ShellContent({
 
         <SidebarFooter>
           <SidebarMenu>
-            {!inSettings && (
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  aria-label="Settings"
-                  tooltip="Settings"
-                  onClick={dismissOverlay}
-                  render={<Link to="/settings" />}
-                >
-                  <Settings {...ICON_NAV} />
-                  <SidebarMenuLabel>Settings</SidebarMenuLabel>
-                  {/* A hint that this opens a panel rather than a page. */}
-                  <ChevronRight
-                    aria-hidden
-                    strokeWidth={1.5}
-                    className="ml-auto size-4 text-ink-faint highlight-motion group-hover/menu-button:text-ink-title group-data-[collapsible=icon]:hidden"
-                  />
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-            )}
             <SidebarMenuItem ref={accountRow}>
-              <SidebarMenuStatic>
-                <UserAvatar size="sm" name={name} image={image} />
-                <SidebarMenuLabel className="ms-1.5">{name}</SidebarMenuLabel>
-              </SidebarMenuStatic>
               <DropdownMenu>
                 <DropdownMenuTrigger
-                  render={<SidebarMenuAction aria-label="Account menu" />}
+                  render={<SidebarMenuTrigger aria-label="Account menu" />}
                 >
-                  <Ellipsis />
+                  <UserAvatar size="sm" name={name} image={image} />
+                  <SidebarMenuLabel className="ms-1.5">{name}</SidebarMenuLabel>
+                  <SidebarMenuTriggerMark>
+                    <Ellipsis />
+                  </SidebarMenuTriggerMark>
                 </DropdownMenuTrigger>
-                {/* Opens over the whole row, as wide as it, rather than off the small trigger. */}
+                {/* Opens over the whole row, as wide as it. */}
                 <DropdownMenuContent
                   side="top"
                   anchor={accountRow}
@@ -279,6 +327,13 @@ function ShellContent({
           </SidebarMenu>
         </SidebarFooter>
       </Sidebar>
+
+      {/* Mounted only while open: it reads the teams and the mail server, which no other page here needs. */}
+      {inviting && (
+        <Suspense fallback={null}>
+          <InviteDialog open onOpenChange={setInviting} />
+        </Suspense>
+      )}
 
       <ConfirmDialog
         open={confirmingSignOut}

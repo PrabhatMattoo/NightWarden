@@ -9,14 +9,17 @@ import type { ApiRequest } from "./stubApi.js";
 
 const SIGN_IN_PATH = "/api/auth/sign-in/email";
 
-function setup(answer?: (request: ApiRequest) => Response | undefined) {
+function setup(
+  answer?: (request: ApiRequest) => Response | undefined,
+  path = "/login",
+) {
   const api = stubSigningIn({
     setupRequired: false,
     credentialPath: SIGN_IN_PATH,
     credentialAnswer: () => json({ token: "t", user: {} }),
     ...(answer !== undefined && { answer }),
   });
-  const { router } = renderApp({ path: "/login" });
+  const { router } = renderApp({ path });
   return { ...api, router };
 }
 
@@ -26,6 +29,31 @@ afterEach(() => {
 });
 
 describe("LoginPage", () => {
+  // An invitation sends an existing account here and expects it back once signed in.
+  it.each([
+    ["keeps a path inside the app", "/invite/inv1", "/invite/inv1"],
+    ["drops one that leaves the app", "//evil.example", "/investigations"],
+  ])(
+    "enters the redirect once signed in, and %s",
+    async (_case, redirect, landing) => {
+      const user = userEvent.setup();
+      const { router } = setup(
+        undefined,
+        `/login?redirect=${encodeURIComponent(redirect)}`,
+      );
+      await screen.findByRole("heading", { name: /^log in$/i });
+
+      await user.type(screen.getByLabelText(/^email/i), "admin@example.com");
+      await user.type(
+        screen.getByLabelText(/^password/i),
+        "correcthorsebattery",
+      );
+      await user.click(screen.getByRole("button", { name: /^log in$/i }));
+
+      await waitFor(() => expect(router.state.location.pathname).toBe(landing));
+    },
+  );
+
   it("submits the sign-in endpoint with email and password on valid login", async () => {
     const user = userEvent.setup();
     const { requests, router } = setup();

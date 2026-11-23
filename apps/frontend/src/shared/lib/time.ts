@@ -31,12 +31,18 @@ export function clock(at: string | number): string {
   return `${h}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 
+// The day alone, for when something began rather than when it happened.
+export function day(at: string | number): string {
+  const d = new Date(at);
+  if (Number.isNaN(d.getTime())) return typeof at === "string" ? at : "";
+  return d.toLocaleDateString([], { day: "numeric", month: "short" });
+}
+
 // The same clock with its day in front, for a time that may not be today.
 export function dayClock(at: string | number): string {
   const d = new Date(at);
   if (Number.isNaN(d.getTime())) return typeof at === "string" ? at : "";
-  const day = d.toLocaleDateString([], { day: "numeric", month: "short" });
-  return `${day} ${clock(at)}`;
+  return `${day(at)} ${clock(at)}`;
 }
 
 /* A Date is an instant, so both of the above already read in the viewer's own

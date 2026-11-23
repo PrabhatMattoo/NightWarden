@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 
-import { Button } from "@/shared/ui/button";
+import { DecisionButton } from "./DecisionButton.js";
 import { CheckboxOption } from "@/shared/ui/checkbox";
 import { RadioGroup, RadioGroupOption } from "@/shared/ui/radio-group";
 import { InputGroup, InputGroupInput } from "@/shared/ui/input-group";
@@ -291,13 +291,13 @@ export function ClarificationCardPanel({
       })()}
 
       <div className="flex justify-end">
-        <Button
+        <DecisionButton
           size="sm"
           disabled={submitting || !canSubmit}
           onClick={handleSubmit}
         >
           Submit
-        </Button>
+        </DecisionButton>
       </div>
     </GateCard>
   );

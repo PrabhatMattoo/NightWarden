@@ -31,8 +31,10 @@ import {
   SettingsGroup,
   SettingsRow,
 } from "@/features/settings/SettingsRow";
+import { useCan } from "@/features/auth/useCan";
 import { IntegrationWarnings } from "../IntegrationWarnings";
 import {
+  AdminsConnect,
   ConnectFooter,
   CredentialActions,
   credentialState,
@@ -454,6 +456,7 @@ export function MetricsSourcePage({
   kind: MetricsSourceKind;
 }): React.JSX.Element {
   const identity = INTEGRATION_CATALOG[kind];
+  const canManage = useCan({ integration: ["manage"] });
   const [updating, setUpdating] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState(false);
 
@@ -506,7 +509,10 @@ export function MetricsSourcePage({
         />
       )}
 
-      {((!connected && !heldByAnother) || (connected && updating)) && (
+      {!connected && !heldByAnother && !canManage && <AdminsConnect />}
+
+      {((!connected && !heldByAnother && canManage) ||
+        (connected && updating)) && (
         <ConnectForm
           kind={kind}
           status={connected ? status : UNCONNECTED}

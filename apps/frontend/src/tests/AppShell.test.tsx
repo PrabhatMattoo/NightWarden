@@ -5,7 +5,7 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import type { SessionAlert, SessionListRow } from "@nightwarden/shared";
 
 import { renderApp } from "./renderWithProviders.js";
-import { GET_SESSION_PATH, sessionBody } from "./auth-session.js";
+import { sessionBody, signedInAnswer } from "./auth-session.js";
 import { json, stubApi } from "./stubApi.js";
 import { MockEventSource } from "./mockEventSource.js";
 
@@ -119,9 +119,8 @@ function setup({ path = "/agent" }: { path?: string } = {}) {
 
   const api = stubApi(({ path: url }) => {
     if (url === "/api/auth/sign-out") return json({ success: true });
-    if (url === GET_SESSION_PATH) {
-      return json(sessionBody({ email: OWNER_EMAIL }));
-    }
+    const signedIn = signedInAnswer(url, sessionBody({ email: OWNER_EMAIL }));
+    if (signedIn !== undefined) return signedIn;
     if (url === "/api/chat") return json({ sessionId: "new-s1" }, 202);
     if (url.startsWith("/api/runners")) return json([]);
     // Configured, so the page has a status line to put in its controls row.

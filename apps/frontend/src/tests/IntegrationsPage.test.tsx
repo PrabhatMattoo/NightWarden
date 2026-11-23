@@ -14,6 +14,7 @@ import type {
   RunnerRecord,
 } from "@nightwarden/shared";
 
+import { signedIn } from "./auth-session.js";
 import { TestProviders } from "./renderWithProviders.js";
 import { json, stubApi } from "./stubApi.js";
 import { IntegrationsPage } from "@/features/integrations/IntegrationsPage";
@@ -196,9 +197,11 @@ function setup(
     return json(body);
   });
 
-  const qc = new QueryClient({
-    defaultOptions: { queries: { retry: false, gcTime: 0 } },
-  });
+  const qc = signedIn(
+    new QueryClient({
+      defaultOptions: { queries: { retry: false, gcTime: 0 } },
+    }),
+  );
   const view = renderCatalogRoute(qc);
   return { api, qc, view };
 }

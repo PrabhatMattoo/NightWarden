@@ -15,7 +15,9 @@ import {
   SettingsGroup,
   SettingsRow,
 } from "@/features/settings/SettingsRow";
+import { useCan } from "@/features/auth/useCan";
 import {
+  AdminsConnect,
   ConnectFooter,
   CredentialActions,
   credentialState,
@@ -131,6 +133,7 @@ function ConnectForm({
 
 export function SentryPage(): React.JSX.Element {
   const { data: status } = useSuspenseQuery(sentryStatusQuery());
+  const canManage = useCan({ integration: ["manage"] });
   const [updating, setUpdating] = useState(false);
   const [confirmDisconnect, setConfirmDisconnect] = useState(false);
 
@@ -152,7 +155,9 @@ export function SentryPage(): React.JSX.Element {
       state={credentialState(status.configured, status.rejection)}
       rejection={status.rejection}
     >
-      {!status.configured || updating ? (
+      {!status.configured && !canManage ? (
+        <AdminsConnect />
+      ) : !status.configured || updating ? (
         <ConnectForm
           status={status}
           {...(updating && { onDone: () => setUpdating(false) })}

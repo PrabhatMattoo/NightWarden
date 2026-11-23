@@ -13,7 +13,7 @@ import { RouterProvider } from "@tanstack/react-router";
 import { SessionView } from "../features/session/SessionView.js";
 import { FrontendEventsProvider } from "@/shared/events/FrontendEventsProvider";
 import { MockEventSource } from "./mockEventSource.js";
-import { GET_SESSION_PATH, sessionBody } from "./auth-session";
+import { sessionBody, signedIn, signedInAnswer } from "./auth-session";
 import { json, stubApi } from "./stubApi";
 import { sessionQuery } from "../features/session/queries.js";
 
@@ -40,7 +40,11 @@ function respondedWith(): unknown[] {
   );
 }
 
-function setup(initialItems: object[] = [USER_TURN], running = false) {
+function setup(
+  initialItems: object[] = [USER_TURN],
+  running = false,
+  role = "admin",
+) {
   MockEventSource.reset();
 
   // Mutable, because the projection lives server-side now: a test that fires a
@@ -95,9 +99,12 @@ function setup(initialItems: object[] = [USER_TURN], running = false) {
   });
   sessionApi = api;
 
-  const qc = new QueryClient({
-    defaultOptions: { queries: { retry: false, gcTime: 0 } },
-  });
+  const qc = signedIn(
+    new QueryClient({
+      defaultOptions: { queries: { retry: false, gcTime: 0 } },
+    }),
+    role,
+  );
 
   // ChatInput uses useNavigate, so a router context is required.
   const root = createRootRoute({
@@ -150,9 +157,11 @@ function setupPage({
   vi.stubGlobal("navigator", { clipboard: { writeText } });
 
   const api = stubApi(({ path: url, method }) => {
-    if (url === GET_SESSION_PATH) {
-      return json(sessionBody({ email: "user@nightwarden.io", name: "User" }));
-    }
+    const signedIn = signedInAnswer(
+      url,
+      sessionBody({ email: "user@nightwarden.io", name: "User" }),
+    );
+    if (signedIn !== undefined) return signedIn;
     const record = /\/sessions\/([^?/]+)$/.exec(url);
     if (record !== null && !url.includes("?")) {
       const id = record[1]!;
@@ -932,6 +941,32 @@ describe("SessionView", () => {
       });
     });
 
+    // A viewer's button stays on the card but decides nothing; a member's is the same press.
+    it.each([
+      { role: "member", sends: true },
+      { role: "viewer", sends: false },
+    ])(
+      "a $role pressing Approve sends the decision: $sends",
+      async ({ role, sends }) => {
+        const { api } = setup([USER_TURN], false, role);
+        await screen.findByText("Service is down on web-01");
+        pushGatedStart();
+        const card = await screen.findByTestId("approval-card");
+        const approve = within(card).getByRole("button", { name: /restart/i });
+
+        await userEvent.setup().click(approve);
+
+        if (sends) {
+          await waitFor(() =>
+            expect(api.requests("/api/sessions/s1/respond")).toHaveLength(1),
+          );
+        } else {
+          expect(approve).toHaveAttribute("aria-disabled", "true");
+          expect(api.requests("/api/sessions/s1/respond")).toHaveLength(0);
+        }
+      },
+    );
+
     it("settles into one row, not a card with a second copy of itself beneath", async () => {
       setup();
 
@@ -1239,6 +1274,24 @@ describe("SessionView", () => {
       expect(
         within(card).getByRole("radio", { name: /^postgres$/i }),
       ).toBeInTheDocument();
+    });
+
+    // The card's number and Enter keys bypass its buttons, so a viewer's answer is stopped further in.
+    it("sends a viewer's keyboard answer nowhere", async () => {
+      const { api } = setup([USER_TURN], false, "viewer");
+      await screen.findByText("Service is down on web-01");
+      pushClarification();
+      const card = await screen.findByTestId("clarification-card");
+      const user = userEvent.setup();
+
+      // The number key picks the option, so the keys reach the card and Enter would answer.
+      await user.keyboard("1");
+      expect(
+        within(card).getByRole("radio", { name: /^nginx$/i }),
+      ).toBeChecked();
+      await user.keyboard("{Enter}");
+
+      expect(api.requests("/api/sessions/s1/respond")).toHaveLength(0);
     });
 
     it("selecting an option and submitting posts to /respond with text and disables options", async () => {

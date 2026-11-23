@@ -21,6 +21,7 @@ import {
 } from "@/shared/ui/item";
 import { Page } from "@/shared/ui/Page";
 import { StatusText, type StatusTone } from "@/shared/ui/status";
+import { useCan } from "@/features/auth/useCan";
 import { IntegrationLogo } from "./IntegrationPage";
 import { INTEGRATION_CATALOG } from "./catalog";
 import { connectedOn } from "./runners/connectedOn";
@@ -153,6 +154,7 @@ function alertSourceRow(
 }
 
 export function IntegrationsPage(): React.JSX.Element {
+  const canManageRunners = useCan({ runner: ["manage"] });
   // One query per sender: each has its own credential and its own delivery
   // proof, so one status line can never stand for the other's.
   const [
@@ -190,8 +192,9 @@ export function IntegrationsPage(): React.JSX.Element {
       description: identity.description,
       category: "Fleet",
       logo: identity.logo,
+      // Only someone who can add a runner is sent to the wizard.
       to:
-        hosts.length > 0
+        hosts.length > 0 || !canManageRunners
           ? `/integrations/${platform}`
           : `/integrations/${platform}/add`,
       status:

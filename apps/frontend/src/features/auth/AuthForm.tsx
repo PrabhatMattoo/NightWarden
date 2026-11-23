@@ -13,11 +13,8 @@ export function AuthFrame({
   children: React.ReactNode;
 }): React.JSX.Element {
   return (
-    <div className="flex min-h-svh items-start justify-center p-6 pt-24 animate-in fade-in duration-(--duration-content-in) lg:pt-40">
-      <div className="flex w-login flex-col gap-8">
-        <span className="type-heading text-ink-base">NightWarden</span>
-        {children}
-      </div>
+    <div className="flex min-h-svh items-center justify-center p-6 animate-in fade-in duration-(--duration-content-in)">
+      <div className="flex w-login flex-col gap-8">{children}</div>
     </div>
   );
 }

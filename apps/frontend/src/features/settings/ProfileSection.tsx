@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useState } from "react";
 import {
   useMutation,
   useQueryClient,
@@ -6,13 +6,11 @@ import {
 } from "@tanstack/react-query";
 
 import { authCall, authClient } from "@/shared/api/authClient";
-import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
-import { avatarDataUrl } from "@/shared/lib/avatarImage";
 import { toast } from "@/shared/lib/toast";
 import { authSessionQuery } from "@/features/auth/queries";
-import { UserAvatar } from "@/features/auth/UserAvatar";
 import { AppearanceGroup } from "./AppearanceGroup";
+import { PictureRow } from "./PictureRow";
 import { rowLabel, SettingsGroup, SettingsRow } from "./SettingsRow";
 
 // One write for the name and the picture; every page reads both from the session.
@@ -28,63 +26,26 @@ function useUpdateProfile(failure: string) {
   });
 }
 
-function PictureRow({
+const PICTURE_FAILURE = "Picture not saved";
+
+function ProfilePictureRow({
   name,
   image,
 }: {
   name: string;
   image: string | null;
 }): React.JSX.Element {
-  const picker = useRef<HTMLInputElement>(null);
-  const update = useUpdateProfile("Picture not saved");
+  const update = useUpdateProfile(PICTURE_FAILURE);
   return (
-    <SettingsRow id="settings-picture" title="Profile picture">
-      <div className="flex items-center gap-3">
-        {image !== null && (
-          <Button
-            type="button"
-            variant="ghost"
-            disabled={update.isPending}
-            onClick={() => update.mutate({ image: null })}
-          >
-            Remove
-          </Button>
-        )}
-        <Button
-          type="button"
-          variant="secondary"
-          disabled={update.isPending}
-          onClick={() => picker.current?.click()}
-        >
-          {image === null ? "Upload" : "Change"}
-        </Button>
-        <input
-          ref={picker}
-          type="file"
-          accept="image/png,image/jpeg,image/webp"
-          hidden
-          aria-labelledby={rowLabel("settings-picture")}
-          onChange={(e) => {
-            const file = e.currentTarget.files?.[0];
-            e.currentTarget.value = "";
-            if (file === undefined) return;
-            avatarDataUrl(file)
-              .then((next) => update.mutate({ image: next }))
-              .catch((err: unknown) =>
-                toast.show({
-                  title: "Picture not saved",
-                  message:
-                    err instanceof Error
-                      ? err.message
-                      : "It could not be read.",
-                  variant: "error",
-                }),
-              );
-          }}
-        />
-        <UserAvatar name={name} image={image} />
-      </div>
-    </SettingsRow>
+    <PictureRow
+      id="settings-picture"
+      title="Profile picture"
+      name={name}
+      image={image}
+      pending={update.isPending}
+      failure={PICTURE_FAILURE}
+      onChange={(next) => update.mutate({ image: next })}
+    />
   );
 }
 
@@ -125,7 +86,7 @@ export function ProfileSection(): React.JSX.Element | null {
   return (
     <div className="flex flex-col gap-8">
       <SettingsGroup>
-        <PictureRow name={user.name} image={user.image ?? null} />
+        <ProfilePictureRow name={user.name} image={user.image ?? null} />
         <SettingsRow id="settings-email" title="Email">
           <span
             aria-labelledby={rowLabel("settings-email")}

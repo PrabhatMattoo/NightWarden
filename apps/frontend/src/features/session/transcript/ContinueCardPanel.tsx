@@ -1,4 +1,4 @@
-import { Button } from "@/shared/ui/button";
+import { DecisionButton } from "./DecisionButton.js";
 import type { ContinueCardItem } from "./types.js";
 import { GateCard } from "./GateCard.js";
 
@@ -25,21 +25,21 @@ export function ContinueCardPanel({
         </p>
       ) : (
         <div className="flex gap-2">
-          <Button
+          <DecisionButton
             size="sm"
             disabled={submitting}
             onClick={() => onResolve?.("approve")}
           >
             Continue
-          </Button>
-          <Button
+          </DecisionButton>
+          <DecisionButton
             size="sm"
             variant="secondary"
             disabled={submitting}
             onClick={() => onResolve?.("reject")}
           >
             Cancel
-          </Button>
+          </DecisionButton>
         </div>
       )}
     </GateCard>

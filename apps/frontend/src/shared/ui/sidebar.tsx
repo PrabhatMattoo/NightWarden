@@ -336,18 +336,20 @@ function SidebarMenuButton({
   );
 }
 
-/* A row that only shows something: no hover, and a 24px mark centred where an
-   icon sits. Room is kept for its action while the rail is open. */
-function SidebarMenuStatic({
+/* A row that opens a menu from anywhere along it. It takes no fill of its own:
+   its trailing mark answers the pointer, and stays lit while the menu is open. */
+function SidebarMenuTrigger({
   className,
   ...props
-}: React.ComponentProps<"div">) {
+}: React.ComponentProps<"button">) {
   return (
-    <div
-      data-slot="sidebar-menu-static"
+    <button
+      type="button"
+      data-slot="sidebar-menu-trigger"
       className={cn(
+        "group/row",
         ROW_GEOMETRY,
-        "px-1 text-ink-base group-has-data-[slot=sidebar-menu-action]/menu-item:pe-8 group-data-[collapsible=icon]:pe-1",
+        "px-1 text-ink-base group-data-[collapsible=icon]:pe-1",
         className,
       )}
       {...props}
@@ -355,17 +357,16 @@ function SidebarMenuStatic({
   );
 }
 
-// A second action at a row's end; the collapsed rail has no room for it.
-function SidebarMenuAction({
+function SidebarMenuTriggerMark({
   className,
   ...props
-}: React.ComponentProps<"button">) {
+}: React.ComponentProps<"span">) {
   return (
-    <button
-      type="button"
-      data-slot="sidebar-menu-action"
+    <span
+      aria-hidden
+      data-slot="sidebar-menu-trigger-mark"
       className={cn(
-        "absolute inset-y-0 end-1 my-auto flex size-6 items-center justify-center rounded-control text-ink-muted highlight-motion hover:bg-ghost-hover hover:text-ink-title group-data-[collapsible=icon]:hidden [&>svg]:size-4 [&>svg]:shrink-0",
+        "ms-auto flex size-6 shrink-0 items-center justify-center rounded-full bg-control text-ink-muted highlight-motion group-hover/row:bg-control-hover group-hover/row:text-ink-title group-aria-expanded/row:bg-control-hover group-aria-expanded/row:text-ink-title group-data-[collapsible=icon]:hidden [&>svg]:size-4",
         className,
       )}
       {...props}
@@ -400,11 +401,11 @@ export {
   SidebarHeader,
   SidebarInset,
   SidebarMenu,
-  SidebarMenuAction,
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarMenuLabel,
-  SidebarMenuStatic,
+  SidebarMenuTrigger,
+  SidebarMenuTriggerMark,
   SidebarProvider,
   SidebarTrigger,
   useSidebar,

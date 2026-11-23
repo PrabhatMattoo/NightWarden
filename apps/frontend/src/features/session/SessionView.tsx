@@ -24,6 +24,7 @@ import { cn } from "@/shared/lib/utils";
 import { toast } from "@/shared/lib/toast";
 import { newClientId } from "@/shared/lib/clientId";
 import { useFrontendEvents } from "@/shared/events/FrontendEventsProvider";
+import { useCan } from "@/features/auth/useCan";
 import { useSession } from "@/features/session/useSession";
 import { prependSession } from "@/features/session/useSessions";
 import { sessionQuery } from "@/features/session/queries";
@@ -214,6 +215,8 @@ export function SessionView({
     waiting: boolean;
   } | null>(null);
   const queryClient = useQueryClient();
+  const canRun = useCan({ session: ["run"] });
+  const canApprove = useCan({ session: ["approve"] });
 
   const session = useSession(activeSessionId);
 
@@ -413,11 +416,13 @@ export function SessionView({
 
   const handleAnswer = useCallback(
     (toolCallId: string, answer: string | string[]) => {
+      // The card's number and Enter keys reach this without a button to refuse them.
+      if (!canApprove) return;
       const text = Array.isArray(answer) ? answer.join(", ") : answer;
       setIsRunning(true);
       respond.mutate({ toolCallId, body: { text } });
     },
-    [respond],
+    [respond, canApprove],
   );
 
   useFrontendEvents(handleEnvelope);
@@ -530,14 +535,16 @@ export function SessionView({
           </div>
         )}
 
-        <ScrollToEndChatInput
-          sessionId={activeSessionId}
-          isRunning={isRunning}
-          reopenable={session?.reopenable ?? false}
-          onSessionCreated={handleSessionCreated}
-          onSend={handleSend}
-          onSendFailed={handleSendFailed}
-        />
+        {canRun && (
+          <ScrollToEndChatInput
+            sessionId={activeSessionId}
+            isRunning={isRunning}
+            reopenable={session?.reopenable ?? false}
+            onSessionCreated={handleSessionCreated}
+            onSend={handleSend}
+            onSendFailed={handleSendFailed}
+          />
+        )}
 
         {/* Half the room below the composer until a message is sent, which puts
             it in the middle; sending closes it without waiting on the server. */}

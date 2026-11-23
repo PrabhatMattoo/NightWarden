@@ -32,12 +32,15 @@ import {
   SettingsGroup,
   SettingsRow,
 } from "@/features/settings/SettingsRow";
+import { useCan } from "@/features/auth/useCan";
 import {
+  AdminsConnect,
   ConnectionActions,
   CredentialActions,
   credentialState,
   IntegrationPage,
   metaFacts,
+  ValueRow,
 } from "../IntegrationPage";
 import { useDisconnect, useTestConnection } from "../useIntegration";
 import {
@@ -238,7 +241,7 @@ function RepoCombobox({
   );
 }
 
-export function GitHubConnectPage(): React.JSX.Element {
+function GitHubManagePage(): React.JSX.Element {
   const queryClient = useQueryClient();
   const { data: status } = useSuspenseQuery(githubStatusQuery());
   const { data: preflight } = useSuspenseQuery(githubPreflightQuery());
@@ -584,5 +587,36 @@ export function GitHubConnectPage(): React.JSX.Element {
         }
       />
     </IntegrationPage>
+  );
+}
+
+// A member sees which repository investigations use, and nothing to change it with.
+function GitHubSummaryPage(): React.JSX.Element {
+  const { data: status } = useSuspenseQuery(githubStatusQuery());
+  return (
+    <IntegrationPage
+      identity={INTEGRATION_CATALOG.github}
+      facts={metaFacts(INTEGRATION_CATALOG.github)}
+      state={credentialState(status.configured, status.rejection)}
+      rejection={status.rejection}
+    >
+      {status.configured ? (
+        <SettingsGroup title="Repository">
+          <ValueRow id="github-repo" title="Repository">
+            {status.repo}
+          </ValueRow>
+        </SettingsGroup>
+      ) : (
+        <AdminsConnect />
+      )}
+    </IntegrationPage>
+  );
+}
+
+export function GitHubConnectPage(): React.JSX.Element {
+  return useCan({ integration: ["manage"] }) ? (
+    <GitHubManagePage />
+  ) : (
+    <GitHubSummaryPage />
   );
 }

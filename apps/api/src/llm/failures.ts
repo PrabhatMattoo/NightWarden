@@ -114,7 +114,7 @@ export function describeLLMError(err: unknown, maxRetries: number): string {
     return `The provider behind this model returned nothing usable, which means it is having an outage rather than anything being wrong with your setup. Try another model in Settings, or wait for it to recover${detail}.`;
   }
   if (status === 401 || status === 403) {
-    return `The provider rejected the API key. Check the key under Settings, Provider${detail}.`;
+    return `The provider rejected the API key. Check the key under Settings, Model provider${detail}.`;
   }
   if (status === 402) {
     return `The provider account is out of credits. Top up, or pick a model that costs less, in Settings${detail}.`;
@@ -125,10 +125,10 @@ export function describeLLMError(err: unknown, maxRetries: number): string {
   // Checked before the generic 400 it arrives as: the user changed nothing,
   // so naming their model and reasoning level points at the wrong screen.
   if (isContextOverflow(failure)) {
-    return `This conversation grew past the model's context window, so the provider refused it. Continuing this session would hit the same limit: start a new one, or pick a model with a larger context window under Settings, Provider${detail}.`;
+    return `This conversation grew past the model's context window, so the provider refused it. Continuing this session would hit the same limit: start a new one, or pick a model with a larger context window under Settings, Model provider${detail}.`;
   }
   if (status === 400) {
-    return `The provider rejected the request as malformed. If you have just changed the model or its reasoning level, check them under Settings, Provider${detail}.`;
+    return `The provider rejected the request as malformed. If you have just changed the model or its reasoning level, check them under Settings, Model provider${detail}.`;
   }
   if (status === 429) {
     return `The provider rate-limited the request, or a quota on the chosen model ran out. NightWarden tried ${attempts} times before giving up; this usually clears on its own${detail}.`;
